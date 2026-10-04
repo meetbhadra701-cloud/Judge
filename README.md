@@ -46,6 +46,17 @@ pnpm --filter @judge-copilot/worker dev   # idle worker
 pnpm --filter @judge-copilot/web dev      # Event Context UI on http://localhost:3000
 ```
 
+### Continuous integration
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`.
+Both jobs must pass:
+
+- **Quality** runs `pnpm check` after a frozen-lockfile install.
+- **PostgreSQL 16** runs `pnpm test` against a disposable PostgreSQL 16 service
+  (`TEST_DATABASE_URL=…/judge_copilot_test`).
+
+CI uses a read-only token and no secrets.
+
 ### Running the Event Context workflow locally
 
 ```sh

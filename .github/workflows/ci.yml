@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Read-only token: CI never writes to the repository.
+permissions:
+  contents: read
+
+# Cancel superseded runs for the same pull request or branch.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Matches the version used for local verification; satisfies engines.node >=22.12.0.
+  NODE_VERSION: 22.22.0
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Reads the pnpm version from package.json "packageManager" (pnpm@10.28.0).
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Format check, lint, typecheck, migration check, tests (PGlite) and build.
+      - name: pnpm check
+        run: pnpm check
+
+  postgres:
+    name: PostgreSQL 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        # Synthetic, CI-only credentials for a disposable database.
+        env:
+          POSTGRES_USER: judge
+          POSTGRES_PASSWORD: judge
+          POSTGRES_DB: judge_copilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U judge -d judge_copilot_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Runs the full suite, with database-backed tests additionally against real PostgreSQL 16.
+      # The database name must end in "_test" (enforced by the test harness).
+      - name: Test against PostgreSQL 16
+        env:
+          TEST_DATABASE_URL: postgres://judge:judge@127.0.0.1:5432/judge_copilot_test
+        run: pnpm test
