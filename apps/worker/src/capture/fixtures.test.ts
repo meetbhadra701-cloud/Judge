@@ -6,7 +6,7 @@ import {
   type JudgeDatabase,
 } from '@judge-copilot/database';
 import { fixtureCommitSha } from '@judge-copilot/github';
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   captureSetup,
@@ -32,7 +32,7 @@ async function snapshotState(db: JudgeDatabase, snapshotId: string) {
     .select()
     .from(sourceSnapshotArtifacts)
     .where(eq(sourceSnapshotArtifacts.snapshotId, snapshotId))
-    .orderBy(asc(sourceSnapshotArtifacts.artifactKey));
+    .orderBy(sql`${sourceSnapshotArtifacts.artifactKey} COLLATE "C"`);
   const [run] = await db
     .select()
     .from(analysisRuns)

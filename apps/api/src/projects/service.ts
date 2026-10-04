@@ -28,7 +28,7 @@ import {
   type SnapshotDetail,
   type SnapshotSummary,
 } from '@judge-copilot/schemas';
-import { and, asc, count, desc, eq, inArray, max, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, max, sql, sum } from 'drizzle-orm';
 import { SourceIngestionError } from './errors.js';
 import {
   toArtifactSummary,
@@ -362,7 +362,8 @@ export class ProjectService {
       })
       .from(sourceSnapshotArtifacts)
       .where(eq(sourceSnapshotArtifacts.snapshotId, snapshotId))
-      .orderBy(asc(sourceSnapshotArtifacts.artifactKey));
+      // Byte order (`COLLATE "C"`), so the listing is identical whatever the database locale.
+      .orderBy(sql`${sourceSnapshotArtifacts.artifactKey} COLLATE "C"`);
     const [run] = await this.db
       .select()
       .from(analysisRuns)
