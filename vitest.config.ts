@@ -11,6 +11,8 @@ export default defineConfig({
     include: ['packages/*/src/**/*.test.ts', 'apps/*/src/**/*.test.ts', 'tests/**/*.test.ts'],
     setupFiles: ['./tests/support/no-network.mjs'],
     environment: 'node',
+    // Real-PostgreSQL runs share one disposable database that each file rebuilds, so files must not overlap.
+    fileParallelism: !process.env['TEST_DATABASE_URL'],
     testTimeout: 30_000,
     hookTimeout: 60_000,
   },

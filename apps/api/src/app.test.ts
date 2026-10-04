@@ -47,7 +47,23 @@ describe('api environment', () => {
       LOG_LEVEL: 'info',
       API_HOST: '127.0.0.1',
       API_PORT: 3001,
+      EVENT_CONTEXT_EXTRACTOR: 'none',
     });
+  });
+
+  it('never enables the replay extractor implicitly, and refuses it in production', () => {
+    expect(ApiEnv.safeParse({ EVENT_CONTEXT_EXTRACTOR: 'replay' }).success).toBe(false);
+    expect(
+      ApiEnv.safeParse({ EVENT_CONTEXT_EXTRACTOR: 'replay', EVENT_CONTEXT_REPLAY_DIR: '/fixtures' })
+        .success,
+    ).toBe(true);
+    expect(
+      ApiEnv.safeParse({
+        NODE_ENV: 'production',
+        EVENT_CONTEXT_EXTRACTOR: 'replay',
+        EVENT_CONTEXT_REPLAY_DIR: '/fixtures',
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects an out-of-range port', () => {

@@ -24,6 +24,12 @@
    human-reviewed Event Context version.
 4. No event-specific logic (for example for a particular named hackathon) is ever hard-coded.
    Event specifics live in Event Context data.
+5. **Official weights are validated, never repaired (implemented in M1).** A weighted official
+   rubric must have a weight in (0, 1] on every criterion, summing to 1 within an absolute
+   tolerance of `1e-6` (`RUBRIC_WEIGHT_SUM_TOLERANCE`). Otherwise the context cannot lock
+   (`INVALID_RUBRIC_WEIGHTS`), and the weights are not normalized. An official rubric without
+   weights stays unweighted (`weight: null`). M1 never invents equal weights; how an unweighted
+   rubric is aggregated is a scoring-engine decision (M4).
 
 ## 3. Universal fallback rubric
 

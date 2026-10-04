@@ -1,0 +1,86 @@
+{
+  "name": "fixture-c-conflicting-authority",
+  "description": "Synthetic. The official rules allow pre-existing code; a lower-authority judge note says projects should be new. The official rule wins and the conflict stays visible.",
+  "event": { "name": "Synthetic Builders Weekend", "slug": "synthetic-builders-weekend" },
+  "sources": [
+    {
+      "ref": "rules",
+      "sourceType": "url_text",
+      "authority": "official_event_rules",
+      "title": "Official rules page (synthetic)",
+      "url": "https://events.example.org/builders/rules",
+      "normalizedText": "SYNTHETIC BUILDERS WEEKEND — OFFICIAL RULES\nThe event runs 2031-06-07 10:00 UTC to 2031-06-08 16:00 UTC.\nPre-existing code is allowed. Teams should describe what they built during the event.\nJudging uses short stage presentations of three minutes per team."
+    },
+    {
+      "ref": "judge_note",
+      "sourceType": "pasted_text",
+      "authority": "judge_context",
+      "title": "Judge briefing note (synthetic)",
+      "url": null,
+      "normalizedText": "Note for judges: projects are usually expected to be entirely new work started at the event."
+    }
+  ],
+  "extraction": {
+    "dates": {
+      "startsAt": {
+        "statement": "The event starts 2031-06-07 at 10:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-06-07T10:00:00Z"
+      },
+      "endsAt": {
+        "statement": "The event ends 2031-06-08 at 16:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-06-08T16:00:00Z"
+      },
+      "judgingStartsAt": {
+        "statement": "No judging start time is stated.",
+        "certainty": "unclear",
+        "sourceIds": [],
+        "value": null
+      },
+      "submissionDeadline": {
+        "statement": "No submission deadline is stated.",
+        "certainty": "unclear",
+        "sourceIds": [],
+        "value": null
+      }
+    },
+    "judgingFormat": {
+      "statement": "Stage presentations of three minutes per team.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"]
+    },
+    "rules": [
+      {
+        "statement": "Teams should describe what they built during the event.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"]
+      }
+    ],
+    "submissionRequirements": [],
+    "priorWorkPolicy": {
+      "statement": "Pre-existing code is allowed.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"],
+      "stance": "allowed"
+    },
+    "organizerGuidance": [],
+    "tracks": [],
+    "rubrics": [],
+    "conflicts": [
+      {
+        "topic": "Prior work",
+        "description": "The official rules allow pre-existing code, but the judge note expects entirely new work.",
+        "positions": [
+          { "sourceId": "rules", "statement": "Pre-existing code is allowed." },
+          {
+            "sourceId": "judge_note",
+            "statement": "Projects are usually expected to be entirely new work started at the event."
+          }
+        ]
+      }
+    ]
+  }
+}

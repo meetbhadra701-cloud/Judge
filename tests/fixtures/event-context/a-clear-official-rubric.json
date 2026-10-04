@@ -1,0 +1,146 @@
+{
+  "name": "fixture-a-clear-official-rubric",
+  "description": "Synthetic. Explicit dates, a weighted official rubric, a clear prior-work policy and one track.",
+  "event": { "name": "Synthetic Spring Hackathon", "slug": "synthetic-spring-hackathon" },
+  "sources": [
+    {
+      "ref": "rules",
+      "sourceType": "pasted_text",
+      "authority": "official_event_rules",
+      "title": "Official rules (synthetic)",
+      "url": "https://events.example.org/spring/rules",
+      "normalizedText": "SYNTHETIC SPRING HACKATHON — OFFICIAL RULES\nHacking starts Saturday 2031-04-12 at 09:00 UTC and ends Sunday 2031-04-13 at 12:00 UTC.\nSubmissions are due Sunday 2031-04-13 at 10:00 UTC. Judging starts at 13:00 UTC.\nJudging is an in-person expo: each team presents a live demo for five minutes.\nTeams have at most four members.\nOpen-source libraries and personal code written before the event are allowed if they are disclosed in the submission.\nEach submission must include a project page, a public repository link and a two-minute video."
+    },
+    {
+      "ref": "rubric",
+      "sourceType": "pasted_text",
+      "authority": "official_judging_rubric",
+      "title": "Official judging rubric (synthetic)",
+      "url": null,
+      "normalizedText": "JUDGING RUBRIC — every criterion is scored from 1 to 5.\nTechnical complexity (40%): 1 = minimal implementation, 5 = deep, well-integrated system.\nUsefulness (30%): 1 = unclear problem, 5 = clear problem convincingly solved.\nDesign (30%): 1 = hard to use, 5 = polished and intuitive."
+    },
+    {
+      "ref": "track",
+      "sourceType": "pasted_text",
+      "authority": "official_track_rules",
+      "title": "Sustainability track rules (synthetic)",
+      "url": null,
+      "normalizedText": "SUSTAINABILITY TRACK — projects must address a measurable environmental impact and must use at least one public environmental dataset."
+    }
+  ],
+  "extraction": {
+    "dates": {
+      "startsAt": {
+        "statement": "Hacking starts Saturday 2031-04-12 at 09:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-04-12T09:00:00Z"
+      },
+      "endsAt": {
+        "statement": "Hacking ends Sunday 2031-04-13 at 12:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-04-13T12:00:00Z"
+      },
+      "judgingStartsAt": {
+        "statement": "Judging starts at 13:00 UTC on Sunday.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-04-13T13:00:00Z"
+      },
+      "submissionDeadline": {
+        "statement": "Submissions are due Sunday 2031-04-13 at 10:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-04-13T10:00:00Z"
+      }
+    },
+    "judgingFormat": {
+      "statement": "In-person expo with a five-minute live demo per team.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"]
+    },
+    "rules": [
+      {
+        "statement": "Teams have at most four members.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"]
+      }
+    ],
+    "submissionRequirements": [
+      {
+        "statement": "Submit a project page, a public repository link and a two-minute video.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "trackKey": null
+      },
+      {
+        "statement": "Use at least one public environmental dataset.",
+        "certainty": "explicit",
+        "sourceIds": ["track"],
+        "trackKey": "sustainability"
+      }
+    ],
+    "priorWorkPolicy": {
+      "statement": "Open-source libraries and pre-event personal code are allowed if disclosed.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"],
+      "stance": "allowed_with_disclosure"
+    },
+    "organizerGuidance": [],
+    "tracks": [
+      {
+        "key": "sustainability",
+        "name": "Sustainability",
+        "description": "Projects that address a measurable environmental impact.",
+        "sourceIds": ["track"]
+      }
+    ],
+    "rubrics": [
+      {
+        "scope": "overall",
+        "trackKey": null,
+        "name": "Official judging rubric",
+        "scaleMin": 1,
+        "scaleMax": 5,
+        "sourceIds": ["rubric"],
+        "criteria": [
+          {
+            "key": "technical_complexity",
+            "name": "Technical complexity",
+            "description": "Depth and integration of the implementation.",
+            "weight": 0.4,
+            "sourceIds": ["rubric"],
+            "anchors": [
+              { "score": 1, "description": "Minimal implementation." },
+              { "score": 5, "description": "Deep, well-integrated system." }
+            ]
+          },
+          {
+            "key": "usefulness",
+            "name": "Usefulness",
+            "description": "How convincingly a clear problem is solved.",
+            "weight": 0.3,
+            "sourceIds": ["rubric"],
+            "anchors": [
+              { "score": 1, "description": "Unclear problem." },
+              { "score": 5, "description": "Clear problem convincingly solved." }
+            ]
+          },
+          {
+            "key": "design",
+            "name": "Design",
+            "description": "Usability and polish.",
+            "weight": 0.3,
+            "sourceIds": ["rubric"],
+            "anchors": [
+              { "score": 1, "description": "Hard to use." },
+              { "score": 5, "description": "Polished and intuitive." }
+            ]
+          }
+        ]
+      }
+    ],
+    "conflicts": []
+  }
+}

@@ -1,8 +1,9 @@
 # Judge Copilot — AI Pipeline
 
-> **Status:** Specification only. No model or provider calls exist in M0. The `llm` and
-> `prompts` packages are README-only placeholders. Model-backed stages begin in M1 (Event
-> Context extraction) and M5 (pre-interview assessment).
+> **Status:** No model or provider calls exist (M0–M1). The `llm` and `prompts` packages are
+> README-only placeholders. M1 implemented stage 1's **port** (`EventContextExtractor`) and its
+> full schema → domain validation path, exercised by a deterministic replay extractor. The first
+> model-backed implementation arrives no earlier than M5 (see §11).
 
 ---
 
@@ -10,7 +11,7 @@
 
 | #   | Stage                                              | Model?                                                            | Deterministic responsibilities                                       |
 | --- | -------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 1   | Event Context extraction (M1)                      | **yes**: structure official documents into a draft                | validate structure, weights sum, human review gate, lock and version |
+| 1   | Event Context extraction (port in M1; model later) | **yes** (future): structure official documents into a draft       | validate structure, weights sum, human review gate, lock and version |
 | 2   | Source snapshot capture (M2)                       | no                                                                | URL policy, fetch limits, hashing, immutability, status              |
 | 3   | Claim extraction (M3/M5)                           | **yes**: atomic claims from snapshots                             | ID assignment, provenance to snapshot spans, validation              |
 | 4   | Evidence interpretation and claim matching (M3/M5) | **yes**                                                           | relation types, ID integrity, verification level rules               |
@@ -130,3 +131,34 @@ failure, outage) must **never** produce a fabricated score (invariant 22):
 - the judge sees that the assessment is unavailable and why, and can still judge manually;
 - "insufficient evidence" is a **valid assessment outcome**, not a failure. It means the
   pipeline worked and honestly could not assess.
+
+## 11. Event Context extraction port (implemented in M1)
+
+`EventContextExtractor` (`@judge-copilot/context`) is the boundary for stage 1:
+
+```ts
+interface EventContextExtractor {
+  readonly name: string;
+  extract(input: { eventName: string; sources: ExtractorSource[] }): Promise<unknown>;
+}
+```
+
+- The result is typed `unknown` on purpose. The build operation parses it with
+  `EventContextExtraction` (Zod), which also **rejects any `id`** the extractor supplies and any
+  attempt to resolve conflicts on a human's behalf (invariant 20). `documentFromExtraction` then
+  domain-validates it: every cited source belongs to the version, no non-`unclear` fact lacks a
+  source, rubric structure is sound, and conflicts are resolved by authority in code.
+- Each build is an `analysis_runs` row (`run_type = event_context_build`). An extractor
+  exception is recorded as `provider_error`, a shape failure as `schema_validation_failed`, and a
+  semantic failure as `domain_validation_failed`. All of them leave the previous draft unchanged
+  (invariant 22).
+- Extractors only _propose_ facts and conflicting positions. Precedence, IDs, provenance
+  bookkeeping, validation and locking are deterministic.
+- **M1 ships no semantic extractor.** By default (`EVENT_CONTEXT_EXTRACTOR=none`) the build route
+  returns `503 EXTRACTOR_NOT_CONFIGURED` and drafts are authored by hand. The **replay extractor**
+  (`EVENT_CONTEXT_EXTRACTOR=replay`, refused when `NODE_ENV=production`) returns recorded
+  extractions only when the sources exactly match a recording's (authority + SHA-256). It powers
+  tests and local demos and performs no analysis of text.
+- A future model-backed extractor implements the same port behind `packages/llm`, with a
+  versioned prompt in `packages/prompts` that keeps instructions separate from untrusted source
+  text.

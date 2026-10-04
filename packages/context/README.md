@@ -1,18 +1,17 @@
-# packages/context — Event Context (not yet implemented)
+# @judge-copilot/context
 
-**Milestone:** M1 · **Layer:** 2 (deterministic core — no I/O, no model calls)
+**Layer 2 (deterministic core).** Event Context Pack domain rules. No I/O, no database, no model
+calls; persistence and HTTP live in `apps/api`.
 
-Future responsibility:
-
-- the Event Context Pack data model: official rules, official rubric (criteria, weights,
-  dimension mapping), prize/track requirements, sponsor requirements, judging format, event
-  dates, allowed prior work, organizer guidance;
-- structural validation (for example rubric weights must sum to 100%);
-- lifecycle rules for `draft → in_review → locked → superseded`, including "official assessment
-  requires a locked version" (invariant 18);
-- the universal fallback rubric as _data_, used only when no official rubric exists.
-
-AI-assisted extraction of a draft from official documents is orchestrated by the worker using
-`llm` + `prompts`. This package validates the result and never calls a model itself.
-
-This directory is intentionally not a workspace package until M1. See `docs/V1_CONTRACT.md`.
+- `authority.ts` — explicit source-authority precedence table (not array order).
+- `hash.ts` — source text normalization, SHA-256 content hashes, canonical JSON and the locked
+  content hash.
+- `conflicts.ts` — deterministic authority-based conflict resolution that keeps every position.
+- `document.ts` — builds reviewed documents from extractions and applies human edits while
+  preserving source provenance.
+- `validation.ts` — structural (draft) and lock-time validation, including rubric weights
+  (sum = 1 within `RUBRIC_WEIGHT_SUM_TOLERANCE`).
+- `extractor.ts` — the `EventContextExtractor` port; its output is untrusted (`unknown`) and is
+  schema- then domain-validated by callers.
+- `replay-extractor.ts` — exact-match replay of recorded extractions for tests and local demos.
+  It performs no semantic analysis.

@@ -1,0 +1,172 @@
+{
+  "name": "fixture-e-multiple-tracks",
+  "description": "Synthetic. An overall rubric plus two tracks with their own requirements; one track has its own rubric.",
+  "event": { "name": "Synthetic Civic Hack", "slug": "synthetic-civic-hack" },
+  "sources": [
+    {
+      "ref": "rules",
+      "sourceType": "pasted_text",
+      "authority": "official_event_rules",
+      "title": "Official rules (synthetic)",
+      "url": null,
+      "normalizedText": "SYNTHETIC CIVIC HACK — RULES\nThe hack runs 2031-09-20 08:00 UTC to 2031-09-21 18:00 UTC. Existing code may be used if it is clearly identified. Judging is an expo with four minutes per team."
+    },
+    {
+      "ref": "rubric",
+      "sourceType": "pasted_text",
+      "authority": "official_judging_rubric",
+      "title": "Overall rubric (synthetic)",
+      "url": null,
+      "normalizedText": "Overall rubric, scored 1-5: Civic impact 50%, Execution 50%."
+    },
+    {
+      "ref": "health_track",
+      "sourceType": "pasted_text",
+      "authority": "official_track_rules",
+      "title": "Health track (synthetic)",
+      "url": null,
+      "normalizedText": "HEALTH TRACK — projects must not collect real patient data. Track rubric, scored 1-5: Safety 60%, Accessibility 40%."
+    },
+    {
+      "ref": "education_track",
+      "sourceType": "pasted_text",
+      "authority": "official_track_rules",
+      "title": "Education track (synthetic)",
+      "url": null,
+      "normalizedText": "EDUCATION TRACK — projects must be usable by learners aged 12 and over."
+    },
+    {
+      "ref": "organizer",
+      "sourceType": "pasted_text",
+      "authority": "organizer_guidance",
+      "title": "Organizer guidance (synthetic)",
+      "url": null,
+      "normalizedText": "Organizers encourage teams to talk to local community groups before building."
+    }
+  ],
+  "extraction": {
+    "dates": {
+      "startsAt": {
+        "statement": "The hack starts 2031-09-20 at 08:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-09-20T08:00:00Z"
+      },
+      "endsAt": {
+        "statement": "The hack ends 2031-09-21 at 18:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-09-21T18:00:00Z"
+      },
+      "judgingStartsAt": {
+        "statement": "No judging start time is stated.",
+        "certainty": "unclear",
+        "sourceIds": [],
+        "value": null
+      },
+      "submissionDeadline": {
+        "statement": "No submission deadline is stated.",
+        "certainty": "unclear",
+        "sourceIds": [],
+        "value": null
+      }
+    },
+    "judgingFormat": {
+      "statement": "Expo with four minutes per team.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"]
+    },
+    "rules": [],
+    "submissionRequirements": [
+      {
+        "statement": "Health projects must not collect real patient data.",
+        "certainty": "explicit",
+        "sourceIds": ["health_track"],
+        "trackKey": "health"
+      },
+      {
+        "statement": "Education projects must be usable by learners aged 12 and over.",
+        "certainty": "explicit",
+        "sourceIds": ["education_track"],
+        "trackKey": "education"
+      }
+    ],
+    "priorWorkPolicy": {
+      "statement": "Existing code may be used if it is clearly identified.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"],
+      "stance": "allowed_with_disclosure"
+    },
+    "organizerGuidance": [
+      {
+        "statement": "Teams are encouraged to talk to local community groups before building.",
+        "certainty": "explicit",
+        "sourceIds": ["organizer"]
+      }
+    ],
+    "tracks": [
+      { "key": "health", "name": "Health", "description": null, "sourceIds": ["health_track"] },
+      {
+        "key": "education",
+        "name": "Education",
+        "description": null,
+        "sourceIds": ["education_track"]
+      }
+    ],
+    "rubrics": [
+      {
+        "scope": "overall",
+        "trackKey": null,
+        "name": "Overall rubric",
+        "scaleMin": 1,
+        "scaleMax": 5,
+        "sourceIds": ["rubric"],
+        "criteria": [
+          {
+            "key": "civic_impact",
+            "name": "Civic impact",
+            "description": "Benefit to the community.",
+            "weight": 0.5,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          },
+          {
+            "key": "execution",
+            "name": "Execution",
+            "description": "Quality of the build.",
+            "weight": 0.5,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          }
+        ]
+      },
+      {
+        "scope": "track",
+        "trackKey": "health",
+        "name": "Health track rubric",
+        "scaleMin": 1,
+        "scaleMax": 5,
+        "sourceIds": ["health_track"],
+        "criteria": [
+          {
+            "key": "safety",
+            "name": "Safety",
+            "description": "Handling of health risks and data.",
+            "weight": 0.6,
+            "sourceIds": ["health_track"],
+            "anchors": []
+          },
+          {
+            "key": "accessibility",
+            "name": "Accessibility",
+            "description": "Usable by people with diverse needs.",
+            "weight": 0.4,
+            "sourceIds": ["health_track"],
+            "anchors": []
+          }
+        ]
+      }
+    ],
+    "conflicts": []
+  }
+}

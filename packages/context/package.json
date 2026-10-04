@@ -1,0 +1,25 @@
+{
+  "name": "@judge-copilot/context",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Event Context domain rules: source authority, hashing, provenance, conflicts, lock validation, extraction port. Layer 2 (deterministic core): no I/O, no model calls.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/schemas": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

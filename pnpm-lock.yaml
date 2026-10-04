@@ -41,18 +41,49 @@ importers:
 
   apps/api:
     dependencies:
+      '@judge-copilot/audit':
+        specifier: workspace:*
+        version: link:../../packages/audit
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../../packages/context
+      '@judge-copilot/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@judge-copilot/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@judge-copilot/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       '@judge-copilot/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      drizzle-orm:
+        specifier: ^0.45.3
+        version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
       zod:
         specifier: ^4.6.5
         version: 4.6.5
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.8
+        version: 0.5.8
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
 
   apps/web:
     dependencies:
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../../packages/context
+      '@judge-copilot/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       next:
         specifier: 16.3.8
         version: 16.3.8(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -77,6 +108,15 @@ importers:
         version: link:../../packages/shared
 
   packages/audit:
+    dependencies:
+      '@judge-copilot/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
+  packages/context:
     dependencies:
       '@judge-copilot/schemas':
         specifier: workspace:*

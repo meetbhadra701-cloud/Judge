@@ -1,7 +1,8 @@
 # Judge Copilot — Architecture
 
-> **Status:** Milestone 0 (foundation). Most of the pipeline described here is intentionally
-> **not implemented yet**. This document specifies the target architecture so that every
+> **Status:** Milestone 1 (Event Context Pack) on top of the M0 foundation. Everything after
+> Event Context (ingestion, evidence, scoring, questions, interview, reassessment) is
+> intentionally **not implemented yet**. This document specifies the target architecture so that every
 > milestone builds toward it. It is binding on human and AI contributors.
 
 ---
@@ -115,7 +116,7 @@ The human judge's final score is authoritative. AI output is decision support.
 
 | Artifact                                                 | Produced by                                   | Mutability                                                   |
 | -------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
-| `EventContextVersion`                                    | humans (+ AI drafting in M1)                  | editable while `draft`/`in_review`; **frozen** once `locked` |
+| `EventContextVersion`                                    | humans (+ extractor drafting via a port, M1)  | editable while `draft`/`in_review`; **frozen** once `locked` |
 | `SourceSnapshot`                                         | ingestion (deterministic)                     | immutable once terminal                                      |
 | `Claim`                                                  | LLM extraction / team answers                 | immutable; new versions supersede                            |
 | `EvidenceItem`                                           | LLM extraction, judge observation             | immutable                                                    |
@@ -219,7 +220,7 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 24. More evidence may increase confidence without increasing the quality score.
 25. The system must never automatically accuse a team of cheating.
 
-### How M0 already encodes some invariants
+### How M0/M1 already encode some invariants
 
 | Invariant                 | M0 mechanism                                                                                                                                                                                                          |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -230,6 +231,11 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 | 13                        | `Ratio` is documented as a closed interval, not a probability                                                                                                                                                         |
 | Secrets (SECURITY.md)     | logger redacts secret-bearing keys and serializes errors through an allow-list                                                                                                                                        |
 | Dependency direction      | `tests/integration/dependency-rules.test.ts`                                                                                                                                                                          |
+| 1 (official context wins) | M1: explicit source-authority precedence; conflicts are resolved by authority in deterministic code, a human may only choose between tied top-authority positions, and losing positions are kept                      |
+| 3, 14 (unclear ≠ guessed) | M1: every Event Context fact carries `certainty`; `unclear` facts need no source, may be locked, and are listed as unresolved; unweighted official rubrics stay unweighted                                            |
+| 10, 17, 18 (frozen)       | M1: triggers freeze locked/superseded versions and their sources, tracks, rubrics, criteria and anchors; lock stores a SHA-256 content hash that later reads recompute (`integrity: verified`)                        |
+| 19, 20 (validated output) | M1: extractor output is `unknown` → Zod (`EventContextExtraction`, which forbids IDs) → domain validation; code assigns all IDs; DB triggers reject provenance references to sources of another version               |
+| 22 (no fabrication)       | M1: a failed build records a `failed` analysis run with a sanitized category and leaves the previous draft untouched                                                                                                  |
 
 ---
 
@@ -238,16 +244,16 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 ```
 judge-copilot/
 ├── apps/
-│   ├── web/        Next.js UI (M0: placeholder page only)
-│   ├── api/        Fastify HTTP API (M0: GET /health)
-│   └── worker/     background pipeline runner (M0: boots/stops, no jobs)
+│   ├── web/        Next.js UI (M1: Event Context setup, review and lock views)
+│   ├── api/        Fastify HTTP API (GET /health + M1 Event Context routes)
+│   └── worker/     background pipeline runner (boots/stops, no jobs yet)
 ├── packages/
 │   ├── shared/     env validation, structured logger, shutdown handling        [implemented]
 │   ├── schemas/    foundational Zod schemas and vocabularies                   [implemented]
 │   ├── domain/     domain types + lifecycle classifications                    [implemented]
 │   ├── audit/      append-only audit event contract (AuditSink port)           [implemented]
 │   ├── database/   Drizzle schema, migrations, persistence adapters            [implemented]
-│   ├── context/    Event Context rules and locking                             [M1, README only]
+│   ├── context/    Event Context domain rules + extraction port                [implemented, M1]
 │   ├── evidence/   claims, evidence graph, relations, contradictions, unknowns [M3, README only]
 │   ├── scoring/    deterministic score engine                                  [M4, README only]
 │   ├── uncertainty/ coverage, confidence, uncertainty analysis                 [M6, README only]
@@ -255,8 +261,8 @@ judge-copilot/
 │   ├── github/     read-only GitHub snapshot adapter                           [M2, README only]
 │   ├── devpost/    Devpost snapshot adapter                                    [M2, README only]
 │   ├── browser/    sandboxed deployment inspection adapter                     [M2+, README only]
-│   ├── llm/        model/provider abstraction                                  [M1/M5, README only]
-│   └── prompts/    versioned prompt templates                                  [M1/M5, README only]
+│   ├── llm/        model/provider abstraction                                  [M5, README only]
+│   └── prompts/    versioned prompt templates                                  [M5, README only]
 ├── tests/
 │   ├── support/    test-only helpers (network guard)
 │   ├── integration/ cross-package tests (dependency rules, process boot)
@@ -329,25 +335,33 @@ shared   → (none)
 schemas  → (none)
 domain   → schemas
 audit    → schemas
+context  → schemas
 database → audit, domain, schemas
-api      → shared
+api      → audit, context, database, domain, schemas, shared
 worker   → shared
-web      → (none)
+web      → context, schemas
 ```
+
+`apps/api` composes the Event Context workflow (`EventContextService`) from the database
+adapter, the `context` domain rules, the `audit` port and an optional `EventContextExtractor`.
+When a second consumer needs the workflow (for example the worker running model-backed builds
+asynchronously), it moves into its own package rather than being duplicated.
 
 Adding a new package requires assigning it a layer in the test and in this table.
 
 ---
 
-## 7. M0 database foundation
+## 7. Database
 
 Migrations live in `packages/database/drizzle/` and are applied in order. Each milestone adds
 its own migrations; existing migrations are never edited after being committed.
 
-| Migration                       | Contents                                                            |
-| ------------------------------- | ------------------------------------------------------------------- |
-| `0000_m0_foundation`            | `events`, `event_context_versions`, `analysis_runs`, `audit_events` |
-| `0001_audit_events_append_only` | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`          |
+| Migration                            | Contents                                                                                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0000_m0_foundation`                 | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                   |
+| `0001_audit_events_append_only`      | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                            |
+| `0002_m1_event_context`              | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id` |
+| `0003_m1_event_context_immutability` | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                   |
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` timestamps.
 - Vocabulary CHECK constraints are generated from the same tuples as the Zod schemas
@@ -360,10 +374,92 @@ its own migrations; existing migrations are never edited after being committed.
 ## 8. Runtime processes
 
 - **api** binds `API_HOST:API_PORT` (default `127.0.0.1:3001`), exposes `GET /health` →
-  `{"status":"ok","service":"judge-copilot-api"}`, and closes cleanly on SIGINT/SIGTERM.
+  `{"status":"ok","service":"judge-copilot-api"}` (never touches the database) and the M1 Event
+  Context routes (§9). Without `DATABASE_URL` it still boots; Event Context routes then answer
+  `503 DATABASE_NOT_CONFIGURED`. It closes cleanly on SIGINT/SIGTERM.
 - **worker** starts, logs `worker started` with `jobHandlers: 0`, and stops cleanly. It registers
-  no jobs and contacts nothing in M0.
-- **web** is a static placeholder page. No dashboards, sample scores or fake functionality.
+  no jobs and contacts nothing (unchanged in M1).
+- **web** renders the M1 Event Context setup/review/lock views using server components and
+  server actions that call the API server-side (`JUDGE_API_URL`). No project, scoring or fake
+  judging UI exists.
 
-No process connects to a database or any external service at boot. A database connection
-exists only when explicitly created (`createDatabase(url)`) or via `pnpm db:migrate`.
+No process contacts an external service. The database pool connects lazily on first query.
+
+---
+
+## 9. Event Context Pack (M1)
+
+```
+create event → create draft version → add sources (authority, normalized text, SHA-256)
+→ build (EventContextExtractor → Zod → domain validation → draft)   or author by hand
+→ review: dates, judging format, rules, submission requirements, prior-work policy, guidance,
+  tracks, rubrics, conflicts, unresolved items
+→ human edit (provenance preserved)
+→ lock (validated, hashed, supersedes the previous locked version atomically)
+```
+
+### Data model
+
+- **Relational:** `event_sources` (provenance roots), `tracks`, `rubrics`, `rubric_criteria`,
+  `rubric_anchors` (normalized rubric structure). Tracks, rubrics and criteria carry
+  `source_ids`, `origin` and `human_modified`.
+- **Typed JSONB** `event_context_versions.content` (`EventContextContent`): dates, judging format,
+  rules, submission requirements (optionally per track), prior-work policy, organizer guidance and
+  conflicts. Every fact has a server-assigned `id`, `statement`, `certainty`
+  (`explicit | interpreted | unclear`), `sourceIds`, `origin` (`source_derived | human`) and
+  `humanModified`.
+- `extracted_content` keeps the last successful build output, so a source-derived fact and its
+  human correction can always be compared.
+- The API assembles both into one `EventContextDocument`.
+
+### Lifecycle
+
+`draft → locked → superseded`. `in_review` stays in the vocabulary but no M1 workflow uses it:
+the explicit lock action is the human review gate (invariant 18). Locking:
+
+1. serializes on the event row (`FOR UPDATE`);
+2. requires `status = draft` and that the draft derives from the currently locked version (else
+   `STALE_CONTEXT_BASE`);
+3. runs `validateForLock`: structure, source references within the version, unique criterion
+   keys, valid scales and anchors, and weights all-or-none summing to 1 ± `1e-6`;
+4. supersedes the current locked version (status-only change, allowed by trigger), then locks
+   this one with `locked_at` and `locked_content_hash`;
+5. writes `event_context_locked` (and `context_version_superseded`) audit events.
+
+A partial unique index guarantees at most one locked version per event. New versions copy the
+locked version's sources (new rows with `copied_from_id`) and document (source IDs remapped), and
+require a change reason.
+
+### Authority and conflicts
+
+Source authority precedence is an explicit table (`SOURCE_AUTHORITY_PRECEDENCE`: 100, 95, 90, 85,
+60, 40), never array order. Extractors report conflicting _positions_; deterministic code resolves
+them. A unique highest-authority position prevails (`resolved_by_authority`). Tied top positions
+stay `unresolved` unless a human chooses among them (`resolved_by_human` with a note). No
+resolution ever deletes a position or a source.
+
+### Provenance rules (enforced by `applyHumanEdit`)
+
+- IDs and origins are server-controlled. New items are `human`.
+- A source-derived item may be reworded (`humanModified: true`), but it may never drop a source it
+  cites (`PROVENANCE_REMOVED`).
+- A non-`unclear` source-derived fact must cite a source. To answer a previously unclear question,
+  add the organizer's statement as a new source and cite it.
+- Source-derived conflicts cannot be removed or lose positions.
+
+### API
+
+| Method    | Path                                           | Purpose                                                                           |
+| --------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| GET/POST  | `/events`                                      | list / create events                                                              |
+| GET       | `/events/:eventId`                             | event + version summaries                                                         |
+| POST      | `/events/:eventId/context-versions`            | create the next draft (derives from the locked version)                           |
+| GET/PATCH | `/events/:eventId/context-versions/:versionId` | detail (document, extraction, unresolved, lock readiness, integrity) / human edit |
+| GET/POST  | `…/:versionId/sources`                         | list / add sources                                                                |
+| POST      | `…/:versionId/build`                           | build through the configured extractor                                            |
+| POST      | `…/:versionId/lock`                            | lock                                                                              |
+| GET       | `/events/:eventId/context`                     | the currently locked `EventContextLockedSnapshot`                                 |
+
+Errors are `{ "error": { "code", "message", "details?" } }` with stable codes (for example
+`INVALID_RUBRIC_WEIGHTS` 422, `LOCKED_CONTEXT_IMMUTABLE` 409, `CONTEXT_VERSION_NOT_FOUND` 404,
+`INVALID_REQUEST` 400). There is no authentication yet (see V1_CONTRACT.md).

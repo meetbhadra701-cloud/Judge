@@ -1,0 +1,103 @@
+{
+  "name": "fixture-d-malformed-rubric",
+  "description": "Synthetic. The official rubric weights sum to 1.1. The draft can be built and reviewed, but it cannot be locked.",
+  "event": { "name": "Synthetic Winter Sprint", "slug": "synthetic-winter-sprint" },
+  "sources": [
+    {
+      "ref": "rules",
+      "sourceType": "pasted_text",
+      "authority": "official_event_rules",
+      "title": "Official rules (synthetic)",
+      "url": null,
+      "normalizedText": "SYNTHETIC WINTER SPRINT — RULES\nThe sprint runs 2031-01-17 09:00 UTC to 2031-01-17 21:00 UTC. Prior work is not allowed; everything must be built during the sprint. Judging is a science-fair expo."
+    },
+    {
+      "ref": "rubric",
+      "sourceType": "pasted_text",
+      "authority": "official_judging_rubric",
+      "title": "Rubric (synthetic, malformed weights)",
+      "url": null,
+      "normalizedText": "Impact 50%, Execution 30%, Originality 30%. Each criterion is scored 1 to 10."
+    }
+  ],
+  "extraction": {
+    "dates": {
+      "startsAt": {
+        "statement": "The sprint starts 2031-01-17 at 09:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-01-17T09:00:00Z"
+      },
+      "endsAt": {
+        "statement": "The sprint ends 2031-01-17 at 21:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-01-17T21:00:00Z"
+      },
+      "judgingStartsAt": {
+        "statement": "No judging start time is stated.",
+        "certainty": "unclear",
+        "sourceIds": [],
+        "value": null
+      },
+      "submissionDeadline": {
+        "statement": "No submission deadline is stated.",
+        "certainty": "unclear",
+        "sourceIds": [],
+        "value": null
+      }
+    },
+    "judgingFormat": {
+      "statement": "Science-fair style expo.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"]
+    },
+    "rules": [],
+    "submissionRequirements": [],
+    "priorWorkPolicy": {
+      "statement": "Prior work is not allowed; everything must be built during the sprint.",
+      "certainty": "explicit",
+      "sourceIds": ["rules"],
+      "stance": "not_allowed"
+    },
+    "organizerGuidance": [],
+    "tracks": [],
+    "rubrics": [
+      {
+        "scope": "overall",
+        "trackKey": null,
+        "name": "Official rubric",
+        "scaleMin": 1,
+        "scaleMax": 10,
+        "sourceIds": ["rubric"],
+        "criteria": [
+          {
+            "key": "impact",
+            "name": "Impact",
+            "description": "Expected benefit.",
+            "weight": 0.5,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          },
+          {
+            "key": "execution",
+            "name": "Execution",
+            "description": "Quality of the build.",
+            "weight": 0.3,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          },
+          {
+            "key": "originality",
+            "name": "Originality",
+            "description": "Novelty of the idea.",
+            "weight": 0.3,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          }
+        ]
+      }
+    ],
+    "conflicts": []
+  }
+}

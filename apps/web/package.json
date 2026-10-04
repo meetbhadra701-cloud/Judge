@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Judge Copilot web UI (Next.js). M0: a placeholder page only.",
+  "description": "Judge Copilot web UI (Next.js): minimal Event Context setup, review and lock views.",
   "scripts": {
     "dev": "next dev",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build",
@@ -11,6 +11,8 @@
     "typecheck": "next typegen && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@judge-copilot/context": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
     "next": "16.3.8",
     "react": "19.3.0",
     "react-dom": "19.3.0"

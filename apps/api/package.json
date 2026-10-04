@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Judge Copilot HTTP API (Fastify).",
+  "description": "Judge Copilot HTTP API (Fastify): health and the Event Context Pack workflow.",
   "scripts": {
     "dev": "tsx watch --conditions=@judge-copilot/source src/main.ts",
     "build": "tsc -p tsconfig.build.json",
@@ -11,8 +11,18 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@judge-copilot/audit": "workspace:*",
+    "@judge-copilot/context": "workspace:*",
+    "@judge-copilot/database": "workspace:*",
+    "@judge-copilot/domain": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
     "@judge-copilot/shared": "workspace:*",
+    "drizzle-orm": "^0.45.3",
     "fastify": "^5.12.5",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "postgres": "^3.4.9"
   }
 }

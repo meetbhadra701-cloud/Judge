@@ -26,6 +26,18 @@ Judge Copilot is a human-in-the-loop hackathon judging system. Before changing a
    API. Empty packages get a README describing their future role, not stub code.
 8. **No secrets** in the repository, logs or prompts.
 
+## Event Context rules (M1)
+
+- Source authority precedence is the explicit `SOURCE_AUTHORITY_PRECEDENCE` table. Resolve
+  conflicts with `resolveConflict`; never drop a losing position or source.
+- Provenance is server-controlled. Never let clients or extractors set IDs, `origin` or
+  `humanModified`. Never let a source-derived item lose a cited source.
+- Ambiguity stays `unclear`. Never invent dates, policies or rubric weights.
+- Locked/superseded versions are frozen (application checks plus DB triggers). Changes go into a
+  new version.
+- Extractors return `unknown`. Always run `EventContextExtraction` (Zod) and then
+  `documentFromExtraction` (domain).
+
 ## Before you finish
 
 Run `pnpm check` (format, lint, typecheck, migration check, tests, build) and report exact
