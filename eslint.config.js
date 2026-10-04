@@ -34,6 +34,11 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
+      // Destructuring to omit fields (`const { id: _id, ...rest } = item`) is intentional.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { ignoreRestSiblings: true, argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       'no-console': 'error',
       'no-eval': 'error',
       'no-implied-eval': 'error',

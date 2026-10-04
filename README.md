@@ -5,7 +5,8 @@ evidence-backed pre-reads, shows where its assessment is uncertain, suggests the
 most likely to resolve that uncertainty, reassesses only what the interview affects, and leaves
 the **final score to the human judge**.
 
-> **Status: Milestone 0 — engineering foundation.** There is no judging functionality yet.
+> **Status: Milestone 1 — Event Context Pack.** Events, versioned official context (sources,
+> rules, rubric, tracks), review, and lock. There is no project judging, scoring or model use yet.
 
 ## Read first
 
@@ -42,8 +43,23 @@ pnpm db:migrate       # apply migrations (requires DATABASE_URL)
 
 pnpm --filter @judge-copilot/api dev      # API on http://127.0.0.1:3001/health
 pnpm --filter @judge-copilot/worker dev   # idle worker
-pnpm --filter @judge-copilot/web dev      # placeholder web page
+pnpm --filter @judge-copilot/web dev      # Event Context UI on http://localhost:3000
 ```
+
+### Running the Event Context workflow locally
+
+```sh
+pnpm build                                            # web consumes built workspace packages
+DATABASE_URL=postgres://… pnpm db:migrate
+DATABASE_URL=postgres://… pnpm --filter @judge-copilot/api dev
+JUDGE_API_URL=http://127.0.0.1:3001 pnpm --filter @judge-copilot/web dev
+```
+
+No extractor is configured by default, so you author drafts in the edit view. To replay the
+synthetic recorded extractions in `tests/fixtures/event-context/` (development only), start the
+API with `EVENT_CONTEXT_EXTRACTOR=replay EVENT_CONTEXT_REPLAY_DIR=tests/fixtures/event-context`
+and paste a fixture's source texts with matching authorities. M1 has no authentication, so do
+not expose it beyond localhost.
 
 Copy `.env.example` to `.env` for local overrides. No API keys or tokens are needed in M0.
 Package scripts use POSIX `VAR=value cmd` syntax; on Windows use WSL.

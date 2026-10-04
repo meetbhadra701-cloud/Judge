@@ -1,0 +1,116 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background: #fff;
+}
+main {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+a {
+  color: #1d4ed8;
+}
+h1 {
+  margin-bottom: 0.25rem;
+}
+section {
+  margin-top: 2rem;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+form.stack {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 40rem;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 0.35rem;
+}
+textarea.code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  min-height: 32rem;
+}
+button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+pre {
+  white-space: pre-wrap;
+  background: #f6f7f9;
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+.error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  padding: 0.5rem 0.75rem;
+}
+.notice {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  padding: 0.5rem 0.75rem;
+}
+.badge {
+  font-weight: 700;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid;
+}
+.status-draft {
+  color: #92400e;
+  border-color: #f59e0b;
+}
+.status-locked {
+  color: #065f46;
+  border-color: #10b981;
+}
+.status-superseded {
+  color: #4b5563;
+  border-color: #9ca3af;
+}
+.fact {
+  padding: 0.4rem 0;
+  border-bottom: 1px dashed #e5e7eb;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}
+.tag {
+  font-size: 0.75rem;
+  padding: 0 0.4rem;
+  border-radius: 0.25rem;
+  background: #f3f4f6;
+}
+.tag-warn {
+  background: #fef3c7;
+}
+.tag-human {
+  background: #ede9fe;
+}
+.tag-ok {
+  background: #d1fae5;
+}
+.tag-muted {
+  background: #f3f4f6;
+  color: #6b7280;
+}

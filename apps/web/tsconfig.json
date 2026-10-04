@@ -17,7 +17,12 @@
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "forceConsistentCasingInFileNames": true,
-    "plugins": [{ "name": "next" }]
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "customConditions": ["@judge-copilot/source"]
   },
   "include": [
     "next-env.d.ts",

@@ -5,6 +5,7 @@ import {
 } from '@judge-copilot/schemas';
 import { sql } from 'drizzle-orm';
 import { check, index, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { eventContextVersions } from './event-context-versions.js';
 import { events } from './events.js';
 import { sqlLiteralList, sqlPattern, timestamptz } from './sql.js';
 
@@ -14,12 +15,17 @@ import { sqlLiteralList, sqlPattern, timestamptz } from './sql.js';
  * category and never produces a score (invariant 22).
  *
  * `project_id` is intentionally absent until projects exist (M2); it will be added by migration.
+ * `context_version_id` (M1) links Event Context builds (`run_type = event_context_build`) to the
+ * version they built.
  */
 export const analysisRuns = pgTable(
   'analysis_runs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     eventId: uuid('event_id').references(() => events.id, { onDelete: 'restrict' }),
+    contextVersionId: uuid('context_version_id').references(() => eventContextVersions.id, {
+      onDelete: 'restrict',
+    }),
     runType: text('run_type').notNull(),
     state: text('state', { enum: ANALYSIS_RUN_STATE_VALUES }).notNull(),
     startedAt: timestamptz('started_at').notNull().defaultNow(),
@@ -29,6 +35,7 @@ export const analysisRuns = pgTable(
   },
   (table) => [
     index('analysis_runs_event_id_idx').on(table.eventId),
+    index('analysis_runs_context_version_id_idx').on(table.contextVersionId),
     check('analysis_runs_run_type_format', sql`run_type ~ ${sqlPattern(IDENTIFIER_PATTERN)}`),
     check(
       'analysis_runs_state_valid',

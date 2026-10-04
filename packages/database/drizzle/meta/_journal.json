@@ -15,6 +15,20 @@
       "when": 1791110432824,
       "tag": "0001_audit_events_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791113333613,
+      "tag": "0002_m1_event_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791113334644,
+      "tag": "0003_m1_event_context_immutability",
+      "breakpoints": true
     }
   ]
 }

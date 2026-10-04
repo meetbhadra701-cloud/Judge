@@ -116,12 +116,34 @@ official rules.
 
 ## 10. Authentication and authorization (planned)
 
-M0 has no authentication. No endpoint beyond `GET /health` exists. Authentication and
-role-based authorization (organizer, judge) arrive with the first milestone that exposes
-non-public data. The human final score can only be written by an authenticated judge. No
-service account or AI component may write it (invariant 15).
+M0 and M1 have no authentication. M1 exposes Event Context routes that handle official event
+material and, optionally, judge context notes. The API therefore binds to `127.0.0.1` by default,
+and **M1 must not be deployed on a reachable network**. Audit events record `actor_id = null`.
+Authentication and role-based authorization (organizer, judge) are required before any non-local
+deployment and no later than M2, which ingests team data. The human final score can only be
+written by an authenticated judge. No service account or AI component may write it
+(invariant 15).
 
 ## 11. Tests do not touch the network
 
 **[M0]** `tests/support/no-network.mjs` is preloaded into every test file and into child
 processes spawned by integration tests. Any non-loopback connection attempt throws.
+
+## 12. Event Context sources (M1)
+
+- Source text is **untrusted content**. It is normalized (NFC, `\n` line endings, trimmed),
+  size-limited (200,000 characters, ≤ 50 sources per version, NUL rejected), hashed with SHA-256
+  and stored as text. It is never executed, never parsed as configuration and never used as
+  instructions.
+- **URLs are provenance metadata only.** M1 never fetches a URL. URLs must be `http(s)` with a
+  domain name; IP literals and `localhost` are rejected, so no SSRF surface exists.
+- The web UI renders all source and context text as React text nodes (escaped) and never uses
+  raw HTML. The browser never calls the API directly; server actions call it server-side.
+- Audit metadata for sources records the authority, type, hash and length, never the text.
+- A content hash shows that stored text is unchanged. It never shows that the text is
+  trustworthy.
+- The replay extractor is a development and test tool. The API refuses to enable it in
+  production.
+- Locked history is protected by database triggers as well as application checks. An
+  administrator can still run an explicit, reviewed data migration by disabling the triggers
+  inside it.

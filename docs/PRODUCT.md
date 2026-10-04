@@ -98,8 +98,9 @@ Before judging starts, organizers (or the judging lead) assemble the event's off
 - the allowed prior work policy;
 - organizer guidance.
 
-This becomes a **versioned Event Context**. AI may help extract structure from the official
-documents (M1), but a human reviews it and **locks** it. Locked versions are frozen. A
+This becomes a **versioned Event Context**. An extractor may help structure the official
+documents (M1 provides the extraction port; model-backed extraction comes later), but a human
+reviews it and **locks** it. Locked versions are frozen. A
 correction creates a new version that supersedes the old one, with a recorded reason. No
 official assessment runs without a locked Event Context, and every assessment records which
 version it used.

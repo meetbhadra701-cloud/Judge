@@ -2,13 +2,18 @@ import {
   FROZEN_EVENT_CONTEXT_STATUSES,
   OFFICIAL_EVENT_CONTEXT_STATUS,
 } from '@judge-copilot/domain';
-import { EVENT_CONTEXT_STATUS_VALUES } from '@judge-copilot/schemas';
+import {
+  EVENT_CONTEXT_STATUS_VALUES,
+  type EventContextContent,
+  type EventContextDocument,
+} from '@judge-copilot/schemas';
 import { sql } from 'drizzle-orm';
 import {
   check,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   unique,
@@ -23,7 +28,12 @@ import { sqlLiteralList, timestamptz } from './sql.js';
  *
  * Versions are append-only: a change produces a new version that `supersedes` an older one of
  * the same event. Only a human-reviewed `locked` version may back an official assessment.
- * The structured context content itself is introduced in M1.
+ *
+ * M1: `content` holds the typed non-rubric part of the reviewed context (rubrics and tracks are
+ * normalized into their own tables); `extracted_content` keeps the last successful build output
+ * so source-derived facts stay distinguishable from human edits; `locked_content_hash` is the
+ * SHA-256 of the canonical document + sources at lock time. A trigger freezes locked/superseded
+ * rows (only the locked → superseded status change is allowed).
  */
 export const eventContextVersions = pgTable(
   'event_context_versions',
@@ -39,6 +49,9 @@ export const eventContextVersions = pgTable(
     lockedAt: timestamptz('locked_at'),
     supersedesId: uuid('supersedes_id'),
     changeReason: text('change_reason'),
+    content: jsonb('content').$type<EventContextContent>(),
+    extractedContent: jsonb('extracted_content').$type<EventContextDocument>(),
+    lockedContentHash: text('locked_content_hash'),
   },
   (table) => [
     unique('event_context_versions_event_id_version_key').on(table.eventId, table.version),
@@ -63,6 +76,10 @@ export const eventContextVersions = pgTable(
     check(
       'event_context_versions_locked_at_matches_status',
       sql`(status IN (${sqlLiteralList(FROZEN_EVENT_CONTEXT_STATUSES)})) = (locked_at IS NOT NULL)`,
+    ),
+    check(
+      'event_context_versions_locked_content_hash_format',
+      sql`locked_content_hash IS NULL OR locked_content_hash ~ '^[0-9a-f]{64}$'`,
     ),
     check(
       'event_context_versions_not_self_superseding',

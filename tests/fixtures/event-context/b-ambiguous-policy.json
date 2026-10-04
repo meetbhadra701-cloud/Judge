@@ -1,0 +1,109 @@
+{
+  "name": "fixture-b-ambiguous-policy",
+  "description": "Synthetic. The official material says nothing about prior work or the judging time; the rubric has no weights.",
+  "event": { "name": "Synthetic Autumn Jam", "slug": "synthetic-autumn-jam" },
+  "sources": [
+    {
+      "ref": "rules",
+      "sourceType": "document_text",
+      "authority": "official_event_rules",
+      "title": "Event handbook (synthetic)",
+      "url": null,
+      "normalizedText": "SYNTHETIC AUTUMN JAM — HANDBOOK\nThe jam runs from 2031-10-03 18:00 UTC to 2031-10-05 15:00 UTC.\nJudges will review projects after the jam closes.\nBe kind, credit your sources, and have fun."
+    },
+    {
+      "ref": "rubric",
+      "sourceType": "document_text",
+      "authority": "official_judging_rubric",
+      "title": "Judging criteria (synthetic)",
+      "url": null,
+      "normalizedText": "Projects are judged on Creativity, Execution and Presentation, each scored from 0 to 10. No weighting is specified."
+    }
+  ],
+  "extraction": {
+    "dates": {
+      "startsAt": {
+        "statement": "The jam starts 2031-10-03 at 18:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-10-03T18:00:00Z"
+      },
+      "endsAt": {
+        "statement": "The jam ends 2031-10-05 at 15:00 UTC.",
+        "certainty": "explicit",
+        "sourceIds": ["rules"],
+        "value": "2031-10-05T15:00:00Z"
+      },
+      "judgingStartsAt": {
+        "statement": "Judges review after the jam closes; no start time is given.",
+        "certainty": "unclear",
+        "sourceIds": ["rules"],
+        "value": null
+      },
+      "submissionDeadline": {
+        "statement": "No separate submission deadline is stated.",
+        "certainty": "unclear",
+        "sourceIds": [],
+        "value": null
+      }
+    },
+    "judgingFormat": {
+      "statement": "Judges review projects after the jam; the format and time per team are not stated.",
+      "certainty": "unclear",
+      "sourceIds": ["rules"]
+    },
+    "rules": [
+      {
+        "statement": "Participants must credit their sources.",
+        "certainty": "interpreted",
+        "sourceIds": ["rules"]
+      }
+    ],
+    "submissionRequirements": [],
+    "priorWorkPolicy": {
+      "statement": "The official material does not say whether prior work is allowed.",
+      "certainty": "unclear",
+      "sourceIds": [],
+      "stance": "unclear"
+    },
+    "organizerGuidance": [],
+    "tracks": [],
+    "rubrics": [
+      {
+        "scope": "overall",
+        "trackKey": null,
+        "name": "Judging criteria",
+        "scaleMin": 0,
+        "scaleMax": 10,
+        "sourceIds": ["rubric"],
+        "criteria": [
+          {
+            "key": "creativity",
+            "name": "Creativity",
+            "description": "Originality of the idea.",
+            "weight": null,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          },
+          {
+            "key": "execution",
+            "name": "Execution",
+            "description": "Quality of the implementation.",
+            "weight": null,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          },
+          {
+            "key": "presentation",
+            "name": "Presentation",
+            "description": "Clarity of the presentation.",
+            "weight": null,
+            "sourceIds": ["rubric"],
+            "anchors": []
+          }
+        ]
+      }
+    ],
+    "conflicts": []
+  }
+}

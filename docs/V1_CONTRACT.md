@@ -22,7 +22,7 @@ This contract governs how V1 is built, by humans and coding agents alike.
 | #      | Milestone                              | Delivers                                                                                                                                                                                                                                 | Must not include                                                    |
 | ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | **M0** | **Foundation**                         | monorepo, strict TS, lint/format/test tooling, `GET /health` API, idle worker, placeholder web page, foundational Zod vocabularies, domain lifecycle classifications, audit contract, Drizzle + 4 foundational tables, architecture docs | any judging functionality, model calls, integrations, scoring, auth |
-| **M1** | **Event Context**                      | Event Context Pack data model; ingestion of official documents; AI-assisted _draft_ extraction (first `llm`/`prompts` use); human review UI; lock/supersede workflow with audit; fallback-rubric handling                                | source ingestion, project assessment                                |
+| **M1** | **Event Context**                      | Event Context Pack data model; normalized source text with authority and hashes; extraction **port** with deterministic replay (no model); human review/edit UI; lock/supersede workflow with audit; `universal_fallback` authority      | source ingestion, project assessment, model calls                   |
 | **M2** | **Immutable Source Ingestion**         | projects; read-only Devpost/GitHub/deployment/video snapshot adapters; URL/SSRF policy; immutable `SourceSnapshot` records with hashes and statuses                                                                                      | claim extraction, scoring                                           |
 | **M3** | **Evidence Graph**                     | `Claim`, `EvidenceItem`, `EvidenceRelation`, `Unknown`, `Contradiction` persistence and graph queries; verification levels; ID integrity validation                                                                                      | scoring, AI assessment                                              |
 | **M4** | **Scoring Engine**                     | `scoring-engine/v1`: dimension → criterion → overall aggregation, weights validation, evidence strength, coverage, confidence index, insufficient-evidence handling; fully deterministic and golden-tested                               | model calls                                                         |
@@ -32,8 +32,20 @@ This contract governs how V1 is built, by humans and coding agents alike.
 | **M8** | **Post-Interview Reassessment**        | answer decomposition; affected-dimension selection; reassessment of affected dimensions only; immutable `post_interview` version; explained `ScoreChange` deltas                                                                         | final score                                                         |
 | **M9** | **Human Final Judgment**               | authenticated judge enters the authoritative `JudgeFinalScore`; AI cannot modify it; full audit trail                                                                                                                                    | —                                                                   |
 
-Authentication and authorization are introduced no later than the first milestone that exposes
-non-public data (expected M1), and the human final score (M9) requires them.
+Authentication and authorization are required before any non-local deployment and no later than
+M2, the first milestone that ingests team data. The human final score (M9) requires them. M1 is
+local-only: the API binds to `127.0.0.1` by default.
+
+### Refinements recorded in M1
+
+- The first model-backed extractor (`llm`/`prompts`) moved from M1 to no earlier than M5. M1
+  delivers the extraction port, validation and a deterministic replay extractor, so the workflow
+  is proven before any provider behaviour exists.
+- The universal fallback rubric is not materialized as data in M1. It is consumed by scoring, so
+  its data definition lands with the scoring engine (M4). M1 supports `universal_fallback` as the
+  lowest source authority.
+- `in_review` remains in the Event Context vocabulary but is unused. The explicit lock action is
+  the human review gate.
 
 ## Definition of done (every milestone)
 
@@ -50,3 +62,4 @@ non-public data (expected M1), and the human final score (M9) requires them.
 ## Milestone reports
 
 - [M0 — Foundation](./milestones/M0-report.md)
+- [M1 — Event Context Pack](./milestones/M1-report.md)

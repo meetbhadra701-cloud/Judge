@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import './styles.css';
 
 export const metadata: Metadata = {
   title: 'Judge Copilot',
@@ -9,9 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: 'system-ui, sans-serif', margin: 0, lineHeight: 1.5 }}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
