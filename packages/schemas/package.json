@@ -1,0 +1,24 @@
+{
+  "name": "@judge-copilot/schemas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Foundational Zod schemas shared across Judge Copilot. Layer 0: no internal dependencies.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

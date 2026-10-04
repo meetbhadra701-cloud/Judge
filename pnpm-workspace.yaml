@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - packages/*
+
+# esbuild (used by tsx, vite and drizzle-kit) verifies its platform binary on install.
+onlyBuiltDependencies:
+  - esbuild

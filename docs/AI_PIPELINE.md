@@ -1,0 +1,132 @@
+# Judge Copilot — AI Pipeline
+
+> **Status:** Specification only. No model or provider calls exist in M0. The `llm` and
+> `prompts` packages are README-only placeholders. Model-backed stages begin in M1 (Event
+> Context extraction) and M5 (pre-interview assessment).
+
+---
+
+## 1. Stage map
+
+| #   | Stage                                              | Model?                                                            | Deterministic responsibilities                                       |
+| --- | -------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1   | Event Context extraction (M1)                      | **yes**: structure official documents into a draft                | validate structure, weights sum, human review gate, lock and version |
+| 2   | Source snapshot capture (M2)                       | no                                                                | URL policy, fetch limits, hashing, immutability, status              |
+| 3   | Claim extraction (M3/M5)                           | **yes**: atomic claims from snapshots                             | ID assignment, provenance to snapshot spans, validation              |
+| 4   | Evidence interpretation and claim matching (M3/M5) | **yes**                                                           | relation types, ID integrity, verification level rules               |
+| 5   | Contradiction detection (M3/M5)                    | **yes**: proposes contradictions                                  | validates both sides exist; never escalates to an accusation         |
+| 6   | Unknown identification (M5/M6)                     | partially: semantic gaps                                          | coverage analysis, unknown typing rules                              |
+| 7   | Dimension assessment (M5)                          | **yes**: judges one dimension against anchors, cites evidence IDs | validation, then aggregation into criteria and overall               |
+| 8   | Scoring (M4)                                       | **no**                                                            | weights, evidence strength, coverage, confidence, aggregation        |
+| 9   | Critic pass (M5)                                   | **yes**: reviews stage-7 output                                   | decides accept / re-run / mark insufficient by rule                  |
+| 10  | Question generation (M6)                           | **yes**: phrases candidate questions                              | binds to IDs, validates, ranks by information gain, picks top five   |
+| 11  | Team-answer decomposition (M7/M8)                  | **yes**: answers → claims/evidence                                | ID integrity, verification level from who verified what              |
+| 12  | Affected-dimension selection (M8)                  | **no**                                                            | graph traversal from new evidence to dimensions                      |
+| 13  | Reassessment of affected dimensions (M8)           | **yes**: stage 7 for selected dimensions only                     | validation, re-aggregation, deltas                                   |
+| 14  | Delta explanation (M8)                             | **yes**: prose for computed deltas                                | deltas themselves are computed by code                               |
+| 15  | Final score (M9)                                   | **no**                                                            | the human enters it; AI cannot write it                              |
+
+The model never computes weights, aggregates, confidence, rankings or state transitions. See
+[ARCHITECTURE.md §3](./ARCHITECTURE.md#3-deterministic-code-vs-llm-responsibilities).
+
+## 2. Structured output only
+
+- Every model call requests **structured output** that conforms to a Zod schema owned by the
+  calling stage. Free-text output is only allowed inside schema fields designed for prose (for
+  example a rationale string), never as the primary result.
+- Outputs are parsed, never `eval`-ed, and never executed.
+
+## 3. Two-step validation: schema, then domain
+
+Every model output passes **both** steps before anything downstream sees it (invariant 19):
+
+1. **Schema validation (Zod):** shape, types, enums, ranges (`Score10`, `Ratio`), string limits.
+2. **Domain validation (deterministic code):**
+   - every referenced ID exists in the current assessment context and has the right type
+     (evidence ID is an evidence ID, dimension ID belongs to this rubric, …);
+   - the model invented no evidence, claim, unknown, criterion, dimension or question IDs
+     (invariant 20). Models refer to items **only** by IDs supplied in the prompt;
+   - each dimension judgment cites at least one evidence ID, or explicitly reports
+     insufficient evidence (invariants 2, 14);
+   - a cited evidence item is actually relevant to that dimension, per the evidence graph;
+   - post-interview changes only touch dimensions selected as affected (invariant 11);
+   - no output asserts cheating or misconduct (invariant 25). Contradictions are phrased as
+     questions for the judge.
+
+Output that fails either step is rejected. The stage may retry within a bounded budget.
+After that the run fails with `schema_validation_failed` or `domain_validation_failed` and
+**produces no score**.
+
+## 4. Evidence-ID integrity
+
+- IDs are generated by deterministic code (UUIDs), never by models.
+- The prompt shows the model a closed set of `{id, content}` items. The model's output
+  references that set.
+- Any reference outside the set fails domain validation. The output is not "repaired" by
+  guessing.
+
+## 5. Prompt versioning
+
+- Prompts live in `packages/prompts` as versioned templates (for example
+  `dimension-assessment/v3`).
+- Every model-backed record stores the prompt ID and version, the model identifier, the
+  provider, and the schema version used.
+- Changing a prompt's wording is a new prompt version. Old outputs remain attributable to the
+  exact prompt that produced them.
+- Prompts keep **instructions** and **untrusted project data** strictly separate (see
+  [SECURITY.md](./SECURITY.md#prompt-injection)).
+
+## 6. Critic pass
+
+After dimension assessment, a separate critic call reviews each judgment against its cited
+evidence and anchors. It looks for unsupported claims, missing-evidence-treated-as-negative,
+over-reliance on team claims, keyword/commit-count reasoning, and rubric drift. The critic's
+output is itself schema- and domain-validated. Deterministic rules decide the result: accept,
+re-run the dimension, or mark it insufficient. The critic never edits scores directly.
+
+## 7. Team-answer decomposition
+
+The judge types team answers and records live verifications. A model decomposes each answer
+into atomic claims and evidence items:
+
+- statements by the team → `team_claim` (still claims, invariant 4);
+- things the judge watched work → `live_verified` / `judge_verified`, attributed to the judge's
+  observation;
+- each new item links to the question (and therefore the unknowns and dimensions) it
+  addresses.
+
+## 8. Affected-dimension-only reassessment
+
+After the interview:
+
+1. Code finds the dimensions reachable from the new evidence through the evidence graph
+   (question → unknowns/claims → dimensions).
+2. Only those dimensions are re-judged (stage 13). All others are carried over unchanged from
+   the pre-interview version (invariant 11).
+3. Code re-aggregates and creates a new immutable `post_interview` assessment version
+   (invariant 10).
+4. Code computes per-dimension deltas. Each `ScoreChange` lists the evidence IDs responsible
+   (invariant 12). The model may then write a prose explanation of each computed delta.
+
+## 9. Model/provider abstraction
+
+- `packages/llm` exposes a provider-neutral interface: a structured-output call with a schema,
+  timeout, retry budget and cancellation. Concrete providers are adapters behind it.
+- Stage code depends on the interface, not on vendor SDKs.
+- Provider credentials are read from server-side configuration only. They are never logged and
+  never placed in prompts.
+- Deterministic packages (`scoring`, `uncertainty`, `questions` ranking) **cannot** import
+  `llm` or `prompts`. The layering test enforces this (ARCHITECTURE.md §6).
+
+## 10. Failure semantics
+
+A model or provider failure (timeout, rate limit, refusal, malformed output, validation
+failure, outage) must **never** produce a fabricated score (invariant 22):
+
+- no default, cached-from-another-project, averaged or "best guess" score is substituted;
+- the analysis run ends `failed` with a `failure_category` (`provider_error`,
+  `schema_validation_failed`, `domain_validation_failed`, `source_unavailable`, `timeout`,
+  `internal_error`), already enforced by `analysis_runs` constraints;
+- the judge sees that the assessment is unavailable and why, and can still judge manually;
+- "insufficient evidence" is a **valid assessment outcome**, not a failure. It means the
+  pipeline worked and honestly could not assess.

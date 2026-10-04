@@ -1,0 +1,36 @@
+{
+  "name": "@judge-copilot/database",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PostgreSQL schema, migrations and persistence adapters (Drizzle ORM). Layer 3 (I/O adapter).",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit generate",
+    "db:migrate": "NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit migrate",
+    "db:check": "NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit check"
+  },
+  "dependencies": {
+    "@judge-copilot/audit": "workspace:*",
+    "@judge-copilot/domain": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "drizzle-kit": "^0.31.11"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@judge-copilot/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runtime infrastructure shared by apps: environment validation, structured logging, shutdown handling. Layer 0: no internal dependencies.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "pino": "^10.4.0",
+    "zod": "^4.6.5"
+  }
+}

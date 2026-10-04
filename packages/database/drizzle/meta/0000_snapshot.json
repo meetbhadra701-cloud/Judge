@@ -1,0 +1,486 @@
+{
+  "id": "a501a70a-4f94-4a60-93c4-173cee8af142",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.analysis_runs": {
+      "name": "analysis_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_type": {
+          "name": "run_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_category": {
+          "name": "failure_category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "analysis_runs_event_id_idx": {
+          "name": "analysis_runs_event_id_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "analysis_runs_event_id_events_id_fk": {
+          "name": "analysis_runs_event_id_events_id_fk",
+          "tableFrom": "analysis_runs",
+          "tableTo": "events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "analysis_runs_run_type_format": {
+          "name": "analysis_runs_run_type_format",
+          "value": "run_type ~ '^[a-z][a-z0-9_]*$'"
+        },
+        "analysis_runs_state_valid": {
+          "name": "analysis_runs_state_valid",
+          "value": "state IN ('running', 'succeeded', 'failed', 'cancelled')"
+        },
+        "analysis_runs_failure_category_valid": {
+          "name": "analysis_runs_failure_category_valid",
+          "value": "failure_category IS NULL OR failure_category IN ('provider_error', 'schema_validation_failed', 'domain_validation_failed', 'source_unavailable', 'timeout', 'internal_error')"
+        },
+        "analysis_runs_finished_at_matches_state": {
+          "name": "analysis_runs_finished_at_matches_state",
+          "value": "(state = 'running') = (finished_at IS NULL)"
+        },
+        "analysis_runs_failure_category_matches_state": {
+          "name": "analysis_runs_failure_category_matches_state",
+          "value": "(state = 'failed') = (failure_category IS NOT NULL)"
+        },
+        "analysis_runs_finished_not_before_started": {
+          "name": "analysis_runs_finished_not_before_started",
+          "value": "finished_at IS NULL OR finished_at >= started_at"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.audit_events": {
+      "name": "audit_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "audit_events_entity_idx": {
+          "name": "audit_events_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "audit_events_entity_type_format": {
+          "name": "audit_events_entity_type_format",
+          "value": "entity_type ~ '^[a-z][a-z0-9_]*$'"
+        },
+        "audit_events_action_format": {
+          "name": "audit_events_action_format",
+          "value": "action ~ '^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$'"
+        },
+        "audit_events_metadata_is_object": {
+          "name": "audit_events_metadata_is_object",
+          "value": "jsonb_typeof(metadata) = 'object'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.event_context_versions": {
+      "name": "event_context_versions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "locked_at": {
+          "name": "locked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "supersedes_id": {
+          "name": "supersedes_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "change_reason": {
+          "name": "change_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "event_context_versions_one_locked_per_event": {
+          "name": "event_context_versions_one_locked_per_event",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "status = 'locked'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_context_versions_supersedes_id_idx": {
+          "name": "event_context_versions_supersedes_id_idx",
+          "columns": [
+            {
+              "expression": "supersedes_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_context_versions_event_id_events_id_fk": {
+          "name": "event_context_versions_event_id_events_id_fk",
+          "tableFrom": "event_context_versions",
+          "tableTo": "events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "event_context_versions_supersedes_same_event_fk": {
+          "name": "event_context_versions_supersedes_same_event_fk",
+          "tableFrom": "event_context_versions",
+          "tableTo": "event_context_versions",
+          "columnsFrom": [
+            "supersedes_id",
+            "event_id"
+          ],
+          "columnsTo": [
+            "id",
+            "event_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "event_context_versions_event_id_version_key": {
+          "name": "event_context_versions_event_id_version_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "event_id",
+            "version"
+          ]
+        },
+        "event_context_versions_id_event_id_key": {
+          "name": "event_context_versions_id_event_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "event_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "event_context_versions_version_positive": {
+          "name": "event_context_versions_version_positive",
+          "value": "version >= 1"
+        },
+        "event_context_versions_status_valid": {
+          "name": "event_context_versions_status_valid",
+          "value": "status IN ('draft', 'in_review', 'locked', 'superseded')"
+        },
+        "event_context_versions_locked_at_matches_status": {
+          "name": "event_context_versions_locked_at_matches_status",
+          "value": "(status IN ('locked', 'superseded')) = (locked_at IS NOT NULL)"
+        },
+        "event_context_versions_not_self_superseding": {
+          "name": "event_context_versions_not_self_superseding",
+          "value": "supersedes_id IS NULL OR supersedes_id <> id"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.events": {
+      "name": "events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "judging_starts_at": {
+          "name": "judging_starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "events_slug_key": {
+          "name": "events_slug_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "slug"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "events_name_not_blank": {
+          "name": "events_name_not_blank",
+          "value": "length(btrim(name)) > 0"
+        },
+        "events_slug_format": {
+          "name": "events_slug_format",
+          "value": "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'"
+        },
+        "events_ends_not_before_starts": {
+          "name": "events_ends_not_before_starts",
+          "value": "starts_at IS NULL OR ends_at IS NULL OR ends_at >= starts_at"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
