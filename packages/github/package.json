@@ -1,0 +1,26 @@
+{
+  "name": "@judge-copilot/github",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only GitHub repository snapshot adapter (REST API, exact commit SHA pinning, no clone, no execution). Layer 3 (I/O adapter).",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/capture": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

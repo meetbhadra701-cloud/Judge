@@ -1,0 +1,72 @@
+{
+  "name": "fixture-a-normal-project",
+  "description": "Synthetic Atlas: Devpost page, public GitHub repository, working deployment and a YouTube demo.",
+  "hosts": {
+    "devpost.com": ["52.4.20.10"],
+    "api.github.com": ["140.82.112.6"],
+    "atlas.example.org": ["93.184.216.34"],
+    "www.youtube.com": ["142.250.72.14"]
+  },
+  "routes": {
+    "https://devpost.com/software/synthetic-atlas": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "bodyFile": "pages/devpost-synthetic-atlas.html"
+    },
+    "https://atlas.example.org/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "server": "synthetic-edge",
+        "set-cookie": "session=never-stored"
+      },
+      "bodyFile": "pages/atlas-home.html"
+    },
+    "https://www.youtube.com/oembed?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DAAAAAAAAAAA&format=json": {
+      "status": 200,
+      "json": {
+        "title": "Synthetic Atlas demo",
+        "author_name": "Synthetic Team",
+        "author_url": "https://www.youtube.com/@synthetic",
+        "provider_name": "YouTube",
+        "thumbnail_url": "https://i.ytimg.com/vi/AAAAAAAAAAA/hqdefault.jpg"
+      }
+    }
+  },
+  "githubRepositories": [
+    {
+      "owner": "synthetic",
+      "repo": "atlas",
+      "description": "Offline maps for disaster responders",
+      "language": "TypeScript",
+      "stars": 3,
+      "commits": [
+        {
+          "id": "A1",
+          "message": "Scaffold project",
+          "date": "2026-10-01T09:00:00Z",
+          "files": {
+            "README.md": "# Synthetic Atlas\n"
+          }
+        },
+        {
+          "id": "A2",
+          "message": "Add offline tile cache\n\nDetails in docs.",
+          "date": "2026-10-01T18:30:00Z",
+          "files": {
+            "README.md": "# Synthetic Atlas\n\nOffline maps for disaster responders.\n",
+            "package.json": "{\n  \"name\": \"synthetic-atlas\",\n  \"scripts\": { \"postinstall\": \"node scripts/setup.js\", \"test\": \"vitest\" }\n}\n",
+            "src/cache.ts": "export function cacheTile(key: string): string {\n  return `tile:${key}`;\n}\n",
+            "src/sync.ts": "export const SYNC_INTERVAL_MS = 5_000;\n",
+            "docs/architecture.md": "# Architecture\n\nService worker + WebRTC.\n",
+            "assets/logo.png": {
+              "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@judge-copilot/capture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic source-capture core: adapter and HTTP ports, declared-URL rules, repository path rules, artifact hashing, HTML text extraction. Layer 2: no I/O, no model calls.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/domain": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "node-html-parser": "^9.0.4",
+    "zod": "^4.6.5"
+  }
+}

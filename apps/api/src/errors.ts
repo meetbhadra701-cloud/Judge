@@ -1,6 +1,8 @@
 import { EventContextError, type EventContextErrorCode } from '@judge-copilot/context';
 import type { ApiErrorBody } from '@judge-copilot/schemas';
+import { AUTH_STATUS, AuthError } from './auth.js';
 import { RequestValidationError, type ApiApp } from './http.js';
+import { SOURCE_INGESTION_STATUS, SourceIngestionError } from './projects/errors.js';
 
 const STATUS_BY_CODE: Record<EventContextErrorCode, number> = {
   EVENT_NOT_FOUND: 404,
@@ -61,6 +63,21 @@ export function installErrorHandling(app: ApiApp): void {
         .code(httpStatusFor(error.code))
         .send(
           body(error.code, error.message, Object.keys(details).length > 0 ? details : undefined),
+        );
+    }
+    if (error instanceof AuthError) {
+      if (error.code === 'UNAUTHENTICATED') void reply.header('www-authenticate', 'Bearer');
+      return reply.code(AUTH_STATUS[error.code]).send(body(error.code, error.message));
+    }
+    if (error instanceof SourceIngestionError) {
+      return reply
+        .code(SOURCE_INGESTION_STATUS[error.code])
+        .send(
+          body(
+            error.code,
+            error.message,
+            Object.keys(error.details).length > 0 ? error.details : undefined,
+          ),
         );
     }
     if (error instanceof RequestValidationError) {

@@ -109,8 +109,19 @@ export const EVENT_CONTEXT_STATUS_VALUES = ['draft', 'in_review', 'locked', 'sup
 export const EventContextStatus = z.enum(EVENT_CONTEXT_STATUS_VALUES);
 export type EventContextStatus = z.infer<typeof EventContextStatus>;
 
-/** Lifecycle of an analysis run (a unit of pipeline work such as an assessment). */
-export const ANALYSIS_RUN_STATE_VALUES = ['running', 'succeeded', 'failed', 'cancelled'] as const;
+/**
+ * Lifecycle of an analysis run (a unit of pipeline work such as an assessment).
+ *   pending   — queued durable work that no worker has claimed yet (M2 source captures).
+ *   running   — claimed and executing.
+ *   succeeded / failed / cancelled — terminal.
+ */
+export const ANALYSIS_RUN_STATE_VALUES = [
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+] as const;
 export const AnalysisRunState = z.enum(ANALYSIS_RUN_STATE_VALUES);
 export type AnalysisRunState = z.infer<typeof AnalysisRunState>;
 

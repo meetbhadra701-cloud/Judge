@@ -114,3 +114,33 @@ pre {
   background: #f3f4f6;
   color: #6b7280;
 }
+pre {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  padding: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+pre.artifact {
+  max-height: 40rem;
+  overflow-y: auto;
+}
+label.inline {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-right: 1rem;
+}
+.status-captured {
+  background: #dcfce7;
+}
+.status-partial {
+  background: #fef9c3;
+}
+.status-failed,
+.status-rejected {
+  background: #fee2e2;
+}
+.status-pending {
+  background: #e0e7ff;
+}

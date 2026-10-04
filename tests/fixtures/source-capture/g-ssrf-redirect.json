@@ -1,0 +1,19 @@
+{
+  "name": "fixture-g-ssrf-redirect",
+  "description": "A public URL redirects to the cloud metadata address. The redirect target must be refused and never contacted.",
+  "hosts": {
+    "redirect.example.org": ["93.184.216.37"]
+  },
+  "routes": {
+    "http://redirect.example.org/": {
+      "status": 302,
+      "headers": {
+        "location": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+      }
+    },
+    "http://169.254.169.254/latest/meta-data/iam/security-credentials/": {
+      "status": 200,
+      "body": "SYNTHETIC-METADATA-SECRET"
+    }
+  }
+}

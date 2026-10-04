@@ -1,0 +1,26 @@
+{
+  "name": "@judge-copilot/video",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Video/demo metadata adapter: provider detection and oEmbed/page metadata only, never media. Layer 3 (I/O adapter).",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/capture": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

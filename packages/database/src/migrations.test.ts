@@ -49,20 +49,26 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
     return event.id;
   }
 
-  it('creates exactly the foundation tables (M0 + M1)', async () => {
+  it('creates exactly the M0 + M1 + M2 tables (no evidence, scoring or question tables)', async () => {
     const tables = await rows<{ table_name: string }>(
       db,
       sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
     );
     expect(tables.map((t) => t.table_name)).toEqual([
+      'actors',
       'analysis_runs',
       'audit_events',
       'event_context_versions',
       'event_sources',
       'events',
+      'project_sources',
+      'project_track_selections',
+      'projects',
       'rubric_anchors',
       'rubric_criteria',
       'rubrics',
+      'source_snapshot_artifacts',
+      'source_snapshots',
       'tracks',
     ]);
   });

@@ -1,6 +1,6 @@
 # Judge Copilot — AI Pipeline
 
-> **Status:** No model or provider calls exist (M0–M1). The `llm` and `prompts` packages are
+> **Status:** No model or provider calls exist (M0–M2; M2 source capture is deterministic). The `llm` and `prompts` packages are
 > README-only placeholders. M1 implemented stage 1's **port** (`EventContextExtractor`) and its
 > full schema → domain validation path, exercised by a deterministic replay extractor. The first
 > model-backed implementation arrives no earlier than M5 (see §11).

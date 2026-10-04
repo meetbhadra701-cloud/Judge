@@ -29,6 +29,20 @@
       "when": 1791113334644,
       "tag": "0003_m1_event_context_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791147046968,
+      "tag": "0004_m2_source_ingestion",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791147073750,
+      "tag": "0005_m2_source_ingestion_immutability",
+      "breakpoints": true
     }
   ]
 }

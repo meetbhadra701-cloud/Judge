@@ -18,8 +18,9 @@ describe('lifecycle classifications', () => {
     ]);
   });
 
-  it('running is the only non-terminal analysis run state', () => {
+  it('pending (queued, M2) and running are the only non-terminal analysis run states', () => {
     expect(ANALYSIS_RUN_STATE_VALUES.filter((s) => !isTerminalAnalysisRunState(s))).toEqual([
+      'pending',
       'running',
     ]);
   });

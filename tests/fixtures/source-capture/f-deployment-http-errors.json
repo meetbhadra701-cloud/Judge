@@ -1,0 +1,24 @@
+{
+  "name": "fixture-f-deployment-http-errors",
+  "description": "Deployments that answer HTTP 404 and HTTP 500: successful observations, not failures.",
+  "hosts": {
+    "gone.example.org": ["93.184.216.35"],
+    "crash.example.org": ["93.184.216.36"]
+  },
+  "routes": {
+    "https://gone.example.org/": {
+      "status": 404,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "body": "<title>Not Found</title><h1>404</h1>"
+    },
+    "https://crash.example.org/": {
+      "status": 500,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "body": "<title>Server Error</title><h1>500</h1>"
+    }
+  }
+}

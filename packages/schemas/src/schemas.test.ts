@@ -129,7 +129,14 @@ describe('domain vocabularies', () => {
       'rejected',
     ]);
     expect(SourceSnapshotStatus.safeParse('done').success).toBe(false);
-    expect(ANALYSIS_RUN_STATE_VALUES).toEqual(['running', 'succeeded', 'failed', 'cancelled']);
+    // M2 added `pending` (queued capture work) ahead of `running`.
+    expect(ANALYSIS_RUN_STATE_VALUES).toEqual([
+      'pending',
+      'running',
+      'succeeded',
+      'failed',
+      'cancelled',
+    ]);
     expect(AnalysisRunFailureCategory.safeParse('insufficient_evidence').success).toBe(false);
   });
 });

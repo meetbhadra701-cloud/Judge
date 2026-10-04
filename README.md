@@ -5,8 +5,10 @@ evidence-backed pre-reads, shows where its assessment is uncertain, suggests the
 most likely to resolve that uncertainty, reassesses only what the interview affects, and leaves
 the **final score to the human judge**.
 
-> **Status: Milestone 1 — Event Context Pack.** Events, versioned official context (sources,
-> rules, rubric, tracks), review, and lock. There is no project judging, scoring or model use yet.
+> **Status: Milestone 2 — Immutable project-source ingestion.** Events with versioned, locked
+> official context (M1); projects, declared Devpost/GitHub/deployment/video sources and immutable,
+> hashed source snapshots captured read-only through an SSRF-safe client (M2), behind
+> organizer/judge authentication. There is no claim extraction, evidence, scoring or model use yet.
 
 ## Read first
 
@@ -42,7 +44,7 @@ pnpm db:generate      # generate a migration after changing packages/database/sr
 pnpm db:migrate       # apply migrations (requires DATABASE_URL)
 
 pnpm --filter @judge-copilot/api dev      # API on http://127.0.0.1:3001/health
-pnpm --filter @judge-copilot/worker dev   # idle worker
+pnpm --filter @judge-copilot/worker dev   # capture worker (idle without DATABASE_URL)
 pnpm --filter @judge-copilot/web dev      # Event Context UI on http://localhost:3000
 ```
 
@@ -69,8 +71,34 @@ JUDGE_API_URL=http://127.0.0.1:3001 pnpm --filter @judge-copilot/web dev
 No extractor is configured by default, so you author drafts in the edit view. To replay the
 synthetic recorded extractions in `tests/fixtures/event-context/` (development only), start the
 API with `EVENT_CONTEXT_EXTRACTOR=replay EVENT_CONTEXT_REPLAY_DIR=tests/fixtures/event-context`
-and paste a fixture's source texts with matching authorities. M1 has no authentication, so do
-not expose it beyond localhost.
+and paste a fixture's source texts with matching authorities.
 
-Copy `.env.example` to `.env` for local overrides. No API keys or tokens are needed in M0.
+### Authentication (M2)
+
+Every API route except `/health` requires a bearer credential. Without `AUTH_MODE` the API fails
+closed (503). Locally, enable the development actors explicitly (refused in production):
+
+```sh
+AUTH_MODE=dev DATABASE_URL=postgres://… pnpm --filter @judge-copilot/api dev
+JUDGE_API_TOKEN=dev-organizer JUDGE_API_URL=http://127.0.0.1:3001 pnpm --filter @judge-copilot/web dev
+```
+
+`dev-organizer` may do everything; `dev-judge` may read and request captures. Deployments use
+`AUTH_MODE=jwt` with `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWKS_URL` (and optionally
+`AUTH_JWT_ROLES_CLAIM`, default `roles`) from any OIDC/OAuth provider issuing signed JWTs.
+
+### Capturing project sources (M2)
+
+```sh
+DATABASE_URL=postgres://… pnpm --filter @judge-copilot/worker dev
+```
+
+Create a project on a locked event, declare its sources, and request captures (the API answers
+202; the worker captures). To use the synthetic fixture network instead of the internet
+(development only, refused in production), start the worker with
+`CAPTURE_NETWORK=fixture CAPTURE_FIXTURE_DIR=tests/fixtures/source-capture`. `GITHUB_TOKEN`
+(optional, read-only) raises GitHub's rate limit for public repositories; it is never logged or
+stored.
+
+Copy `.env.example` to `.env` for local overrides. Never commit real values.
 Package scripts use POSIX `VAR=value cmd` syntax; on Windows use WSL.

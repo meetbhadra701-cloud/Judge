@@ -1,0 +1,16 @@
+{
+  "name": "fixture-i-network-failures",
+  "description": "A deployment that never answers (timeout) and one with a TLS failure.",
+  "hosts": {
+    "slow.example.org": ["93.184.216.39"],
+    "badtls.example.org": ["93.184.216.40"]
+  },
+  "routes": {
+    "https://slow.example.org/": {
+      "error": "hang"
+    },
+    "https://badtls.example.org/": {
+      "error": "tls"
+    }
+  }
+}

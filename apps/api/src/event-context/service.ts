@@ -83,6 +83,8 @@ export interface EventContextServiceOptions {
   extractor: EventContextExtractor | null;
   now?: () => Date;
   newId?: () => string;
+  /** The authenticated actor recorded in audit events (M2); null for system actions. */
+  actorId?: string | null;
 }
 
 /**
@@ -95,12 +97,21 @@ export class EventContextService {
   private readonly extractor: EventContextExtractor | null;
   private readonly now: () => Date;
   private readonly newId: () => string;
+  private readonly actorId: string | null;
+  private readonly options: EventContextServiceOptions;
 
   constructor(options: EventContextServiceOptions) {
+    this.options = options;
     this.db = options.db;
     this.extractor = options.extractor;
     this.now = options.now ?? (() => new Date());
     this.newId = options.newId ?? randomUUID;
+    this.actorId = options.actorId ?? null;
+  }
+
+  /** The same workflow, with audit events attributed to an authenticated actor. */
+  forActor(actorId: string): EventContextService {
+    return new EventContextService({ ...this.options, actorId });
   }
 
   // -- Events --------------------------------------------------------------------------------
@@ -780,9 +791,9 @@ export class EventContextService {
   }
 
   private async audit(db: JudgeDatabase, input: Omit<AuditEventInput, 'actorId'>): Promise<void> {
-    // No authentication exists yet (M1), so every action is recorded with a null actor.
+    // M2: requests are authenticated; the actor is null only for unattributed system calls.
     await createDatabaseAuditSink(db).append(
-      createAuditEvent({ actorId: null, ...input }, { now: this.now, newId: this.newId }),
+      createAuditEvent({ actorId: this.actorId, ...input }, { now: this.now, newId: this.newId }),
     );
   }
 

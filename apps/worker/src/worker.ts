@@ -1,4 +1,5 @@
 import type { Logger } from '@judge-copilot/shared';
+import type { CaptureLoop } from './capture/loop.js';
 
 export const SERVICE_NAME = 'judge-copilot-worker';
 
@@ -9,11 +10,18 @@ export interface Worker {
 }
 
 /**
- * The worker process lifecycle. Pipeline stages (ingestion, assessment, reassessment) will
- * register job handlers in later milestones; M0 registers none and contacts nothing.
+ * The worker process lifecycle. M2 registers one job handler, project-source capture, when a
+ * database is configured; without one the worker idles with no handlers and contacts nothing.
+ * No LLM, scoring or assessment jobs exist.
  */
-export function createWorker({ logger }: { logger: Logger }): Worker {
-  // Keeps the event loop alive while idle; there is no job source to do so in M0.
+export function createWorker({
+  logger,
+  captureLoop = null,
+}: {
+  logger: Logger;
+  captureLoop?: CaptureLoop | null;
+}): Worker {
+  // Keeps the event loop alive while idle.
   let keepAlive: NodeJS.Timeout | undefined;
 
   return {
@@ -25,15 +33,19 @@ export function createWorker({ logger }: { logger: Logger }): Worker {
         return;
       }
       keepAlive = setInterval(() => undefined, 60_000);
-      logger.info({ jobHandlers: 0 }, 'worker started');
+      captureLoop?.start();
+      logger.info(
+        captureLoop ? { jobHandlers: 1, handlers: ['project_source_capture'] } : { jobHandlers: 0 },
+        'worker started',
+      );
     },
-    stop() {
+    async stop() {
       if (keepAlive) {
         clearInterval(keepAlive);
         keepAlive = undefined;
+        await captureLoop?.stop();
         logger.info('worker stopped');
       }
-      return Promise.resolve();
     },
   };
 }

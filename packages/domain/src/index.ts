@@ -8,12 +8,15 @@
  * This package is pure: no I/O, no environment access, no model calls, no database.
  */
 export type {
+  ActorRole,
   AnalysisRunFailureCategory,
   AnalysisRunState,
   AssessmentKind,
+  CaptureFailureCategory,
   EventContextStatus,
   EvidenceKind,
   EvidenceOrigin,
+  ProjectSourceType,
   QuestionMode,
   Ratio,
   Score10,
@@ -23,3 +26,4 @@ export type {
 } from '@judge-copilot/schemas';
 
 export * from './lifecycle.js';
+export * from './authorization.js';
