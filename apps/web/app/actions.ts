@@ -62,7 +62,11 @@ export async function addSourceAction(formData: FormData): Promise<void> {
 export async function buildContextAction(formData: FormData): Promise<void> {
   const eventId = field(formData, 'eventId');
   const versionId = field(formData, 'versionId');
-  const result = await apiRequest('POST', `${versionPath(eventId, versionId)}/build`);
+  // Replacing reviewed changes needs an explicit, separately submitted confirmation.
+  const replaceHumanEdits = field(formData, 'replaceHumanEdits') === 'true';
+  const result = await apiRequest('POST', `${versionPath(eventId, versionId)}/build`, {
+    replaceHumanEdits,
+  });
   const page = uiVersionPath(eventId, versionId);
   revalidatePath(page);
   redirect(result.ok ? page : withError(page, result.message));

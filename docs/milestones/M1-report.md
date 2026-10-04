@@ -245,6 +245,46 @@ graph (M3), scoring engine and fallback-rubric data (M4), model-backed extractio
 `llm`/`prompts` (≥ M5), questions (M6), interview, reassessment and final score (M7–M9),
 Playwright e2e in the repository, document parsing and URL fetching.
 
+## Hardening (review of PR #1)
+
+A follow-up commit on top of `01c4751` addressed two review findings.
+
+1. **A rebuild can no longer silently erase human review.** `hasReviewedChanges` compares the
+   reviewed document with the last extraction baseline by canonical JSON, and treats a document
+   with no baseline (hand-authored, or a v2 copied from a locked version) as reviewed. Without
+   `replaceHumanEdits: true`, such a build is refused with `409 HUMAN_EDITS_WOULD_BE_REPLACED`:
+   no run is created and the draft is untouched. With confirmation the build proceeds, and
+   `event_context_built` records `replacedHumanEdits: true`, `replacedDraftFingerprint` and
+   `replacedHumanItemCount`. The UI shows a warning and replaces the normal Build button with a
+   required checkbox and a "Rebuild and replace my reviewed draft" button.
+2. **Builds are optimistically guarded against stale input.** Before the extractor runs, the build
+   records `sourceSetFingerprint` and `draftStateFingerprint`; no transaction is open while the
+   extractor runs. Before writing, it locks the version row and recomputes both. Any change
+   (source added, human edit, another build) discards the result with `409 CONTEXT_BUILD_STALE`.
+   The run becomes `cancelled`, and `event_context_build_cancelled` records
+   `reason: stale_input` with the changed inputs. A version locked mid-build is cancelled with
+   `reason: version_no_longer_draft`.
+
+New tests (20):
+
+- `packages/context/src/fingerprints.test.ts` (11): fingerprint determinism and sensitivity,
+  reviewed-change detection, key-order independence.
+- `service.test.ts` (8):
+  - an untouched rebuild is allowed;
+  - an edited draft is refused, with document and extraction bit-for-bit unchanged and no run
+    created;
+  - a copied v2 without a baseline is refused;
+  - a confirmed replacement is audited;
+  - an edit during extraction causes a stale cancel;
+  - a source added during extraction causes a stale cancel;
+  - of two overlapping builds, the second is cancelled as stale rather than winning silently;
+  - a lock during extraction causes a cancel, and the locked hash is unchanged.
+- `routes.test.ts` (1): 409 without confirmation, 400 for a non-boolean flag, 200 with
+  confirmation.
+
+The existing failed-build and locked-immutability tests are unchanged and still pass. The totals
+are now 182 tests in 23 files, and 230 with PostgreSQL 16.
+
 ## Known limitations
 
 - The edit UI is a JSON editor, not field-level forms.
@@ -253,8 +293,9 @@ Playwright e2e in the repository, document parsing and URL fetching.
   matches its synthetic fixtures exactly.
 - The UI walkthrough was run manually with a throwaway Playwright install, not as a committed
   test.
-- Building a draft that already has human edits replaces them with the new extraction. The edits
-  remain visible in the audit trail as IDs only.
+- An explicitly confirmed rebuild (`replaceHumanEdits: true`) replaces the reviewed draft. The
+  replacement is audited (flag, fingerprint and count of human items), but the replaced document
+  itself is not kept as a separate snapshot. There is no automatic merge of human edits.
 - Scripts use POSIX env syntax; Windows users need WSL.
 
 ## Architecture drift check

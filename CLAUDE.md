@@ -37,6 +37,9 @@ Judge Copilot is a human-in-the-loop hackathon judging system. Before changing a
   new version.
 - Extractors return `unknown`. Always run `EventContextExtraction` (Zod) and then
   `documentFromExtraction` (domain).
+- Never hold a transaction across an extractor call. Builds re-check their input fingerprints
+  under a row lock before writing, and never replace reviewed changes without explicit
+  `replaceHumanEdits`.
 
 ## Before you finish
 

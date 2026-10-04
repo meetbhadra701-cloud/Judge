@@ -146,11 +146,31 @@ export default async function VersionPage({
           </form>
 
           <h2>Build and lock</h2>
+          {version.rebuildWouldReplaceReviewedChanges ? (
+            <div className="error">
+              <p>
+                <strong>This draft contains reviewed or manual changes.</strong> Rebuilding from the
+                sources would replace them with a fresh extraction. A normal build is refused; to
+                proceed you must confirm explicitly.
+              </p>
+              <form action={buildContextAction} className="stack">
+                {hidden}
+                <label>
+                  <input type="checkbox" name="replaceHumanEdits" value="true" required /> I
+                  understand that my reviewed changes will be replaced (the replacement is recorded
+                  in the audit trail).
+                </label>
+                <button type="submit">Rebuild and replace my reviewed draft</button>
+              </form>
+            </div>
+          ) : null}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <form action={buildContextAction}>
-              {hidden}
-              <button type="submit">Build context from sources</button>
-            </form>
+            {version.rebuildWouldReplaceReviewedChanges ? null : (
+              <form action={buildContextAction}>
+                {hidden}
+                <button type="submit">Build context from sources</button>
+              </form>
+            )}
             <Link href={`/events/${eventId}/versions/${versionId}/edit`}>Edit draft</Link>
             <form action={lockContextAction}>
               {hidden}

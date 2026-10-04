@@ -152,6 +152,11 @@ interface EventContextExtractor {
   exception is recorded as `provider_error`, a shape failure as `schema_validation_failed`, and a
   semantic failure as `domain_validation_failed`. All of them leave the previous draft unchanged
   (invariant 22).
+- No database transaction is held across an extractor call. The build fingerprints its inputs
+  (source set and draft state) before calling the extractor and re-checks them under a row lock
+  before writing. A result computed from stale input is discarded (`CONTEXT_BUILD_STALE`, run
+  `cancelled`), never written over newer human work. A rebuild that would replace reviewed changes
+  requires explicit confirmation (`replaceHumanEdits`); see ARCHITECTURE.md §9.
 - Extractors only _propose_ facts and conflicting positions. Precedence, IDs, provenance
   bookkeeping, validation and locking are deterministic.
 - **M1 ships no semantic extractor.** By default (`EVENT_CONTEXT_EXTRACTOR=none`) the build route

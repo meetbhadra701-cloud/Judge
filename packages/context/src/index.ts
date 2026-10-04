@@ -26,6 +26,13 @@ export {
   type ExtractorSource,
 } from './extractor.js';
 export { listFacts, type FactEntry } from './facts.js';
+export {
+  draftStateFingerprint,
+  hasReviewedChanges,
+  sourceSetFingerprint,
+  type DraftState,
+  type FingerprintSource,
+} from './fingerprints.js';
 export { canonicalJson, normalizeSourceText, sha256Hex, sourceContentHash } from './hash.js';
 export { collectSourceIds, remapSourceIds } from './references.js';
 export {

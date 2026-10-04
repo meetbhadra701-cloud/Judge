@@ -3,6 +3,8 @@
  * source, build, edit, lock, supersede, immutability, provenance, conflicts and audit.
  */
 import {
+  canonicalJson,
+  createReplayExtractor,
   EventContextError,
   lockedContentHash,
   remapSourceIds,
@@ -70,6 +72,23 @@ async function expectPgCode(promise: PromiseLike<unknown>, code: string): Promis
 
 function editable(document: unknown): EventContextDocumentInput {
   return structuredClone(document) as EventContextDocumentInput;
+}
+
+/** Wraps an extractor so a test can pause it mid-build and change state underneath it. */
+function gatedExtractor(inner: EventContextExtractor) {
+  let release: () => void = () => undefined;
+  let markStarted: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  const extractor: EventContextExtractor = {
+    name: 'gated-replay',
+    extract: async (input) => {
+      markStarted();
+      await gate;
+      return inner.extract(input);
+    },
+  };
+  return { extractor, started, release };
 }
 
 describe.each(testDatabaseTargets())('Event Context workflow on %s', (_name, open) => {
@@ -513,6 +532,200 @@ describe.each(testDatabaseTargets())('Event Context workflow on %s', (_name, ope
       expect(locked.sources.find((source) => source.id === judgeNote)).toMatchObject({
         authority: 'judge_context',
       });
+    });
+  });
+
+  describe('rebuild safety', () => {
+    async function buildRuns(versionId: string) {
+      return db
+        .select({ state: analysisRuns.state, failureCategory: analysisRuns.failureCategory })
+        .from(analysisRuns)
+        .where(eq(analysisRuns.contextVersionId, versionId))
+        .orderBy(analysisRuns.startedAt);
+    }
+
+    async function humanEdit(eventId: string, versionId: string, statement: string) {
+      const current = await service.getContextVersion(eventId, versionId);
+      const input = editable(current.document);
+      input.judgingFormat.statement = statement;
+      return service.editContext(eventId, versionId, { document: input });
+    }
+
+    it('allows rebuilding an unreviewed draft without confirmation', async () => {
+      const { eventId, versionId, detail } = await built('a-clear-official-rubric');
+      expect(detail.rebuildWouldReplaceReviewedChanges).toBe(false);
+      const rebuilt = await service.buildContext(eventId, versionId);
+      expect(rebuilt.document).toEqual(rebuilt.extraction);
+    });
+
+    it('refuses to replace human edits by default and leaves the reviewed draft bit-for-bit unchanged', async () => {
+      const { eventId, versionId } = await built('a-clear-official-rubric');
+      const edited = await humanEdit(
+        eventId,
+        versionId,
+        'Five-minute expo demo, then judge questions.',
+      );
+      expect(edited.rebuildWouldReplaceReviewedChanges).toBe(true);
+
+      const error = await expectCode(
+        service.buildContext(eventId, versionId),
+        'HUMAN_EDITS_WOULD_BE_REPLACED',
+      );
+      expect(error.message).toMatch(/replace/);
+      await expectCode(
+        service.buildContext(eventId, versionId, { replaceHumanEdits: false }),
+        'HUMAN_EDITS_WOULD_BE_REPLACED',
+      );
+
+      const after = await service.getContextVersion(eventId, versionId);
+      expect(canonicalJson(after.document)).toBe(canonicalJson(edited.document));
+      expect(canonicalJson(after.extraction)).toBe(canonicalJson(edited.extraction));
+      expect((await buildRuns(versionId)).map((run) => run.state)).toEqual(['succeeded']);
+    });
+
+    it('treats a document without an extraction baseline (copied v2) as reviewed', async () => {
+      const { eventId, versionId } = await built('c-conflicting-authority');
+      await service.lockContext(eventId, versionId);
+      const v2 = await service.createContextVersion(eventId, { changeReason: 'Rebuild test.' });
+      expect(v2.extraction).toBeNull();
+      expect(v2.rebuildWouldReplaceReviewedChanges).toBe(true);
+      await expectCode(service.buildContext(eventId, v2.id), 'HUMAN_EDITS_WOULD_BE_REPLACED');
+      expect(canonicalJson((await service.getContextVersion(eventId, v2.id)).document)).toBe(
+        canonicalJson(v2.document),
+      );
+    });
+
+    it('replaces human edits only when explicitly confirmed, and audits the replacement', async () => {
+      const { eventId, versionId, detail } = await built('a-clear-official-rubric');
+      await humanEdit(eventId, versionId, 'Edited by the head judge.');
+
+      const rebuilt = await service.buildContext(eventId, versionId, { replaceHumanEdits: true });
+      expect(rebuilt.document?.judgingFormat.statement).toBe(
+        detail.document?.judgingFormat.statement,
+      );
+      expect(rebuilt.document?.judgingFormat.humanModified).toBe(false);
+      expect(canonicalJson(rebuilt.document)).toBe(canonicalJson(rebuilt.extraction));
+      expect(rebuilt.rebuildWouldReplaceReviewedChanges).toBe(false);
+
+      const builds = (await auditTrail(db, versionId)).filter(
+        (entry) => entry.action === 'event_context_built',
+      );
+      expect(builds.map((entry) => entry.metadata['replacedHumanEdits'])).toEqual([false, true]);
+      expect(builds[1]?.metadata).toMatchObject({ replacedHumanItemCount: 1 });
+      expect(builds[1]?.metadata['replacedDraftFingerprint']).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('discards a build whose draft was edited while the extractor was running', async () => {
+      const { eventId, versionId } = await built('a-clear-official-rubric');
+      const gated = gatedExtractor(createReplayExtractor([...fixtures.values()]));
+      const pending = serviceWith(db, gated.extractor).buildContext(eventId, versionId);
+      const outcome = pending.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await gated.started;
+
+      const edited = await humanEdit(eventId, versionId, 'Edited while the build was running.');
+      gated.release();
+
+      const error = await outcome;
+      expect(error).toBeInstanceOf(EventContextError);
+      expect((error as EventContextError).code).toBe('CONTEXT_BUILD_STALE');
+      expect((error as EventContextError).details).toMatchObject({ staleInputs: ['draft'] });
+
+      const after = await service.getContextVersion(eventId, versionId);
+      expect(canonicalJson(after.document)).toBe(canonicalJson(edited.document));
+      expect(after.document?.judgingFormat.statement).toBe('Edited while the build was running.');
+      expect((await buildRuns(versionId)).map((run) => [run.state, run.failureCategory])).toEqual([
+        ['succeeded', null],
+        ['cancelled', null],
+      ]);
+      const cancelled = (await auditTrail(db, versionId)).find(
+        (entry) => entry.action === 'event_context_build_cancelled',
+      );
+      expect(cancelled?.metadata).toMatchObject({ reason: 'stale_input', staleInputs: ['draft'] });
+    });
+
+    it('discards a build whose sources changed while the extractor was running', async () => {
+      const { eventId, versionId } = await seedFromRecording(
+        service,
+        fixture('a-clear-official-rubric'),
+      );
+      const gated = gatedExtractor(createReplayExtractor([...fixtures.values()]));
+      const outcome = serviceWith(db, gated.extractor)
+        .buildContext(eventId, versionId)
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      await gated.started;
+
+      const late = await service.addSource(eventId, versionId, {
+        sourceType: 'pasted_text',
+        authority: 'organizer_guidance',
+        title: 'Late organizer note',
+        normalizedText: 'Demos must run on the presenter laptop.',
+      });
+      gated.release();
+
+      const error = await outcome;
+      expect((error as EventContextError).code).toBe('CONTEXT_BUILD_STALE');
+      expect((error as EventContextError).details).toMatchObject({ staleInputs: ['sources'] });
+      const after = await service.getContextVersion(eventId, versionId);
+      expect(after.sources.map((source) => source.id)).toContain(late.id);
+      expect(after.document).toBeNull();
+      expect(after.extraction).toBeNull();
+    });
+
+    it('does not let overlapping builds silently last-writer-win', async () => {
+      const { eventId, versionId } = await built('a-clear-official-rubric');
+      const first = gatedExtractor(createReplayExtractor([...fixtures.values()]));
+      const second = gatedExtractor(createReplayExtractor([...fixtures.values()]));
+      const firstOutcome = serviceWith(db, first.extractor).buildContext(eventId, versionId);
+      const secondOutcome = serviceWith(db, second.extractor)
+        .buildContext(eventId, versionId)
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      await Promise.all([first.started, second.started]);
+
+      first.release();
+      const winner = await firstOutcome;
+      second.release();
+      const error = await secondOutcome;
+
+      expect((error as EventContextError).code).toBe('CONTEXT_BUILD_STALE');
+      const after = await service.getContextVersion(eventId, versionId);
+      expect(canonicalJson(after.document)).toBe(canonicalJson(winner.document));
+      expect((await buildRuns(versionId)).map((run) => run.state).sort()).toEqual([
+        'cancelled',
+        'succeeded',
+        'succeeded',
+      ]);
+    });
+
+    it('cancels a build whose version was locked while the extractor was running', async () => {
+      const { eventId, versionId } = await built('a-clear-official-rubric');
+      const gated = gatedExtractor(createReplayExtractor([...fixtures.values()]));
+      const outcome = serviceWith(db, gated.extractor)
+        .buildContext(eventId, versionId)
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      await gated.started;
+      const locked = await service.lockContext(eventId, versionId);
+      gated.release();
+
+      expect(((await outcome) as EventContextError).code).toBe('LOCKED_CONTEXT_IMMUTABLE');
+      const after = await service.getContextVersion(eventId, versionId);
+      expect(after.integrity).toBe('verified');
+      expect(after.lockedContentHash).toBe(locked.lockedContentHash);
+      const cancelled = (await auditTrail(db, versionId)).find(
+        (entry) => entry.action === 'event_context_build_cancelled',
+      );
+      expect(cancelled?.metadata).toMatchObject({ reason: 'version_no_longer_draft' });
     });
   });
 

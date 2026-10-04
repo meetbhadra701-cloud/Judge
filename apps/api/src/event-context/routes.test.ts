@@ -215,6 +215,36 @@ describe('Event Context HTTP API', () => {
     expect([duplicate.status, errorCode(duplicate.body)]).toEqual([409, 'EVENT_SLUG_TAKEN']);
   });
 
+  it('requires an explicit, boolean confirmation before a rebuild replaces human edits', async () => {
+    const recording = requireValue(fixtures.get('fixture-a-clear-official-rubric'));
+    const created = await call(app, 'POST', '/events', { name: 'Rebuild', slug: 'rebuild-http' });
+    const eventId = (created.body as { id: string }).id;
+    const version = await call(app, 'POST', `/events/${eventId}/context-versions`, {});
+    const base = `/events/${eventId}/context-versions/${(version.body as { id: string }).id}`;
+    for (const source of recording.sources) {
+      await call(app, 'POST', `${base}/sources`, { ...source, ref: undefined });
+    }
+    const first = ContextVersionDetail.parse((await call(app, 'POST', `${base}/build`)).body);
+    const document = structuredClone(first.document);
+    if (!document) throw new Error('missing document');
+    document.judgingFormat.statement = 'Edited over HTTP.';
+    const edited = ContextVersionDetail.parse((await call(app, 'PATCH', base, { document })).body);
+    expect(edited.rebuildWouldReplaceReviewedChanges).toBe(true);
+
+    const refused = await call(app, 'POST', `${base}/build`);
+    expect([refused.status, errorCode(refused.body)]).toEqual([
+      409,
+      'HUMAN_EDITS_WOULD_BE_REPLACED',
+    ]);
+    const notBoolean = await call(app, 'POST', `${base}/build`, { replaceHumanEdits: 'yes' });
+    expect([notBoolean.status, errorCode(notBoolean.body)]).toEqual([400, 'INVALID_REQUEST']);
+    const confirmed = await call(app, 'POST', `${base}/build`, { replaceHumanEdits: true });
+    expect(confirmed.status).toBe(200);
+    expect(ContextVersionDetail.parse(confirmed.body).document?.judgingFormat.statement).toBe(
+      first.document?.judgingFormat.statement,
+    );
+  });
+
   it('responds 503 when no extractor is configured for build', async () => {
     const manualApp = buildApp({ logger, eventContext: serviceWith(testDb.db, null) });
     const created = await call(manualApp, 'POST', '/events', {

@@ -1,4 +1,5 @@
 import {
+  BuildEventContextRequest,
   CreateContextVersionRequest,
   CreateEventRequest,
   EventSourceInput,
@@ -62,7 +63,8 @@ export function registerEventContextRoutes(app: ApiApp, service: EventContextSer
 
   app.post('/events/:eventId/context-versions/:versionId/build', async (request) => {
     const { eventId, versionId } = parseRequest(VersionParams, request.params, 'params');
-    return service.buildContext(eventId, versionId);
+    const body = parseRequest(BuildEventContextRequest, request.body, 'body');
+    return service.buildContext(eventId, versionId, { replaceHumanEdits: body.replaceHumanEdits });
   });
 
   app.post('/events/:eventId/context-versions/:versionId/lock', async (request) => {

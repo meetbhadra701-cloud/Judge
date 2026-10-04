@@ -76,6 +76,15 @@ export const UpdateEventContextRequest = z.object({
 });
 export type UpdateEventContextRequest = z.infer<typeof UpdateEventContextRequest>;
 
+export const BuildEventContextRequest = z.object({
+  /**
+   * Must be explicitly true to rebuild a draft whose reviewed document differs from its last
+   * extraction (or has none). Default false: a rebuild never silently discards human review.
+   */
+  replaceHumanEdits: z.boolean().default(false),
+});
+export type BuildEventContextRequest = z.input<typeof BuildEventContextRequest>;
+
 export const EventContextIssue = z.object({
   code: z.string(),
   path: z.string(),
@@ -102,6 +111,11 @@ export const ContextVersionDetail = ContextVersionSummary.extend({
   unresolved: z.array(UnresolvedItem),
   /** Draft versions only: whether locking would currently succeed. */
   lockReadiness: z.object({ ready: z.boolean(), issues: z.array(EventContextIssue) }).nullable(),
+  /**
+   * Draft versions only: true when a successful rebuild would replace reviewed or manual changes,
+   * so a build requires `replaceHumanEdits: true`.
+   */
+  rebuildWouldReplaceReviewedChanges: z.boolean().nullable(),
   /** Frozen versions only: whether the stored content still hashes to `lockedContentHash`. */
   integrity: z.enum(['verified', 'mismatch']).nullable(),
 });

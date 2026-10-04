@@ -4,12 +4,16 @@ import {
   applyHumanEdit,
   collectSourceIds,
   documentFromExtraction,
+  draftStateFingerprint,
   EventContextError,
+  hasReviewedChanges,
+  listFacts,
   listUnresolved,
   lockedContentHash,
   normalizeSourceText,
   remapSourceIds,
   sourceContentHash,
+  sourceSetFingerprint,
   validateForLock,
   type EventContextExtractor,
   type VersionSources,
@@ -64,6 +68,7 @@ export const EVENT_CONTEXT_AUDIT_ACTIONS = {
   sourceAdded: 'event_source_added',
   built: 'event_context_built',
   buildFailed: 'event_context_build_failed',
+  buildCancelled: 'event_context_build_cancelled',
   edited: 'event_context_edited',
   locked: 'event_context_locked',
   superseded: 'context_version_superseded',
@@ -258,6 +263,9 @@ export class EventContextService {
       const issues = validateForLock(document, versionSources(sources));
       lockReadiness = { ready: issues.length === 0, issues };
     }
+    const extraction = loadExtraction(version);
+    const rebuildWouldReplaceReviewedChanges =
+      version.status === 'draft' ? hasReviewedChanges({ document, extraction }) : null;
     let integrity: ContextVersionDetail['integrity'] = null;
     if (frozen && document && version.lockedContentHash) {
       const recomputed = lockedContentHash({ document, sources: sources.map(toSourceSummary) });
@@ -269,12 +277,11 @@ export class EventContextService {
       summary: version.summary,
       lockedContentHash: version.lockedContentHash,
       document,
-      extraction: version.extractedContent
-        ? EventContextDocument.parse(version.extractedContent)
-        : null,
+      extraction,
       sources: sources.map(toSourceSummary),
       unresolved: document ? listUnresolved(document) : [],
       lockReadiness,
+      rebuildWouldReplaceReviewedChanges,
       integrity,
     };
   }
@@ -388,10 +395,22 @@ export class EventContextService {
 
   /**
    * sources → extractor → schema validation → domain validation → draft.
-   * The draft is replaced in one transaction only after the result is fully valid; any failure
-   * marks the analysis run failed with a sanitized category and leaves the previous draft intact.
+   *
+   * Safety rules:
+   * - A rebuild never silently discards human review: when the draft's reviewed document differs
+   *   from its last extraction (or has none), the build is refused with
+   *   HUMAN_EDITS_WOULD_BE_REPLACED unless `replaceHumanEdits` is explicitly true.
+   * - The extractor runs with NO transaction open. Fingerprints of the source set and the draft
+   *   state are taken first and re-checked under `FOR UPDATE` before writing; if either changed,
+   *   the result is discarded (CONTEXT_BUILD_STALE) and the newer state is left intact.
+   * - Any failure marks the analysis run failed (or cancelled, for stale/locked input) and leaves
+   *   the previous draft untouched.
    */
-  async buildContext(eventId: string, versionId: string): Promise<ContextVersionDetail> {
+  async buildContext(
+    eventId: string,
+    versionId: string,
+    options: { replaceHumanEdits?: boolean } = {},
+  ): Promise<ContextVersionDetail> {
     const version = await this.requireVersion(this.db, eventId, versionId);
     assertDraft(version);
     if (!this.extractor) {
@@ -406,6 +425,20 @@ export class EventContextService {
       throw new EventContextError('NO_CONTEXT_SOURCES', 'Add at least one source before building');
     }
 
+    const startState = {
+      document: await this.loadDocument(this.db, version),
+      extraction: loadExtraction(version),
+    };
+    const replacesReviewedChanges = hasReviewedChanges(startState);
+    if (replacesReviewedChanges && options.replaceHumanEdits !== true) {
+      throw new EventContextError(
+        'HUMAN_EDITS_WOULD_BE_REPLACED',
+        'This draft contains reviewed or manual changes that a rebuild would replace. Confirm with replaceHumanEdits to rebuild anyway.',
+      );
+    }
+    const sourceFingerprint = sourceSetFingerprint(sources);
+    const draftFingerprint = draftStateFingerprint(startState);
+
     const [run] = await this.db
       .insert(analysisRuns)
       .values({
@@ -418,6 +451,7 @@ export class EventContextService {
       .returning({ id: analysisRuns.id });
     const runId = required(run).id;
 
+    // No transaction is open while the extractor runs (it may be a slow model call later).
     let output: unknown;
     try {
       output = await this.extractor.extract({
@@ -463,6 +497,23 @@ export class EventContextService {
       await this.db.transaction(async (tx) => {
         const current = await this.requireVersion(tx, eventId, versionId, { forUpdate: true });
         assertDraft(current);
+        const currentSources = await this.loadSources(tx, current.id);
+        const currentState = {
+          document: await this.loadDocument(tx, current),
+          extraction: loadExtraction(current),
+        };
+        const staleInputs = [
+          ...(sourceSetFingerprint(currentSources) === sourceFingerprint ? [] : ['sources']),
+          ...(draftStateFingerprint(currentState) === draftFingerprint ? [] : ['draft']),
+        ];
+        if (staleInputs.length > 0) {
+          throw new EventContextError(
+            'CONTEXT_BUILD_STALE',
+            'The sources or the draft changed while the build was running; the build result was discarded and your newer changes were kept',
+            { details: { runId, staleInputs } },
+          );
+        }
+
         await this.writeDocument(tx, current.id, document);
         await tx
           .update(eventContextVersions)
@@ -472,6 +523,7 @@ export class EventContextService {
           .update(analysisRuns)
           .set({ state: 'succeeded', finishedAt: this.now() })
           .where(eq(analysisRuns.id, runId));
+        const replacedDocument = currentState.document;
         await this.audit(tx, {
           entityType: 'event_context_version',
           entityId: current.id,
@@ -480,20 +532,26 @@ export class EventContextService {
             runId,
             extractor: this.extractor?.name ?? null,
             sourceCount: sources.length,
+            sourceFingerprint,
             ruleCount: document.rules.length,
             trackCount: document.tracks.length,
             rubricCount: document.rubrics.length,
             conflictCount: document.conflicts.length,
+            replacedHumanEdits: replacesReviewedChanges,
+            replacedDraftFingerprint: replacedDocument ? draftFingerprint : null,
+            replacedHumanItemCount:
+              replacesReviewedChanges && replacedDocument ? countHumanItems(replacedDocument) : 0,
           },
         });
       });
     } catch (error) {
+      if (error instanceof EventContextError && error.code === 'CONTEXT_BUILD_STALE') {
+        await this.cancelBuild(version.id, runId, 'stale_input', error.details);
+        throw error;
+      }
       if (error instanceof EventContextError || hasPgCode(error, PG_RESTRICT_VIOLATION)) {
         // The version stopped being a draft while extraction ran.
-        await this.db
-          .update(analysisRuns)
-          .set({ state: 'cancelled', finishedAt: this.now() })
-          .where(eq(analysisRuns.id, runId));
+        await this.cancelBuild(version.id, runId, 'version_no_longer_draft');
         throw new EventContextError(
           'LOCKED_CONTEXT_IMMUTABLE',
           'The version was locked while it was being built; create a new version instead',
@@ -668,6 +726,36 @@ export class EventContextService {
       'The Event Context build failed; the previous draft is unchanged',
       { issues, details: { runId, failureCategory, ...details } },
     );
+  }
+
+  /**
+   * A build whose input went stale (or whose version was locked) mid-flight is not a provider
+   * failure: the run is `cancelled` and the sanitized reason is recorded in the audit trail.
+   */
+  private async cancelBuild(
+    versionId: string,
+    runId: string,
+    reason: 'stale_input' | 'version_no_longer_draft',
+    details: Readonly<Record<string, unknown>> = {},
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(analysisRuns)
+        .set({ state: 'cancelled', finishedAt: this.now() })
+        .where(eq(analysisRuns.id, runId));
+      await this.audit(tx, {
+        entityType: 'event_context_version',
+        entityId: versionId,
+        action: EVENT_CONTEXT_AUDIT_ACTIONS.buildCancelled,
+        metadata: {
+          runId,
+          reason,
+          staleInputs: Array.isArray(details['staleInputs'])
+            ? (details['staleInputs'] as string[])
+            : [],
+        },
+      });
+    });
   }
 
   /** Maps database guard violations raised during a race to the domain error. */
@@ -924,6 +1012,22 @@ function assertDraft(version: VersionRow): void {
       `Version ${String(version.version)} is not a draft`,
     );
   }
+}
+
+function loadExtraction(version: VersionRow): EventContextDocument | null {
+  return version.extractedContent ? EventContextDocument.parse(version.extractedContent) : null;
+}
+
+/** Items a human authored or edited — reported (as a count) when an explicit rebuild replaces them. */
+function countHumanItems(document: EventContextDocument): number {
+  const items = [
+    ...listFacts(document).map(({ fact }) => fact),
+    ...document.conflicts,
+    ...document.tracks,
+    ...document.rubrics,
+    ...document.rubrics.flatMap((rubric) => rubric.criteria),
+  ];
+  return items.filter((item) => item.origin === 'human' || item.humanModified).length;
 }
 
 function versionSources(sources: readonly SourceRow[]): VersionSources {

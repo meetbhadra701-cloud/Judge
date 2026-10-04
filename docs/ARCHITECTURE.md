@@ -430,6 +430,25 @@ A partial unique index guarantees at most one locked version per event. New vers
 locked version's sources (new rows with `copied_from_id`) and document (source IDs remapped), and
 require a change reason.
 
+### Rebuild safety (M1 hardening)
+
+- **Human review is never silently replaced.** A build first checks `hasReviewedChanges`: a
+  document exists with no extraction baseline, or it differs from the last extraction by canonical
+  JSON comparison (not only by `humanModified` flags). In that case the build is refused with
+  `409 HUMAN_EDITS_WOULD_BE_REPLACED` unless the request sets `"replaceHumanEdits": true`. That
+  option defaults to false. An explicit replacement is recorded in the `event_context_built`
+  audit metadata: `replacedHumanEdits`, `replacedDraftFingerprint` and `replacedHumanItemCount`.
+  There is no automatic semantic merge.
+- **Builds are optimistically guarded.** At build start the service fingerprints the source set
+  (`sourceSetFingerprint` over id, position, authority, type, title, URL and content hash) and the
+  draft state (`draftStateFingerprint`: canonical document plus extraction baseline). The
+  extractor then runs with **no transaction open**. Before writing, the service locks the version
+  row `FOR UPDATE`, re-checks that it is a draft, reloads the sources and draft, and recomputes
+  both fingerprints. If either changed, the result is discarded with `409 CONTEXT_BUILD_STALE`,
+  the run becomes `cancelled`, and an `event_context_build_cancelled` audit event records the
+  reason (`stale_input`, plus which inputs changed). A version locked mid-build is cancelled the
+  same way (`version_no_longer_draft`). Neither case is reported as a provider failure.
+
 ### Authority and conflicts
 
 Source authority precedence is an explicit table (`SOURCE_AUTHORITY_PRECEDENCE`: 100, 95, 90, 85,
@@ -449,16 +468,16 @@ resolution ever deletes a position or a source.
 
 ### API
 
-| Method    | Path                                           | Purpose                                                                           |
-| --------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
-| GET/POST  | `/events`                                      | list / create events                                                              |
-| GET       | `/events/:eventId`                             | event + version summaries                                                         |
-| POST      | `/events/:eventId/context-versions`            | create the next draft (derives from the locked version)                           |
-| GET/PATCH | `/events/:eventId/context-versions/:versionId` | detail (document, extraction, unresolved, lock readiness, integrity) / human edit |
-| GET/POST  | `…/:versionId/sources`                         | list / add sources                                                                |
-| POST      | `…/:versionId/build`                           | build through the configured extractor                                            |
-| POST      | `…/:versionId/lock`                            | lock                                                                              |
-| GET       | `/events/:eventId/context`                     | the currently locked `EventContextLockedSnapshot`                                 |
+| Method    | Path                                           | Purpose                                                                                     |
+| --------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| GET/POST  | `/events`                                      | list / create events                                                                        |
+| GET       | `/events/:eventId`                             | event + version summaries                                                                   |
+| POST      | `/events/:eventId/context-versions`            | create the next draft (derives from the locked version)                                     |
+| GET/PATCH | `/events/:eventId/context-versions/:versionId` | detail (document, extraction, unresolved, lock readiness, integrity) / human edit           |
+| GET/POST  | `…/:versionId/sources`                         | list / add sources                                                                          |
+| POST      | `…/:versionId/build`                           | build through the configured extractor (`{ "replaceHumanEdits"?: boolean }`, default false) |
+| POST      | `…/:versionId/lock`                            | lock                                                                                        |
+| GET       | `/events/:eventId/context`                     | the currently locked `EventContextLockedSnapshot`                                           |
 
 Errors are `{ "error": { "code", "message", "details?" } }` with stable codes (for example
 `INVALID_RUBRIC_WEIGHTS` 422, `LOCKED_CONTEXT_IMMUTABLE` 409, `CONTEXT_VERSION_NOT_FOUND` 404,
