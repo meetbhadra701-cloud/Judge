@@ -102,7 +102,7 @@ describe.each(emptyDatabaseTargets())('M2 -> M3 migration upgrade on %s', (_name
       db: testDb.db,
       ids: deterministicIdAllocator('upgrade'),
     });
-    const readme = world.snapshots.github.artifacts.find((a) => a.key === 'README.md');
+    const readme = world.snapshots.github.artifacts.find((a) => a.key === 'files/README.md');
     const created = await store.createGraph(
       world.project.id,
       {

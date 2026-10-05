@@ -68,7 +68,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph guards on %s', (_name, o
   }
 
   const github = () => w.snapshots.github;
-  const readmeArtifact = () => must(github().artifacts.find((a) => a.key === 'README.md'));
+  const readmeArtifact = () => must(github().artifacts.find((a) => a.key === 'files/README.md'));
 
   async function evidence(overrides: Partial<typeof evidenceItems.$inferInsert> = {}) {
     return must(
@@ -206,13 +206,110 @@ describe.each(testDatabaseTargets())('M3 evidence graph guards on %s', (_name, o
       );
     });
 
-    it('can never form a cycle: a row only references rows that already exist and rows never change', async () => {
+    it('cannot be rewired into a cycle afterwards: claims never UPDATE', async () => {
       const a = await claim();
       const b = await claim({ supersedesId: a.id });
       await expectPgError(
         db.execute(sql`UPDATE claims SET supersedes_id = ${b.id} WHERE id = ${a.id}`),
         RESTRICT_VIOLATION,
       );
+    });
+
+    describe('single-statement supersession bypass (migration 0009)', () => {
+      let idCounter = 0;
+      const ids = (n: number) =>
+        Array.from({ length: n }, () => {
+          idCounter += 1;
+          return `7e000000-0000-4000-8000-${String(idCounter).padStart(12, '0')}`;
+        });
+      const row = (
+        id: string,
+        level: string,
+        supersedes: string | null,
+        projectId = w.project.id,
+      ) =>
+        sql`(${id}::uuid, ${projectId}::uuid, ${`claim ${id.slice(-4)}`}, ${level}, ${supersedes}::uuid)`;
+      const insertValues = (...values: ReturnType<typeof row>[]) =>
+        db.execute(
+          sql`INSERT INTO claims (id, project_id, text, verification_level, supersedes_id) VALUES ${sql.join(values, sql`, `)}`,
+        );
+      const exists = async (id: string) =>
+        (await rows(db, sql`SELECT 1 FROM claims WHERE id = ${id}`)).length > 0;
+
+      it('rejects a two-row forward-reference cycle (A -> B, B -> A) in one INSERT', async () => {
+        const [a, b] = ids(2) as [string, string];
+        await expectPgError(
+          insertValues(row(a, 'team_claim', b), row(b, 'team_claim', a)),
+          FOREIGN_KEY_VIOLATION,
+        );
+        expect(await exists(a)).toBe(false);
+        expect(await exists(b)).toBe(false);
+      });
+
+      it('rejects a three-cycle built with data-modifying CTEs in one statement', async () => {
+        const [a, b, c] = ids(3) as [string, string, string];
+        const cte = (name: string, id: string, supersedes: string) =>
+          sql`${sql.raw(name)} AS (INSERT INTO claims (id, project_id, text, verification_level, supersedes_id)
+            VALUES (${id}::uuid, ${w.project.id}::uuid, ${`cte ${name}`}, 'team_claim', ${supersedes}::uuid) RETURNING id)`;
+        await expectPgError(
+          db.execute(sql`WITH ${cte('ca', a, b)}, ${cte('cb', b, c)}, ${cte('cc', c, a)} SELECT 1`),
+          FOREIGN_KEY_VIOLATION,
+        );
+        for (const id of [a, b, c]) expect(await exists(id)).toBe(false);
+      });
+
+      it('rejects the reversed-order verification downgrade (successor listed before predecessor)', async () => {
+        const [pred, succ] = ids(2) as [string, string];
+        // Old behaviour: the trigger saw no predecessor, returned NEW, and the end-of-statement
+        // foreign key accepted a live_verified -> team_claim drop.
+        await expectPgError(
+          insertValues(row(succ, 'team_claim', pred), row(pred, 'live_verified', null)),
+          FOREIGN_KEY_VIOLATION,
+        );
+        expect(await exists(succ)).toBe(false);
+        expect(await exists(pred)).toBe(false);
+        // In the right order the transition rule itself rejects the drop.
+        const [pred2, succ2] = ids(2) as [string, string];
+        await expectPgError(
+          insertValues(row(pred2, 'live_verified', null), row(succ2, 'team_claim', pred2)),
+          CHECK_VIOLATION,
+        );
+      });
+
+      it('accepts a predecessor-first ordered chain in one INSERT ... VALUES (A; B -> A; C -> B)', async () => {
+        const [a, b, c] = ids(3) as [string, string, string];
+        await insertValues(
+          row(a, 'unverified', null),
+          row(b, 'team_claim', a),
+          row(c, 'team_claim', b),
+        );
+        const chain = await rows<{ id: string; supersedes_id: string | null }>(
+          db,
+          sql`SELECT id, supersedes_id FROM claims WHERE id IN (${a}, ${b}, ${c}) ORDER BY seq`,
+        );
+        expect(chain.map((r) => [r.id, r.supersedes_id])).toEqual([
+          [a, null],
+          [b, a],
+          [c, b],
+        ]);
+      });
+
+      it('rejects a missing predecessor even for a single row, and keeps the clean CHECK for self-supersession', async () => {
+        const [lone] = ids(1) as [string];
+        await expectPgError(
+          insertValues(row(lone, 'team_claim', '5b4d7c3e-2f1a-4c6b-9d8e-7f6a5b4c3d2e')),
+          FOREIGN_KEY_VIOLATION,
+        );
+        await expectPgError(insertValues(row(lone, 'team_claim', lone)), CHECK_VIOLATION);
+      });
+
+      it('still rejects cross-project supersession in a multi-row statement', async () => {
+        const [a, b] = ids(2) as [string, string];
+        await expectPgError(
+          insertValues(row(a, 'team_claim', null), row(b, 'team_claim', a, w.sibling.id)),
+          FOREIGN_KEY_VIOLATION,
+        );
+      });
     });
 
     describe('verification transition matrix (all 49 pairs) matches the domain rules', () => {

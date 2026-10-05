@@ -135,12 +135,10 @@ export function validateGraphIntegrity(
       add(issue.code, `${path}.${issue.field}`, issue.message);
     }
     if (known) {
-      const { issues: referenceIssues } = checkProvenanceReferences(
-        evidence.origin,
-        provenance,
-        known,
-        { projectId: evidence.projectId, eventId: evidence.eventId },
-      );
+      const { issues: referenceIssues } = checkProvenanceReferences(evidence, provenance, known, {
+        projectId: evidence.projectId,
+        eventId: evidence.eventId,
+      });
       for (const issue of referenceIssues) add(issue.code, `${path}.${issue.field}`, issue.message);
     }
   }

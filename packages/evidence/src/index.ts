@@ -5,6 +5,7 @@
  * provenance rules, the ID-integrity planner, graph-integrity validation and deterministic graph
  * queries. Layer 2: no I/O, no database, no model calls, no scoring (that is M4).
  */
+export * from './artifacts.js';
 export * from './graph.js';
 export * from './ids.js';
 export * from './integrity.js';

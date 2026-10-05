@@ -48,7 +48,7 @@ record schemas (`ClaimRecord`, `EvidenceRecord`, `RelationRecord`, `UnknownRecor
 neighborhood, pages). The existing vocabularies (`VerificationLevel`, `EvidenceKind`,
 `EvidenceOrigin`, `UnknownType`) were reused unchanged.
 
-### Database (migrations `0007_m3_evidence_graph`, `0008_m3_evidence_graph_integrity`)
+### Database (migrations `0007_m3_evidence_graph`, `0008_m3_evidence_graph_integrity`, `0009_m3_supersession_guard_hardening`)
 
 Exactly five new tables, no later-milestone table and no junction table:
 
@@ -60,7 +60,7 @@ Exactly five new tables, no later-milestone table and no junction table:
 | `unknowns`           | `claim_ids[]` / `evidence_ids[]` (GIN-indexed, ≤ 50 each) validated by trigger                                                                                      |
 | `contradictions`     | exactly two sides in four composite FKs; generated `side_a_key` / `side_b_key`; `side_a_key < side_b_key COLLATE "C"`; `UNIQUE(project_id, side_a_key, side_b_key)` |
 
-Every table has `seq` (identity), the canonical, locale-independent order of all queries. Migration
+Every table has `seq`, a database-generated identity value: the persisted insertion/allocation order, used as the deterministic, locale-independent ordering key of all queries (not content-derived; allocated at insert, not at commit). Migration
 `0007` also adds `UNIQUE(id, snapshot_id)` to `source_snapshot_artifacts`, the composite-key target
 that lets evidence pin an artifact to its snapshot (an M2 compatibility change in a **new**
 migration; no M2 trigger or constraint was changed). Migration `0008` (hand-written) adds:
@@ -172,12 +172,76 @@ The 13 rejected pairs are every move to a lower tier (for example `machine_verif
 | `team_answer` (M7)       | not allowed                                           | `unverified`, `team_claim` | `unverified` (unknown, contradiction)                                                       |
 | `judge_observation` (M7) | `judge_verified`, `live_verified`                     | not allowed                | `judge_verified`, `live_verified` (absence); `unverified`, `judge_verified` (contradiction) |
 
-Anchors: `repo_corroborated` needs an artifact; `machine_verified` needs an artifact **and** a span
-(a machine-checked quotation). Claim levels need graph material: `repo_corroborated` /
-`machine_verified` need a `supports` GitHub/deployment `fact` at a matching level;
-`judge_verified` / `live_verified` need judge-observation evidence; `contradicted` needs a
-Contradiction naming the claim; `unverified` / `team_claim` need nothing. A relation never changes a
-claim's level. Devpost text captured successfully stays `team_claim` at most.
+Anchors: `repo_corroborated` needs an artifact, which must be repository **source code** (see the
+hardening pass below); `machine_verified` would need an artifact **and** a span. Claim levels need
+graph material: `repo_corroborated` needs a `supports` GitHub `fact` at `repo_corroborated`;
+`contradicted` needs a Contradiction naming the claim; `unverified` / `team_claim` need nothing; the
+rules for `machine_verified`, `judge_verified` and `live_verified` stay defined for later but are
+**unreachable for producers in M3** (hardening pass). A relation never changes a claim's level.
+Devpost text captured successfully stays `team_claim` at most. A span proves provenance, never that
+the evidence text or a claim is true.
+
+## Hardening pass (post-review): three P1 blockers
+
+An independent hostile review found three P1 blockers in the first M3 commit (`15818f5`, kept
+intact). Only these were fixed, in one follow-up commit.
+
+**P1-1 — `machine_verified` trust boundary.** The old rules let a producer label a GitHub
+span-backed `fact` `machine_verified`, add a `supports` relation and so obtain a `machine_verified`
+claim, although a span only proves the cited text exists. Now:
+
+- The vocabulary and all rules for `machine_verified`, `judge_verified` and `live_verified` are
+  unchanged, but the producer path refuses them on evidence items **and** claims
+  (`VERIFICATION_NOT_AVAILABLE`), whatever else the batch contains. `machine_verified` means
+  "established by trusted deterministic machine observation"; M3 has no such producer. A later
+  milestone adds a separate trusted path. `validateGraphIntegrity` does not apply the producer gate.
+- Producer-reachable levels in M3 (`M3_PRODUCER_VERIFICATION_LEVELS`): `unverified`, `team_claim`,
+  `repo_corroborated` and `contradicted` (claims only, with a Contradiction).
+- `repo_corroborated` needs source code. `classifyRepositoryArtifact` (fail closed, from the real M2
+  key/kind/media type) returns `team_prose` for README\*, `*.md/.mdx/.markdown/.rst/.txt/.adoc/.asciidoc`,
+  HTML, CHANGELOG/CONTRIBUTING-style names and anything under `docs/`, `doc/`, `documentation/`,
+  `wiki/` (even code in them); `source_code` only for a `file` artifact with a programming-language
+  extension; `unclassified` for metadata artifacts (`repository.json`, `commits.json`, `tree.json`,
+  `omissions.json`), configuration, data and unknown files. Only `source_code` may corroborate
+  (`ARTIFACT_NOT_CORROBORATING`). Limitation: per file, so a span may still quote a team-written
+  comment in a source file.
+- Synthetic Atlas now demonstrates `repo_corroborated` ("The project implements an offline tile
+  cache", backed by a span in `src/cache.ts`) and records the deployment observation ("The captured
+  deployment response records HTTP status 200") as an `unverified` fixture observation with the same
+  exact span, because M3 has no trusted deterministic observation producer. A new demo test
+  refuses `machine_verified` and README corroboration over the real captured artifacts.
+- No database CHECK was added for the producer-reachable levels (the review accepted
+  planner-level enforcement as the write boundary). _Proposal, not implemented:_ a small CHECK
+  forbidding `judge_verified`/`live_verified` on `claims` could be added now, but the future
+  trusted path for `machine_verified` would need a migration to relax it; it is left to the owner.
+
+**P1-2 — per-project writers.** `createGraph` locked the project with `FOR SHARE`, which does not
+serialize writers: with 1,999 of 2,000 claims, 12 concurrent one-claim batches all saw 1,999 and
+wrote 2,011 claims. It now takes `FOR NO KEY UPDATE` as its first locking operation, so writers of
+one project serialize (and the cap holds) while writers of other projects, FK inserts into the graph
+tables (`FOR KEY SHARE`) and the lock ordering are unaffected. A PostgreSQL-only test with real
+connections shows exactly one of 12 racers wins, 11 get `PROJECT_LIMIT_EXCEEDED`, 2,000 claims
+remain, one audit event was written and no loser left a partial graph; with `FOR SHARE` restored
+the same test fails (all 12 succeed). Further tests hold the lock on project A and show project B's
+writer and direct FK inserts for A proceed while A's second writer waits, that 24 mixed concurrent
+batches across two projects finish without deadlock, and that concurrent duplicate supersessions,
+relations and contradiction pairs (either side order) have exactly one winner.
+`seq` is documented as persisted insertion/allocation order, not a canonical content order.
+
+**P1-3 — supersession bypass.** `0008`'s trigger returned `NEW` when the predecessor was not found,
+trusting the end-of-statement foreign key; in one multi-row statement that allowed A→B/B→A cycles,
+a three-cycle through data-modifying CTEs, and a verification downgrade by listing the successor
+first. Migration `0009` (0008 untouched) redefines the guard: a predecessor that is not already
+visible to the trigger is rejected (SQLSTATE `23503`); self-supersession is still left to the clean
+`claims_not_self_superseding` CHECK; the transition check is unchanged. A predecessor-first chain in
+one `INSERT ... VALUES` is accepted (tested on PGlite and PostgreSQL 16) but nothing relies on it;
+successor-first chains and CTE siblings fail closed. "Cycle-free by construction" was reworded to the
+real mechanism: no forward references, immutable rows and a single successor. With the old behaviour
+restored in `0009`, the three bypass tests fail.
+
+Mutation proofs: removing the producer gate and the prose classification fails 17 regression tests;
+restoring `FOR SHARE` fails the cap-race test; restoring the fail-open trigger fails the three
+bypass tests. All were restored.
 
 ## ID-integrity algorithm
 
@@ -212,23 +276,25 @@ PostgreSQL 16 (FK, trigger, generated-column, TRUNCATE-by-cascade, rollback and 
 behaviour). The PostgreSQL-only test runs two real concurrent supersessions through separate
 connections and requires exactly one winner.
 
-| Area         | Proves                                                                                                                                                                                                            |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Schemas      | every vocabulary accepted/rejected; bounds; NFC/single-line normalization; smuggled `id`/`createdAt`/`score`/`isCheating` rejected; UUID canonicalization                                                         |
-| Verification | complete 7 × 7 transition matrix, complete origin × kind × level matrix, team statements capped at `team_claim`, judge levels unreachable without judge evidence                                                  |
-| ID integrity | well-formed nonexistent UUIDs; wrong entity type; other-project IDs; wrong snapshot/artifact; duplicate and conflicting relations; self/cross-project/second-successor supersession; deterministic issue ordering |
-| Provenance   | every origin; failed/rejected/pending snapshots; source-type mismatch; artifact of another snapshot; code-point spans (emoji); out-of-range/empty/reversed/oversized spans; excerpt mismatch                      |
-| Graph        | claim↔evidence↔claim, unknown and contradiction traversal, provenance trace, supersession chain/current, cycle and branch safety, bounded neighbors, order independence                                           |
-| Database     | UPDATE/DELETE/TRUNCATE rejected on all five tables; FK and same-project integrity; no cycles; transition matrix in SQL; excerpt/bounds triggers; rollback on one bad member; M2 → M3 upgrade over populated data  |
-| API          | 401/403/503; organizer and judge read; cross-project IDs answer like nonexistent; bounded paging; 405 on writes with nothing changed; no scoring routes; no score-like key in any response; inert hostile text    |
-| Security     | prompt-injection, tool-call JSON, script, SQL and cheating-accusation text stored and returned verbatim; no verification change; audit metadata free of project text; no source execution                         |
+| Area         | Proves                                                                                                                                                                                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Schemas      | every vocabulary accepted/rejected; bounds; NFC/single-line normalization; smuggled `id`/`createdAt`/`score`/`isCheating` rejected; UUID canonicalization                                                                                                             |
+| Verification | complete 7 × 7 transition matrix, complete origin × kind × level matrix, team statements capped at `team_claim`, judge levels unreachable without judge evidence                                                                                                      |
+| ID integrity | well-formed nonexistent UUIDs; wrong entity type; other-project IDs; wrong snapshot/artifact; duplicate and conflicting relations; self/cross-project/second-successor supersession; deterministic issue ordering                                                     |
+| Provenance   | every origin; failed/rejected/pending snapshots; source-type mismatch; artifact of another snapshot; code-point spans (emoji); out-of-range/empty/reversed/oversized spans; excerpt mismatch                                                                          |
+| Graph        | claim↔evidence↔claim, unknown and contradiction traversal, provenance trace, supersession chain/current, cycle and branch safety, bounded neighbors, order independence                                                                                               |
+| Database     | UPDATE/DELETE/TRUNCATE rejected on all five tables; FK and same-project integrity; no UPDATE-rewired cycles and (0009) no single-statement cycles; transition matrix in SQL; excerpt/bounds triggers; rollback on one bad member; M2 → M3 upgrade over populated data |
+| API          | 401/403/503; organizer and judge read; cross-project IDs answer like nonexistent; bounded paging; 405 on writes with nothing changed; no scoring routes; no score-like key in any response; inert hostile text                                                        |
+| Security     | prompt-injection, tool-call JSON, script, SQL and cheating-accusation text stored and returned verbatim; no verification change; audit metadata free of project text; no source execution                                                                             |
 
 ## Manual deterministic demo (compiled API and worker, PostgreSQL 16)
 
 Fresh database, `pnpm db:migrate`, the compiled worker with `CAPTURE_NETWORK=fixture` captured
 fixture A (Devpost, GitHub, deployment) as real snapshots; a throwaway script (not committed)
 inserted a small graph through `EvidenceGraphStore.createGraph`; the compiled API
-(`AUTH_MODE=dev`) then answered:
+(`AUTH_MODE=dev`) then answered (this run predates the hardening pass and labelled one claim
+`machine_verified`, which M3 now refuses; the transport, auth, immutability and provenance results
+stand, and the hardening probes below were re-run):
 
 - unauthenticated `GET /projects/:id/claims` → `401`;
 - summary → 2 claims, 2 evidence items, 1 relation, 1 unknown, 0 contradictions;
@@ -251,20 +317,20 @@ synthetic fixtures actually contain rather than the example wording in the task.
 
 ## Verification commands (final run)
 
-Run locally on Node 22.22.0 / pnpm 10.28.0 against the baseline plus the M3 changes:
+Run locally on Node 22.22.0 / pnpm 10.28.0 after the hardening pass (the first M3 commit measured
+59 files / 806 tests on PGlite and 59 files / 1,034 on PostgreSQL 16):
 
-| Command                                                       | Result                                                                                                                    |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile`                              | clean ("Already up to date")                                                                                              |
-| `pnpm check` (format, lint, typecheck, db:check, test, build) | exit 0                                                                                                                    |
-| `pnpm format:check`, `pnpm lint`, `pnpm typecheck`            | clean (`eslint --max-warnings=0`)                                                                                         |
-| `pnpm db:check`                                               | "Everything's fine"                                                                                                       |
-| `pnpm db:generate`                                            | "No schema changes, nothing to migrate" (no drift)                                                                        |
-| `pnpm test` (PGlite)                                          | **59 files, 806 tests: 805 passed, 1 skipped** (the PostgreSQL-only concurrency test) — baseline was 48 files / 482 tests |
-| `TEST_DATABASE_URL=… pnpm test` (PostgreSQL 16.14)            | **59 files, 1,034 tests: 1,033 passed, 1 skipped** (the same test on PGlite) — baseline was 48 files / 572 tests          |
-| `pnpm build`                                                  | succeeds (all packages, API, worker, Next.js including the new evidence pages)                                            |
-| Secrets scan                                                  | no matches (AWS/GitHub/OpenAI/Slack/Google key patterns, private keys, tracked `.env`)                                    |
-| External network in tests                                     | none: the preloaded network guard rejects non-loopback connections; the capture demo uses the in-process fixture network  |
+| Command                                                          | Result                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                 | clean ("Already up to date")                                                                                                                                                                                                                                                                                                                                    |
+| `pnpm check` (format, lint, typecheck, db:check, test, build)    | exit 0                                                                                                                                                                                                                                                                                                                                                          |
+| `pnpm db:check` / `pnpm db:generate`                             | "Everything's fine" / "No schema changes, nothing to migrate" (after migration `0009` and its metadata)                                                                                                                                                                                                                                                         |
+| `pnpm test` (PGlite)                                             | **62 files (61 passed, 1 skipped), 878 tests: 870 passed, 8 skipped** (the PostgreSQL-only concurrency file and test) — M2 baseline 48 / 482                                                                                                                                                                                                                    |
+| `TEST_DATABASE_URL=… pnpm test` (PostgreSQL 16.14, `en_US.utf8`) | **62 files, 1,124 tests: 1,123 passed, 1 skipped** (the same race test on PGlite) — M2 baseline 48 / 572                                                                                                                                                                                                                                                        |
+| `pnpm build`                                                     | succeeds (all packages, API, worker, Next.js)                                                                                                                                                                                                                                                                                                                   |
+| Secrets scan                                                     | no matches (AWS/GitHub/OpenAI/Slack/Google key patterns, private keys, tracked `.env`)                                                                                                                                                                                                                                                                          |
+| External network in tests                                        | none: the preloaded network guard rejects non-loopback connections; the capture demo uses the in-process fixture network                                                                                                                                                                                                                                        |
+| Hostile probes (fresh PostgreSQL 16, fully migrated)             | P1-1: `machine_verified`/judge/live and README corroboration refused, README `team_claim` and source `repo_corroborated` accepted; P1-2: 12 racers at 1,999/2,000 → 1 wins, 11 `PROJECT_LIMIT_EXCEEDED`, 2,000 claims; P1-3: 2-cycle, CTE 3-cycle and successor-first downgrade rejected (`23503`), predecessor-first chain accepted, self-supersession `23514` |
 
 The local PostgreSQL was created with an `en_US.utf8` default collation like the CI service image
 (the M2 collation canary test requires a non-`C` default). Pull-request results (Quality and

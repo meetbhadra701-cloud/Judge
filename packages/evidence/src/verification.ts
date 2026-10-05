@@ -79,6 +79,34 @@ export function isOriginCreatableInM3(origin: EvidenceOrigin): boolean {
   return (M3_EVIDENCE_ORIGINS as readonly EvidenceOrigin[]).includes(origin);
 }
 
+/**
+ * Verification levels a PRODUCER-created graph batch can carry in M3 (evidence items and claims).
+ *
+ * The level vocabulary is unchanged and the rules for every level stay defined below, because
+ * later milestones need them. But a level only means something if trusted code established it:
+ *
+ *  - `machine_verified` means a fact established by TRUSTED DETERMINISTIC MACHINE OBSERVATION. A
+ *    span proves provenance: that the cited text exists in an immutable snapshot. It does NOT prove
+ *    that the evidence item's semantic `text`, or any claim, is true; M3 has no deterministic
+ *    verifier of that equivalence. A producer (a fixture today, a model in M5) must therefore not
+ *    be able to grant it simply by choosing the enum value. M3 has no trusted observation
+ *    producer, so the level is unreachable here. A later milestone adds a separate trusted path.
+ *  - `judge_verified` / `live_verified` need judge-observation records that M7 introduces.
+ *
+ * `repo_corroborated` stays reachable, but only through source-code artifacts (see artifacts.ts),
+ * never team-authored prose. `contradicted` stays reachable for claims, with its Contradiction.
+ */
+export const M3_PRODUCER_VERIFICATION_LEVELS = [
+  'unverified',
+  'team_claim',
+  'repo_corroborated',
+  'contradicted',
+] as const satisfies readonly VerificationLevel[];
+
+export function isVerificationLevelAvailableToProducers(level: VerificationLevel): boolean {
+  return (M3_PRODUCER_VERIFICATION_LEVELS as readonly VerificationLevel[]).includes(level);
+}
+
 type LevelTable = Readonly<Record<EvidenceKind, readonly VerificationLevel[]>>;
 
 const NOTHING_ESTABLISHED: readonly VerificationLevel[] = ['unverified'];
@@ -182,9 +210,11 @@ export function allowedEvidenceCombinations(
 /**
  * Levels that must be anchored to an artifact of a snapshot, and whether to a span. A level
  * stronger than `unverified` has to point at something a machine can re-read:
- *   - `repo_corroborated`: an artifact of the GitHub snapshot;
- *   - `machine_verified`: an artifact AND a span, so the quoted observation is machine-checked
- *     against the stored text.
+ *   - `repo_corroborated`: an artifact of the GitHub snapshot (which must be source code, see
+ *     artifacts.ts);
+ *   - `machine_verified`: an artifact AND a span. The span makes the QUOTATION machine-checkable;
+ *     it does not make the evidence text or a claim true. The level itself is not reachable by
+ *     producers in M3 (see `M3_PRODUCER_VERIFICATION_LEVELS`).
  */
 export function evidenceAnchorRequirement(level: VerificationLevel): {
   artifact: boolean;

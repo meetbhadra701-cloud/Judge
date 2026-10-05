@@ -64,6 +64,13 @@
       "when": 1791173354036,
       "tag": "0008_m3_evidence_graph_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791183012041,
+      "tag": "0009_m3_supersession_guard_hardening",
+      "breakpoints": true
     }
   ]
 }

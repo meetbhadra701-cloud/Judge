@@ -163,6 +163,21 @@ describe('validateGraphIntegrity', () => {
     ).toEqual([]);
   });
 
+  it('flags repo_corroborated evidence anchored in prose or metadata, but accepts source code', () => {
+    const corroborated = (artifactId: string) =>
+      evidenceRecord(E1, {
+        kind: 'fact',
+        origin: 'github',
+        verificationLevel: 'repo_corroborated',
+        provenance: { snapshotId: ID.githubSnapshot, artifactId },
+      });
+    expect(codes({ evidence: [corroborated(ID.readme)] })).toEqual(['ARTIFACT_NOT_CORROBORATING']);
+    expect(codes({ evidence: [corroborated(ID.treeArtifact)] })).toEqual([
+      'ARTIFACT_NOT_CORROBORATING',
+    ]);
+    expect(codes({ evidence: [corroborated(ID.sourceFile)] })).toEqual([]);
+  });
+
   it('flags relation rule violations: kind, duplicates and conflicts', () => {
     const absence = evidenceRecord(E1, {
       kind: 'absence',

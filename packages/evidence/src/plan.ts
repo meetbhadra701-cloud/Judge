@@ -20,7 +20,10 @@ import {
 import { sortIssues, type GraphIssue, type GraphIssueCode } from './issues.js';
 import { resolveKnown, type GraphScope, type KnownEntities } from './known.js';
 import { checkProvenanceReferences, checkProvenanceShape } from './provenance.js';
-import type { JustifyingEvidence } from './verification.js';
+import {
+  isVerificationLevelAvailableToProducers,
+  type JustifyingEvidence,
+} from './verification.js';
 
 /*
  * The trusted planner: turns an untrusted, schema-valid batch into records with trusted IDs, or
@@ -223,6 +226,29 @@ export function planEvidenceGraphBatch(
   const evidenceFacts = (id: string): (JustifyingEvidence & { kind: EvidenceKind }) | null =>
     plannedEvidence.get(id) ?? context.evidence.get(id) ?? null;
 
+  // 1b. Producer-reachable levels. The planner serves UNTRUSTED producers, and machine_verified,
+  // judge_verified and live_verified mean "established by trusted observation", which M3 has no
+  // producer for. A producer must not grant a level by choosing the enum value, whatever evidence
+  // the batch also contains. The rules for those levels stay defined for the future trusted path.
+  claims.forEach((claim, index) => {
+    if (!isVerificationLevelAvailableToProducers(claim.verificationLevel)) {
+      add(
+        'VERIFICATION_NOT_AVAILABLE',
+        `claims[${String(index)}].verificationLevel`,
+        `Verification level ${claim.verificationLevel} is established by trusted observation, which M3 has no producer for`,
+      );
+    }
+  });
+  evidence.forEach((item, index) => {
+    if (!isVerificationLevelAvailableToProducers(item.verificationLevel)) {
+      add(
+        'VERIFICATION_NOT_AVAILABLE',
+        `evidence[${String(index)}].verificationLevel`,
+        `Verification level ${item.verificationLevel} is established by trusted observation, which M3 has no producer for (a span proves provenance, not that the text is true)`,
+      );
+    }
+  });
+
   // 2. Claims: supersession identity, single successor, transitions.
   const supersededBy = new Map<string, number>();
   batch.claims.forEach((input, index) => {
@@ -270,7 +296,7 @@ export function planEvidenceGraphBatch(
     const shapeIssues = checkProvenanceShape(planned, planned.provenance);
     for (const issue of shapeIssues) add(issue.code, `${base}.${issue.field}`, issue.message);
     const { issues: referenceIssues, spanText } = checkProvenanceReferences(
-      planned.origin,
+      planned,
       planned.provenance,
       context,
       scope,

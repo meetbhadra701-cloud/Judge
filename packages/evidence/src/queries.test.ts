@@ -14,7 +14,7 @@ import {
 } from './queries.js';
 import {
   ID,
-  README_TEXT,
+  CODE_TEXT,
   claimRecord,
   contradictionRecord,
   evidenceRecord,
@@ -32,7 +32,7 @@ const R = (n: number) => uuid('f', n);
 const U = (n: number) => uuid('a', n);
 const X = (n: number) => uuid('b', n);
 
-const span = spanOf(README_TEXT, 'GET /health');
+const span = spanOf(CODE_TEXT, 'cacheTile');
 
 /**
  * C1 (v1) <- C2 (v2) <- C3 (v3, current); C4 stands alone.
@@ -55,9 +55,9 @@ function records(): EvidenceGraphRecords {
         verificationLevel: 'repo_corroborated',
         provenance: {
           snapshotId: ID.githubSnapshot,
-          artifactId: ID.readme,
+          artifactId: ID.sourceFile,
           span: { ...span, unit: 'code_points' },
-          excerpt: 'GET /health',
+          excerpt: 'cacheTile',
         },
       }),
       evidenceRecord(E(2), {
@@ -111,9 +111,9 @@ describe('claim and evidence views', () => {
     expect(view?.provenance).toMatchObject({
       kind: 'source_snapshot',
       snapshot: { id: ID.githubSnapshot, sourceType: 'github', status: 'captured' },
-      artifact: { id: ID.readme, snapshotId: ID.githubSnapshot, key: 'README.md' },
+      artifact: { id: ID.sourceFile, snapshotId: ID.githubSnapshot, key: 'files/src/cache.ts' },
       span: { ...span, unit: 'code_points' },
-      excerpt: 'GET /health',
+      excerpt: 'cacheTile',
       issues: [],
     });
     // The artifact text reader is an adapter detail and never leaks into the trace.

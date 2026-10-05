@@ -259,6 +259,18 @@ processes spawned by integration tests. Any non-loopback connection attempt thro
   validated against the authoritative set (existence, entity type, project). A well-formed UUID
   proves nothing. Cross-project references are rejected by the planner and, independently, by
   composite foreign keys.
+- **[M3] A model cannot grant itself verification.** `machine_verified`, `judge_verified` and
+  `live_verified` mean "established by trusted observation", for which M3 has no producer, so the
+  write path refuses them on evidence and claims whatever else a batch contains. A span proves where
+  text lives in an immutable snapshot, never that the evidence text or a claim is true.
+  `repo_corroborated` needs an artifact classified as repository source code; a README,
+  documentation, commit/tree metadata or an unrecognized file cannot corroborate, because they are
+  team-authored or unclassifiable.
+- **[M3] Per-project writers serialize.** `createGraph` takes `FOR NO KEY UPDATE` on the project row
+  first, so concurrent writers cannot all pass the per-project caps from the same totals (verified
+  with 12 real concurrent connections at the cap boundary on PostgreSQL 16).
+- **[M3] No forward supersession references.** The supersession trigger rejects a predecessor that
+  is not already visible, closing a single-statement cycle and verification-downgrade bypass.
 - **[M3] Provenance is structural, never free text.** Evidence points at an exact immutable
   snapshot, an artifact of that snapshot and a verified span, or at a frozen Event Context version
   of the project's own event. Failed, rejected and pending snapshots are never cited as content.

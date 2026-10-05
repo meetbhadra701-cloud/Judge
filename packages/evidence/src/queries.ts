@@ -153,7 +153,7 @@ export function currentClaims(graph: EvidenceGraph): ClaimRecord[] {
 export function traceProvenance(evidence: EvidenceRecord, known: KnownEntities): ProvenanceTrace {
   const { provenance } = evidence;
   const { issues } = checkProvenanceReferences(
-    evidence.origin,
+    evidence,
     {
       snapshotId: provenance.snapshotId,
       artifactId: provenance.artifactId,

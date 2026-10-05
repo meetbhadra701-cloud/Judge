@@ -36,6 +36,7 @@ import {
   type GraphWorld,
 } from './testing/graph-world.js';
 
+const API_TEXT = 'export const health = () => ({ status: "ok" });\n';
 const NOW = new Date('2026-10-05T12:00:00.000Z');
 const MISSING = '5b4d7c3e-2f1a-4c6b-9d8e-7f6a5b4c3d2e';
 
@@ -71,7 +72,8 @@ describe.each(testDatabaseTargets())('M3 evidence graph store on %s', (name, ope
     if (value === undefined || value === null) throw new Error('missing');
     return value;
   };
-  const readme = () => must(w.snapshots.github.artifacts.find((a) => a.key === 'README.md'));
+  const readme = () => must(w.snapshots.github.artifacts.find((a) => a.key === 'files/README.md'));
+  const apiTs = () => must(w.snapshots.github.artifacts.find((a) => a.key === 'files/src/api.ts'));
 
   async function counts(projectId = w.project.id) {
     const count = async (
@@ -108,7 +110,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph store on %s', (name, ope
         {
           ref: 'api',
           text: 'The project has a working API.',
-          verificationLevel: 'machine_verified',
+          verificationLevel: 'repo_corroborated',
         },
         { ref: 'health', text: 'The deployment exposes /health.', verificationLevel: 'team_claim' },
         {
@@ -122,12 +124,12 @@ describe.each(testDatabaseTargets())('M3 evidence graph store on %s', (name, ope
           ref: 'api-code',
           kind: 'fact',
           origin: 'github',
-          verificationLevel: 'machine_verified',
-          text: 'The README documents GET /health.',
+          verificationLevel: 'repo_corroborated',
+          text: 'src/api.ts exports a health handler.',
           provenance: {
             snapshotId: w.snapshots.github.snapshot.id,
-            artifactId: readme().id,
-            span: span(README_TEXT, 'GET /health'),
+            artifactId: apiTs().id,
+            span: span(API_TEXT, 'export const health'),
           },
         },
         {
@@ -188,7 +190,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph store on %s', (name, ope
     expect(created.claims.map((c) => c.createdAt)).toEqual(Array(3).fill(NOW.toISOString()));
     // Stored excerpt is the artifact's verbatim span text.
     expect(created.evidence[0]?.provenance).toMatchObject({
-      excerpt: 'GET /health',
+      excerpt: 'export const health',
       span: { unit: 'code_points' },
     });
     // The contradiction is in canonical order: claim before evidence.
@@ -811,7 +813,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph store on %s', (name, ope
           },
           null,
         ),
-        ['MISSING_ANCHOR', 'MISSING_ANCHOR', 'INVALID_VERIFICATION'],
+        ['MISSING_ANCHOR', 'MISSING_ANCHOR', 'INVALID_VERIFICATION', 'VERIFICATION_NOT_AVAILABLE'],
       );
       await expectIssues(
         store.createGraph(

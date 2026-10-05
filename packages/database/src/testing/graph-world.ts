@@ -151,7 +151,7 @@ export async function seedGraphWorld(db: JudgeDatabase) {
   const foreign = await seedProject(db, other.event.id, 'Foreign Project');
 
   const readme: ArtifactSeed = {
-    key: 'README.md',
+    key: 'files/README.md',
     kind: 'file',
     mediaType: 'text/markdown',
     text: README_TEXT,
@@ -159,7 +159,7 @@ export async function seedGraphWorld(db: JudgeDatabase) {
   const github = await seedSnapshot(db, project, 'github', 'captured', [
     readme,
     {
-      key: 'src/api.ts',
+      key: 'files/src/api.ts',
       kind: 'file',
       mediaType: 'text/plain',
       text: 'export const health = () => ({ status: "ok" });\n',

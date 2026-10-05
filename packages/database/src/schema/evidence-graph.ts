@@ -29,7 +29,9 @@ import { sqlLiteralList, timestamptz } from './sql.js';
  * The M3 evidence graph. Every table is append-only: rows are immutable historical evidence
  * (triggers in migration 0008 reject UPDATE, DELETE and TRUNCATE). Every cross-record reference
  * is a composite foreign key that carries the project, so a record can never point into another
- * project. `seq` is the canonical, locale-independent ordering of all graph queries.
+ * project. `seq` is the persisted insertion (allocation) order: a database-generated identity value used as the
+ * deterministic, locale-independent ordering key of graph queries. It is not content-derived, and
+ * identity values are allocated when rows are inserted, not when a transaction commits.
  *
  * There is deliberately no score, strength, weight, coverage, confidence, rank or accusation
  * column anywhere in this file.

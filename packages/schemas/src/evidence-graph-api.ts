@@ -19,7 +19,8 @@ import { ProjectSourceType, SnapshotArtifactKind } from './source-ingestion.js';
 /*
  * Persisted records of the M3 evidence graph and the HTTP contract that exposes them
  * (apps/api, apps/web). Timestamps are ISO-8601 UTC strings. `seq` is the database insertion
- * sequence: the canonical, locale-independent ordering of every graph query.
+ * sequence value, i.e. persisted insertion (allocation) order, used as the deterministic,
+ * locale-independent ordering key of every graph query. It is not content-derived.
  *
  * Nothing here is a score. There is no weight, strength, coverage, confidence or ranking field.
  */

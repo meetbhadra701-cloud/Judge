@@ -9,6 +9,7 @@ import {
   CONTENT_SOURCE_SNAPSHOT_STATUSES,
   FROZEN_EVENT_CONTEXT_STATUSES,
 } from '@judge-copilot/domain';
+import { classifyRepositoryArtifact } from './artifacts.js';
 import type { GraphIssueCode } from './issues.js';
 import { resolveKnown, type GraphScope, type KnownEntities } from './known.js';
 import {
@@ -210,11 +211,12 @@ export function checkProvenanceShape(
  * Returns the verbatim span text when it could be read.
  */
 export function checkProvenanceReferences(
-  origin: EvidenceOrigin,
+  evidence: { origin: EvidenceOrigin; verificationLevel: VerificationLevel },
   provenance: ProvenanceFields,
   known: KnownEntities,
   scope: GraphScope,
 ): { issues: ProvenanceIssue[]; spanText: string | null } {
+  const { origin } = evidence;
   const issues: ProvenanceIssue[] = [];
   const add = (code: GraphIssueCode, field: string, message: string) =>
     issues.push({ code, field, message });
@@ -252,6 +254,16 @@ export function checkProvenanceReferences(
     if (!artifact.ok) {
       add(artifact.code, 'provenance.artifactId', artifact.message);
     } else {
+      if (
+        evidence.verificationLevel === 'repo_corroborated' &&
+        classifyRepositoryArtifact(artifact.entity) !== 'source_code'
+      ) {
+        add(
+          'ARTIFACT_NOT_CORROBORATING',
+          'provenance.artifactId',
+          'Only repository source code can corroborate; documentation, prose, metadata and unclassified files cannot (a README is still team-authored)',
+        );
+      }
       if (provenance.snapshotId !== null && artifact.entity.snapshotId !== provenance.snapshotId) {
         add(
           'ARTIFACT_SNAPSHOT_MISMATCH',

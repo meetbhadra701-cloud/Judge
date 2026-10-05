@@ -6,21 +6,27 @@ The pure domain logic of the evidence graph: `Claim`, `EvidenceItem`, `EvidenceR
 and `Contradiction`. Persistence lives in `packages/database`, HTTP in `apps/api`. Record types and
 Zod creation inputs are defined in `@judge-copilot/schemas`; this package contains the rules.
 
-| Module            | Responsibility                                                                                                                                      |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verification.ts` | verification ladder; the 7 × 7 claim transition matrix; allowed levels per evidence origin and kind; anchors levels need; claim justification rules |
-| `provenance.ts`   | provenance shape and reference rules (snapshot, artifact, code-point span, verbatim excerpt, frozen event context version)                          |
-| `known.ts`        | the authoritative entity set and reference classification (nonexistent / wrong type / other project)                                                |
-| `plan.ts`         | `planEvidenceGraphBatch`: the ID-integrity validator and trusted ID assignment for a creation batch (all-or-nothing)                                |
-| `integrity.ts`    | `validateGraphIntegrity`: dangling, cross-project and rule violations in a loaded graph                                                             |
-| `graph.ts`        | in-memory graph with deterministic ordering (`seq`), contradiction pair canonicalization                                                            |
-| `queries.ts`      | claim/evidence views, unknowns, contradictions, bounded neighbors, supersession, provenance trace, plain-count summary, pagination                  |
-| `ids.ts`          | `IdAllocator` port: random (production) and deterministic (tests, demos)                                                                            |
-| `issues.ts`       | typed issue codes, `EvidenceGraphError`, `EvidenceGraphInputError`, `EvidenceGraphPersistenceError`                                                 |
+| Module            | Responsibility                                                                                                                                                                             |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `verification.ts` | verification ladder; the 7 × 7 claim transition matrix; allowed levels per evidence origin and kind; anchors levels need; claim justification rules; the levels a producer can reach in M3 |
+| `artifacts.ts`    | conservative classification of repository artifacts (`team_prose` / `source_code` / `unclassified`) from the M2 key, kind and media type                                                   |
+| `provenance.ts`   | provenance shape and reference rules (snapshot, artifact, code-point span, verbatim excerpt, frozen event context version)                                                                 |
+| `known.ts`        | the authoritative entity set and reference classification (nonexistent / wrong type / other project)                                                                                       |
+| `plan.ts`         | `planEvidenceGraphBatch`: the ID-integrity validator and trusted ID assignment for a creation batch (all-or-nothing)                                                                       |
+| `integrity.ts`    | `validateGraphIntegrity`: dangling, cross-project and rule violations in a loaded graph                                                                                                    |
+| `graph.ts`        | in-memory graph with deterministic ordering (`seq`), contradiction pair canonicalization                                                                                                   |
+| `queries.ts`      | claim/evidence views, unknowns, contradictions, bounded neighbors, supersession, provenance trace, plain-count summary, pagination                                                         |
+| `ids.ts`          | `IdAllocator` port: random (production) and deterministic (tests, demos)                                                                                                                   |
+| `issues.ts`       | typed issue codes, `EvidenceGraphError`, `EvidenceGraphInputError`, `EvidenceGraphPersistenceError`                                                                                        |
 
 Rules that matter (see `docs/ARCHITECTURE.md` §12 and `docs/SCORING.md` §8):
 
-- A team statement is a claim, not a fact: project-authored prose never exceeds `team_claim`.
+- A team statement is a claim, not a fact: project-authored prose never exceeds `team_claim`. A
+  README is team-authored prose even inside a GitHub snapshot, so only source-code artifacts may
+  carry `repo_corroborated`.
+- A span proves provenance, not truth. `machine_verified` (and `judge_verified`/`live_verified`) are
+  unreachable for producers in M3: the planner refuses them (`VERIFICATION_NOT_AVAILABLE`). The rules
+  for those levels are kept for the trusted path a later milestone adds.
 - Producers never choose persisted IDs (invariant 20); a well-formed UUID proves nothing.
 - Missing evidence is not negative evidence: absence/unknown evidence cannot support or contradict.
 - Relations never change a claim; a corrected claim supersedes the old one (verification never

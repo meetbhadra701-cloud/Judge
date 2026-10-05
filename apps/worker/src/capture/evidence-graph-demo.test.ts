@@ -113,17 +113,17 @@ describe.each(testDatabaseTargets())('M3 Synthetic Atlas demo on %s', (_name, op
           {
             ref: 'cache',
             text: 'The project implements an offline tile cache.',
-            verificationLevel: 'machine_verified',
+            verificationLevel: 'repo_corroborated',
           },
           {
             ref: 'live',
             text: 'The deployment serves the Atlas home page.',
-            verificationLevel: 'team_claim',
+            verificationLevel: 'unverified',
           },
           {
             ref: 'live2',
             text: 'The deployment answers HTTP 200 and serves the Atlas home page.',
-            verificationLevel: 'machine_verified',
+            verificationLevel: 'unverified',
             supersedes: { ref: 'live' },
           },
           {
@@ -142,7 +142,7 @@ describe.each(testDatabaseTargets())('M3 Synthetic Atlas demo on %s', (_name, op
             ref: 'cache-code',
             kind: 'fact',
             origin: 'github',
-            verificationLevel: 'machine_verified',
+            verificationLevel: 'repo_corroborated',
             text: 'src/cache.ts exports a cacheTile function.',
             provenance: {
               snapshotId: github.id,
@@ -154,8 +154,10 @@ describe.each(testDatabaseTargets())('M3 Synthetic Atlas demo on %s', (_name, op
             ref: 'http-200',
             kind: 'fact',
             origin: 'deployment',
-            verificationLevel: 'machine_verified',
-            text: 'The captured deployment response reports HTTP status 200.',
+            // The span proves WHERE the text is in the immutable snapshot. M3 has no trusted
+            // deterministic observation producer, so this stays an unverified observation.
+            verificationLevel: 'unverified',
+            text: 'The captured deployment response records HTTP status 200.',
             provenance: {
               snapshotId: deployment.id,
               artifactId: response.id,
@@ -266,14 +268,15 @@ describe.each(testDatabaseTargets())('M3 Synthetic Atlas demo on %s', (_name, op
     });
     expect(files.cacheTs.textContent.includes(must(cacheEvidence.provenance.excerpt))).toBe(true);
 
-    // Verification labels: team statements stay team claims; strong levels come from machine-checked spans.
+    // Verification labels: team statements stay team claims; repo_corroborated needs source code;
+    // nothing here is machine_verified because M3 has no trusted observation producer.
     const levels = Object.fromEntries(
       created.claims.map((claim) => [claim.text.slice(0, 24), claim.verificationLevel]),
     );
     expect(levels).toEqual({
-      'The project implements a': 'machine_verified',
-      'The deployment serves th': 'team_claim',
-      'The deployment answers H': 'machine_verified',
+      'The project implements a': 'repo_corroborated',
+      'The deployment serves th': 'unverified',
+      'The deployment answers H': 'unverified',
       'Offline state survives a': 'team_claim',
       'Tiles sync peer-to-peer ': 'contradicted',
     });
@@ -444,6 +447,65 @@ describe.each(testDatabaseTargets())('M3 Synthetic Atlas demo on %s', (_name, op
         null,
       ),
       ['CROSS_PROJECT_REFERENCE'],
+    );
+  });
+
+  it('refuses machine_verified and prose corroboration over the real captured artifacts', async () => {
+    const demo = await runDemo('boundary');
+    const { store, seeded, snapshots, files } = demo;
+    const readme = must((await artifactsOf(testDb.db, snapshots.github.id)).get('files/README.md'));
+    const attempt = async (batch: object) => {
+      const error = await store.createGraph(seeded.project.id, batch, null).then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+      expect(error).toBeInstanceOf(EvidenceGraphError);
+      return (error as EvidenceGraphError).codes;
+    };
+    const fact = (
+      level: string,
+      artifact: { id: string; textContent: string },
+      needle: string,
+    ) => ({
+      evidence: [
+        {
+          ref: 'e',
+          kind: 'fact',
+          origin: 'github',
+          verificationLevel: level,
+          text: 'A fixture observation.',
+          provenance: {
+            snapshotId: snapshots.github.id,
+            artifactId: artifact.id,
+            span: span(artifact.textContent, needle),
+          },
+        },
+      ],
+    });
+    // The old permissive rule accepted all three of these.
+    expect(
+      await attempt(fact('machine_verified', files.cacheTs, 'export function cacheTile')),
+    ).toEqual(['VERIFICATION_NOT_AVAILABLE']);
+    expect(await attempt(fact('machine_verified', readme, '# Synthetic Atlas'))).toEqual([
+      'VERIFICATION_NOT_AVAILABLE',
+    ]);
+    expect(await attempt(fact('repo_corroborated', readme, '# Synthetic Atlas'))).toEqual([
+      'ARTIFACT_NOT_CORROBORATING',
+    ]);
+    // Source code may corroborate; the README stays a team statement.
+    await store.createGraph(
+      seeded.project.id,
+      fact('repo_corroborated', files.syncTs, 'SYNC_INTERVAL_MS'),
+      null,
+    );
+    await store.createGraph(
+      seeded.project.id,
+      {
+        evidence: [
+          { ...fact('team_claim', readme, '# Synthetic Atlas').evidence[0], kind: 'claim' },
+        ],
+      },
+      null,
     );
   });
 

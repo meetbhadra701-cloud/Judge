@@ -114,7 +114,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph HTTP API on %s', (_name,
       const urls = [
         ...READ_ROUTES(projectId),
         `/projects/${projectId}/claims/${id('api')}`,
-        `/projects/${projectId}/evidence/${id('readme', 'evidence')}`,
+        `/projects/${projectId}/evidence/${id('apicode', 'evidence')}`,
         `/projects/${projectId}/evidence-graph/neighbors?type=claim&id=${id('api')}`,
       ];
       for (const url of urls) {
@@ -236,7 +236,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph HTTP API on %s', (_name,
 
     it('returns evidence with the claims it affects and its full provenance trace', async () => {
       const detail = EvidenceDetail.parse(
-        (await call('GET', `/projects/${projectId}/evidence/${id('readme', 'evidence')}`)).body,
+        (await call('GET', `/projects/${projectId}/evidence/${id('apicode', 'evidence')}`)).body,
       );
       expect(detail.supports.map((l) => l.claim.id)).toEqual([id('api')]);
       expect(detail.provenance).toMatchObject({
@@ -247,9 +247,9 @@ describe.each(testDatabaseTargets())('M3 evidence graph HTTP API on %s', (_name,
           status: 'captured',
           projectId,
         },
-        artifact: { id: graph.github.artifactIds['README.md'], key: 'README.md' },
+        artifact: { id: graph.github.artifactIds['files/src/api.ts'], key: 'files/src/api.ts' },
         span: { unit: 'code_points' },
-        excerpt: 'GET /health',
+        excerpt: 'export const health',
         issues: [],
       });
       const page = EvidencePage.parse(
@@ -314,7 +314,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph HTTP API on %s', (_name,
   describe('project isolation', () => {
     it('answers a cross-project ID exactly like a nonexistent one (no object leaks)', async () => {
       const foreignClaim = id('api', 'claims', otherGraph);
-      const foreignEvidence = id('readme', 'evidence', otherGraph);
+      const foreignEvidence = id('apicode', 'evidence', otherGraph);
       const crossClaim = await call('GET', `/projects/${projectId}/claims/${foreignClaim}`);
       const missingClaim = await call('GET', `/projects/${projectId}/claims/${MISSING}`);
       expect(crossClaim.status).toBe(404);
@@ -338,7 +338,9 @@ describe.each(testDatabaseTargets())('M3 evidence graph HTTP API on %s', (_name,
         ),
       ).toBe('NODE_NOT_FOUND');
       expect(
-        code((await call('GET', `/projects/${projectId}/claims/${id('readme', 'evidence')}`)).body),
+        code(
+          (await call('GET', `/projects/${projectId}/claims/${id('apicode', 'evidence')}`)).body,
+        ),
       ).toBe('CLAIM_NOT_FOUND');
     });
 
@@ -398,7 +400,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph HTTP API on %s', (_name,
         `/projects/${projectId}/claims`,
         `/projects/${projectId}/claims/${id('api')}`,
         `/projects/${projectId}/evidence`,
-        `/projects/${projectId}/evidence/${id('readme', 'evidence')}`,
+        `/projects/${projectId}/evidence/${id('apicode', 'evidence')}`,
         `/projects/${projectId}/unknowns`,
         `/projects/${projectId}/contradictions`,
         `/projects/${projectId}/evidence-graph`,
@@ -506,7 +508,7 @@ describe.each(testDatabaseTargets())('M3 evidence graph HTTP API on %s', (_name,
         (await call('GET', `/projects/${projectId}/claims`)).body,
       );
       expect(claimsPage.items.map((c) => c.verificationLevel)).toEqual([
-        'machine_verified',
+        'repo_corroborated',
         'team_claim',
         'contradicted',
         'team_claim',

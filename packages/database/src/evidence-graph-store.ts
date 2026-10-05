@@ -253,11 +253,19 @@ export class EvidenceGraphStore {
 
     try {
       return await this.db.transaction(async (tx) => {
+        // The FIRST locking operation: FOR NO KEY UPDATE conflicts with itself, so every
+        // createGraph writer of THIS project serializes here, before it counts the project's
+        // records for the caps or reads any state it is about to extend. (FOR SHARE did not: any
+        // number of writers could hold it at once and all see the same totals.) It does not
+        // conflict with the FOR KEY SHARE lock that inserts into the graph tables take on the
+        // project row through their foreign keys, and writers of other projects never touch
+        // this row, so they stay independent. No other lock is taken before it, so it adds no
+        // new lock-ordering hazard.
         const [project] = await tx
           .select({ id: projects.id, eventId: projects.eventId })
           .from(projects)
           .where(eq(projects.id, projectId))
-          .for('share');
+          .for('no key update');
         if (!project) throw new GraphProjectNotFoundError();
 
         const context = await this.loadPlanContext(tx, projectId, batch);

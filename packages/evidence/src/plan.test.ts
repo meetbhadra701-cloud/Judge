@@ -2,7 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { deterministicIdAllocator } from './ids.js';
 import type { GraphIssueCode } from './issues.js';
 import { planEvidenceGraphBatch, type PlanContext, type PlanResult } from './plan.js';
-import { README_TEXT, SCOPE, batch, ID, ids, knownWorld, spanOf } from './testing/builders.js';
+import {
+  isVerificationLevelAvailableToProducers,
+  M3_PRODUCER_VERIFICATION_LEVELS,
+} from './verification.js';
+import { VERIFICATION_LEVEL_VALUES } from '@judge-copilot/schemas';
+import {
+  CODE_TEXT,
+  README_TEXT,
+  SCOPE,
+  batch,
+  ID,
+  ids,
+  knownWorld,
+  spanOf,
+} from './testing/builders.js';
 
 function plan(raw: unknown, context: PlanContext = knownWorld(), namespace = 'plan') {
   return planEvidenceGraphBatch(batch(raw), SCOPE, context, ids(namespace));
@@ -539,22 +553,31 @@ describe('evidence provenance', () => {
     });
   });
 
-  it('requires anchors for the levels that need them', () => {
+  it('requires anchors for repo_corroborated, and a source-code artifact at that', () => {
+    const corroborated = (provenance: object) =>
+      evidenceFor('github', provenance, { verificationLevel: 'repo_corroborated' });
+    const span = spanOf(CODE_TEXT, 'cacheTile');
+    expect(corroborated({ snapshotId: ID.githubSnapshot, artifactId: ID.sourceFile }).ok).toBe(
+      true,
+    );
+    expect(
+      corroborated({ snapshotId: ID.githubSnapshot, artifactId: ID.sourceFile, span }).ok,
+    ).toBe(true);
+    expect(codes(corroborated({ snapshotId: ID.githubSnapshot }))).toEqual(['MISSING_ANCHOR']);
+  });
+
+  it('keeps the anchor rules of machine_verified defined, while producers cannot reach the level', () => {
     const span = spanOf(README_TEXT, 'GET /health');
     const machine = (provenance: object) =>
       evidenceFor('github', provenance, { verificationLevel: 'machine_verified' });
-    expect(machine({ snapshotId: ID.githubSnapshot, artifactId: ID.readme, span }).ok).toBe(true);
+    // Even a fully anchored machine_verified fact is refused: the span proves provenance only.
+    expect(codes(machine({ snapshotId: ID.githubSnapshot, artifactId: ID.readme, span }))).toEqual([
+      'VERIFICATION_NOT_AVAILABLE',
+    ]);
     expect(codes(machine({ snapshotId: ID.githubSnapshot, artifactId: ID.readme }))).toEqual([
       'MISSING_ANCHOR',
+      'VERIFICATION_NOT_AVAILABLE',
     ]);
-    expect(codes(machine({ snapshotId: ID.githubSnapshot }))).toEqual([
-      'MISSING_ANCHOR',
-      'MISSING_ANCHOR',
-    ]);
-    const corroborated = (provenance: object) =>
-      evidenceFor('github', provenance, { verificationLevel: 'repo_corroborated' });
-    expect(corroborated({ snapshotId: ID.githubSnapshot, artifactId: ID.readme }).ok).toBe(true);
-    expect(codes(corroborated({ snapshotId: ID.githubSnapshot }))).toEqual(['MISSING_ANCHOR']);
   });
 
   it('keeps a captured team statement a team claim: capturing text does not verify it', () => {
@@ -595,42 +618,32 @@ describe('evidence provenance', () => {
 });
 
 describe('claim verification needs graph material', () => {
-  const githubFact = {
+  const codeFact = {
     ref: 'g',
     kind: 'fact',
     origin: 'github',
-    verificationLevel: 'machine_verified',
-    text: 'src/api.ts defines GET /health.',
+    verificationLevel: 'repo_corroborated',
+    text: 'src/cache.ts defines cacheTile.',
     provenance: {
       snapshotId: ID.githubSnapshot,
-      artifactId: ID.readme,
-      span: spanOf(README_TEXT, 'GET /health'),
+      artifactId: ID.sourceFile,
+      span: spanOf(CODE_TEXT, 'cacheTile'),
     },
   };
 
-  it('accepts machine_verified when a machine-verified fact supports the claim', () => {
+  it('accepts repo_corroborated when a repo_corroborated source-code fact supports the claim', () => {
     const result = plan({
-      claims: [
-        { ref: 'c', text: 'It has a health endpoint.', verificationLevel: 'machine_verified' },
-      ],
-      evidence: [githubFact],
+      claims: [{ ref: 'c', text: 'It has a tile cache.', verificationLevel: 'repo_corroborated' }],
+      evidence: [codeFact],
       relations: [{ claim: { ref: 'c' }, evidence: { ref: 'g' }, type: 'supports' }],
     });
     expect(result.ok).toBe(true);
   });
 
-  it('rejects verified levels without support, with only team statements, or with only contradicting evidence', () => {
-    for (const level of [
-      'repo_corroborated',
-      'machine_verified',
-      'judge_verified',
-      'live_verified',
-    ]) {
-      expect(
-        codes(plan({ claims: [{ ref: 'c', text: 'x', verificationLevel: level }] })),
-        level,
-      ).toEqual(['UNJUSTIFIED_VERIFICATION']);
-    }
+  it('rejects repo_corroborated without support, with only team statements, or with only contradicting evidence', () => {
+    expect(
+      codes(plan({ claims: [{ ref: 'c', text: 'x', verificationLevel: 'repo_corroborated' }] })),
+    ).toEqual(['UNJUSTIFIED_VERIFICATION']);
     expect(
       codes(
         plan({
@@ -643,8 +656,8 @@ describe('claim verification needs graph material', () => {
     expect(
       codes(
         plan({
-          claims: [{ ref: 'c', text: 'x', verificationLevel: 'machine_verified' }],
-          evidence: [githubFact],
+          claims: [{ ref: 'c', text: 'x', verificationLevel: 'repo_corroborated' }],
+          evidence: [codeFact],
           relations: [{ claim: { ref: 'c' }, evidence: { ref: 'g' }, type: 'contradicts' }],
         }),
       ),
@@ -653,8 +666,8 @@ describe('claim verification needs graph material', () => {
 
   it('never upgrades a claim because a relation exists: the declared level stands', () => {
     const result = plan({
-      claims: [{ ref: 'c', text: 'It has a health endpoint.', verificationLevel: 'team_claim' }],
-      evidence: [githubFact],
+      claims: [{ ref: 'c', text: 'It has a tile cache.', verificationLevel: 'team_claim' }],
+      evidence: [codeFact],
       relations: [{ claim: { ref: 'c' }, evidence: { ref: 'g' }, type: 'supports' }],
     });
     if (!result.ok) throw new Error('rejected');
@@ -678,6 +691,153 @@ describe('claim verification needs graph material', () => {
         ],
       }).ok,
     ).toBe(true);
+  });
+});
+
+describe('M3 producer trust boundary: machine_verified and judge/live levels are unreachable', () => {
+  const evidenceAt = (
+    level: string,
+    origin: string,
+    provenance: object,
+    kind = 'fact',
+    ref = 'e',
+  ) => ({ ref, kind, origin, verificationLevel: level, text: 'Observed.', provenance });
+  const readmeSpan = {
+    snapshotId: ID.githubSnapshot,
+    artifactId: ID.readme,
+    span: spanOf(README_TEXT, 'GET /health'),
+  };
+  const codeSpan = {
+    snapshotId: ID.githubSnapshot,
+    artifactId: ID.sourceFile,
+    span: spanOf(CODE_TEXT, 'cacheTile'),
+  };
+
+  it('1. refuses a GitHub README fact at machine_verified', () => {
+    expect(
+      codes(plan({ evidence: [evidenceAt('machine_verified', 'github', readmeSpan)] })),
+    ).toEqual(['VERIFICATION_NOT_AVAILABLE']);
+  });
+
+  it('2. refuses a GitHub source-code fact at machine_verified, however well anchored', () => {
+    expect(codes(plan({ evidence: [evidenceAt('machine_verified', 'github', codeSpan)] }))).toEqual(
+      ['VERIFICATION_NOT_AVAILABLE'],
+    );
+  });
+
+  it('3. refuses deployment evidence at machine_verified', () => {
+    const deployment = {
+      snapshotId: ID.deploymentSnapshot,
+      artifactId: ID.deploymentBody,
+      span: spanOf('{"status":"ok"}', '"status":"ok"'),
+    };
+    expect(
+      codes(plan({ evidence: [evidenceAt('machine_verified', 'deployment', deployment)] })),
+    ).toEqual(['VERIFICATION_NOT_AVAILABLE']);
+  });
+
+  it('4. refuses a machine_verified claim even when apparently qualifying evidence supports it', () => {
+    // The old rule accepted: machine_verified GitHub fact + supports + machine_verified claim.
+    const result = plan({
+      claims: [{ ref: 'c', text: 'The cache works.', verificationLevel: 'machine_verified' }],
+      evidence: [evidenceAt('repo_corroborated', 'github', codeSpan, 'fact', 'g')],
+      relations: [{ claim: { ref: 'c' }, evidence: { ref: 'g' }, type: 'supports' }],
+    });
+    expect(issuesAt(result, 'claims[0].verificationLevel')).toEqual(['VERIFICATION_NOT_AVAILABLE']);
+    expect(result.ok).toBe(false);
+  });
+
+  it('5-6. refuses judge_verified and live_verified claims', () => {
+    for (const level of ['judge_verified', 'live_verified']) {
+      const result = plan({ claims: [{ ref: 'c', text: 'x', verificationLevel: level }] });
+      expect(issuesAt(result, 'claims[0].verificationLevel'), level).toEqual([
+        'VERIFICATION_NOT_AVAILABLE',
+      ]);
+    }
+  });
+
+  it('7. refuses a GitHub README (prose) fact at repo_corroborated', () => {
+    expect(
+      codes(plan({ evidence: [evidenceAt('repo_corroborated', 'github', readmeSpan)] })),
+    ).toEqual(['ARTIFACT_NOT_CORROBORATING']);
+  });
+
+  it('7b. refuses repo_corroborated from documentation, example code in docs/, and metadata artifacts', () => {
+    const docs = { snapshotId: ID.githubSnapshot, artifactId: ID.docsFile };
+    const tree = { snapshotId: ID.githubSnapshot, artifactId: ID.treeArtifact };
+    for (const provenance of [docs, tree]) {
+      expect(
+        codes(plan({ evidence: [evidenceAt('repo_corroborated', 'github', provenance)] })),
+      ).toEqual(['ARTIFACT_NOT_CORROBORATING']);
+    }
+  });
+
+  it('8. accepts GitHub README / team-authored prose as a team claim', () => {
+    expect(plan({ evidence: [evidenceAt('team_claim', 'github', readmeSpan, 'claim')] }).ok).toBe(
+      true,
+    );
+    expect(plan({ evidence: [evidenceAt('unverified', 'github', readmeSpan)] }).ok).toBe(true);
+  });
+
+  it('9. accepts a GitHub source-code fact at repo_corroborated with valid provenance', () => {
+    const result = plan({ evidence: [evidenceAt('repo_corroborated', 'github', codeSpan)] });
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(result.graph.evidence[0]?.provenance.excerpt).toBe('cacheTile');
+  });
+
+  it('10. keeps Devpost and video team text capped at team_claim', () => {
+    const devpost = { snapshotId: ID.devpostSnapshot };
+    const video = { snapshotId: ID.videoSnapshot };
+    for (const [origin, provenance] of [
+      ['devpost', devpost],
+      ['video', video],
+    ] as const) {
+      expect(plan({ evidence: [evidenceAt('team_claim', origin, provenance, 'claim')] }).ok).toBe(
+        true,
+      );
+      for (const level of [
+        'repo_corroborated',
+        'machine_verified',
+        'judge_verified',
+        'live_verified',
+      ]) {
+        const result = plan({ evidence: [evidenceAt(level, origin, provenance, 'claim')] });
+        expect(result.ok, `${origin} ${level}`).toBe(false);
+      }
+    }
+  });
+
+  it('11. keeps contradicted reachable, but only with its Contradiction', () => {
+    expect(
+      codes(plan({ claims: [{ ref: 'c', text: 'x', verificationLevel: 'contradicted' }] })),
+    ).toEqual(['UNJUSTIFIED_VERIFICATION']);
+    expect(
+      plan({
+        claims: [{ ref: 'c', text: 'x', verificationLevel: 'contradicted' }],
+        evidence: [evidenceAt('unverified', 'deployment', { snapshotId: ID.deploymentSnapshot })],
+        contradictions: [
+          {
+            sideA: { type: 'claim', ref: 'c' },
+            sideB: { type: 'evidence', ref: 'e' },
+            description: 'Differs.',
+          },
+        ],
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('keeps every level in the vocabulary and the transition matrix for later milestones', () => {
+    // Only the producer path is closed; the pure integrity rules still understand every level.
+    expect(isVerificationLevelAvailableToProducers('machine_verified')).toBe(false);
+    expect([...M3_PRODUCER_VERIFICATION_LEVELS]).toEqual([
+      'unverified',
+      'team_claim',
+      'repo_corroborated',
+      'contradicted',
+    ]);
+    expect(VERIFICATION_LEVEL_VALUES).toContain('machine_verified');
+    expect(VERIFICATION_LEVEL_VALUES).toContain('judge_verified');
+    expect(VERIFICATION_LEVEL_VALUES).toContain('live_verified');
   });
 });
 
