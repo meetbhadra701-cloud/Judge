@@ -1,6 +1,7 @@
 import type { Logger } from '@judge-copilot/shared';
 import type { CaptureQueue } from './queue.js';
 import { runCapture, type AdapterRegistry } from './runner.js';
+import { safeErrorCode } from './safe-error.js';
 
 export interface CaptureLoopOptions {
   readonly queue: CaptureQueue;
@@ -35,6 +36,9 @@ export function createCaptureLoop(options: CaptureLoopOptions): CaptureLoop {
   let running = false;
   let ticking = false;
   const isRunning = () => running;
+  const reapFailed = (runId: string, error: unknown) => {
+    logger.error({ runId, errorCode: safeErrorCode(error) }, 'could not reap an expired capture');
+  };
 
   async function launch(): Promise<boolean> {
     const claim = await queue.claim();
@@ -50,7 +54,11 @@ export function createCaptureLoop(options: CaptureLoopOptions): CaptureLoop {
       controller.signal,
     )
       .catch((error: unknown) => {
-        logger.error({ err: error, snapshotId: claim.snapshotId }, 'capture finalization error');
+        // Never `err: error`: driver errors embed bound parameters (captured source text).
+        logger.error(
+          { snapshotId: claim.snapshotId, errorCode: safeErrorCode(error) },
+          'capture job error',
+        );
       })
       .finally(() => active.delete(job));
     active.add(job);
@@ -61,13 +69,13 @@ export function createCaptureLoop(options: CaptureLoopOptions): CaptureLoop {
     if (ticking || !running) return;
     ticking = true;
     try {
-      await queue.reapExpired();
+      await queue.reapExpired(reapFailed);
       // `running` may flip during the awaits below (stop() is called concurrently).
       while (isRunning() && active.size < options.concurrency && (await launch())) {
         // keep claiming while there is capacity and work
       }
     } catch (error) {
-      logger.error({ err: error }, 'capture poll error');
+      logger.error({ errorCode: safeErrorCode(error) }, 'capture poll error');
     } finally {
       ticking = false;
     }
@@ -98,7 +106,7 @@ export function createCaptureLoop(options: CaptureLoopOptions): CaptureLoop {
     async drain() {
       let processed = 0;
       for (;;) {
-        await queue.reapExpired();
+        await queue.reapExpired(reapFailed);
         while (active.size < options.concurrency && (await launch())) processed += 1;
         if (active.size === 0) return processed;
         await Promise.race([...active]);

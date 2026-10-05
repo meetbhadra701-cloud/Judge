@@ -10,7 +10,59 @@ import {
 import { TRANSIENT_CAPTURE_FAILURE_CATEGORIES } from '@judge-copilot/domain';
 import type { ProjectSourceType } from '@judge-copilot/schemas';
 import type { Logger } from '@judge-copilot/shared';
-import type { CaptureClaim, CaptureQueue } from './queue.js';
+import type { CaptureClaim, CaptureQueue, FinalizeInput, FinalizeOutcome } from './queue.js';
+import { safeErrorCode } from './safe-error.js';
+
+export type FinalizeResult = FinalizeOutcome | 'emergency_finalized' | 'finalize_failed';
+
+/**
+ * Persists a capture result without ever letting a persistence error escape or be logged raw.
+ *
+ * `queue.finalize` is one transaction. If it throws (the database rejected something, the
+ * connection dropped, ...), the transaction has rolled back and the worker still owns the lease, so
+ * a second, minimal transaction records a sanitized `failed` / `internal_error` outcome
+ * (`finalization_failed`, no captured content) instead of leaving the snapshot pending until the
+ * lease expires. That second attempt is made once and is itself guarded: if it also fails, the
+ * lease reaper remains the last resort. Only allow-listed fields (ids and a SQLSTATE) are logged,
+ * because driver error messages embed the bound parameters, i.e. captured source text.
+ */
+export async function finalizeSafely(
+  options: Pick<RunnerOptions, 'queue' | 'logger'>,
+  claim: CaptureClaim,
+  input: FinalizeInput,
+): Promise<FinalizeResult> {
+  const { queue, logger } = options;
+  const log = { snapshotId: claim.snapshotId, runId: claim.runId, sourceType: claim.sourceType };
+  try {
+    return await queue.finalize(claim, input);
+  } catch (error) {
+    logger.error(
+      { ...log, errorCode: safeErrorCode(error) },
+      'capture finalization failed; recording a sanitized failure',
+    );
+  }
+  try {
+    const outcome = await queue.finalize(claim, {
+      result: {
+        status: 'failed',
+        failure: failure('internal_error', {
+          adapter: claim.sourceType,
+          reason: 'finalization_failed',
+        }),
+      },
+      attempts: input.attempts,
+      capturedAt: input.capturedAt,
+      ...(input.cancelled === undefined ? {} : { cancelled: input.cancelled }),
+    });
+    return outcome === 'finalized' ? 'emergency_finalized' : outcome;
+  } catch (error) {
+    logger.error(
+      { ...log, errorCode: safeErrorCode(error) },
+      'emergency capture finalization failed; the lease reaper will fail it',
+    );
+    return 'finalize_failed';
+  }
+}
 
 export type AdapterRegistry = ReadonlyMap<ProjectSourceType, ProjectSourceAdapter>;
 
@@ -55,7 +107,7 @@ export async function runCapture(
   claim: CaptureClaim,
   signal: AbortSignal,
 ): Promise<void> {
-  const { queue, adapters, logger } = options;
+  const { adapters, logger } = options;
   const host = safeHost(claim.sourceUrl);
   const log = {
     snapshotId: claim.snapshotId,
@@ -104,7 +156,7 @@ export async function runCapture(
       failure: failure('internal_error', { reason: 'worker_shutdown' }),
     };
   }
-  const outcome = await queue.finalize(claim, {
+  const outcome = await finalizeSafely(options, claim, {
     result,
     attempts,
     capturedAt,

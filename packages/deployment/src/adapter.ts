@@ -92,6 +92,7 @@ export function createDeploymentAdapter(options: DeploymentAdapterOptions): Proj
       } else {
         const document = extractHtmlDocument(response.body, response.finalUrl);
         title = document.title;
+        if (document.degraded) partial.add('html_structure_limit');
         const text = truncateUtf8(document.text, DEPLOYMENT_CAPTURE_LIMITS.maxTextBytes);
         if (text.truncated) partial.add('body_truncated');
         artifacts.push(
@@ -105,6 +106,8 @@ export function createDeploymentAdapter(options: DeploymentAdapterOptions): Proj
             linkCount: document.linkCount,
             scriptCount: document.scriptCount,
             links: document.links.map((link) => ({ ...link })),
+            // Present only when the HTML traversal budget was exhausted (see capture/html.ts).
+            ...(document.degraded ? { extractionLimited: true } : {}),
           }),
           textArtifact('page.txt', 'page_text', 'text/plain', text.text),
         );

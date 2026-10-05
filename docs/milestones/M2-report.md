@@ -211,8 +211,101 @@ does not depend on external network access.
   file (bounded at 400).
 - **Raw HTML is not persisted** for Devpost or deployments: normalized structured and text
   artifacts are stored instead.
-- **HTML parser hardening:** `node-html-parser` is quadratic on unclosed tags by default; it now runs
-  with `parseNoneClosedTags` and falls back to a linear text extractor on stack-exhausting nesting.
+- **HTML parser hardening:** `node-html-parser` is quadratic on unclosed tags by default; it runs
+  with `parseNoneClosedTags`. (The first M2 revision then used whole-tree selectors that were
+  themselves quadratic in the number of matches; that was fixed in the hardening pass below, which
+  supersedes the earlier claim that parsing was linear.)
+
+## Hardening pass (post-review)
+
+A hostile code review of the first M2 revision found one merge blocker (P0) and four should-fix
+items (P1). They are fixed in the separate commit "Harden M2 capture safety". Nothing else was
+changed; the P2 findings below are deliberately left open.
+
+| Finding | Problem                                                                                                                                                                                                                                                                                                                                | Fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0-1    | Whole-tree `querySelectorAll` calls (and one re-run inside Devpost's link loop) were quadratic in the number of matches. A valid 1 MiB page took 22-70 s of synchronous CPU, a 73 KiB Devpost page 26 s; the event loop (timers, other captures, the lease reaper) froze, and the request timeout could not fire.                      | `packages/capture/src/html.ts` and the Devpost parser now use ONE iterative traversal (`walkHtml`): each node visited at most once, no whole-tree selector, no re-parse, capped collectors, only the outermost nested element of a kind collected, and a 400,000-node budget. Over budget the extraction degrades deterministically (metadata seen so far, linear fallback text) and the snapshot is `partial` / `html_structure_limit` (+ `sections_missing` for Devpost). New migration `0006` adds the reason to the CHECK.                                                                |
+| P1-1    | `tree.json` listed up to 20,000 entries unconditionally; with ~60+ character paths it exceeded the 4 MiB artifact cap, the adapter result was rejected, and the whole snapshot became `failed` / `internal_error`.                                                                                                                     | `tree.json` lists the longest path-ordered prefix that fits a 3 MiB budget (headroom under the cap), records `listedEntryCount`, `eligibleEntryCount`, `listingComplete` and the budget, and the snapshot is `partial` / `tree_entry_limit`; a shrinking safety net can never emit an oversized artifact. Entries inside ignored directories (`node_modules`, `dist`, ...) no longer spend the entry cap or the budget (they used to hide `src/` behind `node_modules/`), but are still classified and counted in `omissions.json`.                                                           |
+| P1-2    | (A) A NUL byte in a page title made PostgreSQL reject the snapshot update; (B) any finalization error was logged with `err`, and the query builder's message embeds the bound parameters, i.e. captured source text (a 90 KB log line containing an artifact); the capture then stayed `pending`/`running` until the lease reaper ran. | (A) `validateCaptureResult` replaces U+0000 and unpaired surrogates with U+FFFD in artifact text, keys and all metadata, recomputes length/hash, and records the counts in `metadata.contentSanitization`; hostile-but-expected input is never `internal_error`. (B) `finalizeSafely` logs only ids and a SQLSTATE, then records a sanitized `failed` / `internal_error` / `finalization_failed` outcome in a second, minimal transaction (once, no recursion); the loop, claim, poll and reaper paths log only a SQLSTATE; one un-reapable run no longer stops the others from being reaped. |
+| P1-3    | Next.js listens on all interfaces by default, and the UI forwards one shared bearer credential for every visitor.                                                                                                                                                                                                                      | `apps/web` `dev` and `start` pass `--hostname 127.0.0.1`; a regression test fails if either stops doing so; README/SECURITY/ARCHITECTURE say that exposing the UI is unsupported until a real user authentication/session boundary exists.                                                                                                                                                                                                                                                                                                                                                    |
+| P1-4    | The API's `COLLATE "C"` artifact ordering had no test; the only helper that exercised it was changed to hide the difference.                                                                                                                                                                                                           | `apps/api/src/projects/artifact-order.test.ts` drives the real snapshot-detail endpoint against a literal byte order on every configured database, plus a canary that the database's default collation orders the keys differently. It runs in the PostgreSQL 16 CI job (`CI=true` makes a C-locale database a failure, so the canary cannot be skipped silently). Removing `COLLATE "C"` fails it on PostgreSQL.                                                                                                                                                                             |
+
+### Measured effect on hostile input (same machine, milliseconds)
+
+| Case                                                                                    |          Before |     After |
+| --------------------------------------------------------------------------------------- | --------------: | --------: |
+| 1 MiB anchor flood                                                                      |          22,267 |       221 |
+| 1 MiB h1/h2 flood                                                                       |          69,856 |       397 |
+| 1 MiB h1 flood                                                                          |          70,924 |       405 |
+| Devpost `.app-links` x 2,000 anchors (73 KiB)                                           |          26,420 |        25 |
+| Devpost details links x 4,000 (175 KiB)                                                 |           7,740 |        60 |
+| Devpost details, 10,000 h2 sections                                                     |           2,986 |       129 |
+| 60k `<h1>` (~600 KiB) through the real worker pipeline: capture time / event-loop stall | 23,609 / 23,529 | 281 / 248 |
+
+The parser itself is linear and unchanged (about 0.5 s per 2 MiB). The event loop can therefore
+still pause for about a second per large capture; worker threads were deliberately not introduced
+in M2.
+
+### Hardening verification
+
+| Command                                                                                  | Result                                  |
+| ---------------------------------------------------------------------------------------- | --------------------------------------- |
+| `pnpm check` (format, lint, typecheck, migration check, tests, build)                    | exit 0                                  |
+| `pnpm test` (PGlite)                                                                     | 45 files, 429 tests passed              |
+| `TEST_DATABASE_URL=... CI=true pnpm test` (PostgreSQL 16, ICU `en-US` default collation) | 45 files, 513 tests passed              |
+| `pnpm db:generate`                                                                       | "No schema changes, nothing to migrate" |
+| secrets scan (tracked and new files)                                                     | no matches                              |
+
+Real-PostgreSQL experiments repeated after the fix: a NUL byte in `<title>` and in body text now
+produce `captured` snapshots (before: `pending`/stuck, resp. `failed` / `internal_error`); a forced
+database rejection whose driver message contains a secret marker ends in a terminal sanitized
+failure with no marker in any log line; a 26,052-entry tree with 90+ character paths yields a
+`partial` snapshot (12,914 entries listed in a 3.1 MB `tree.json`, 400 files captured).
+
+### Known limitations of the hardening
+
+- The shared logger still serializes `message` for errors in general. Only the capture path was
+  made safe; other code must not log driver errors that can carry user content.
+- Sanitization replaces characters (U+FFFD) instead of dropping them, so a text artifact's bytes can
+  differ from the source in those positions; the count is recorded but not the positions.
+
+### Open P2 findings (not addressed in the hardening pass)
+
+1. `safe-http` IP policy: IPv4-compatible `::7f00:1` and non-`2000::/3` IPv6 space (`4000::1`) are
+   classified `unicast`. No exploit confirmed (no IPv6 available to test); deny `::/96` and allow
+   only `2000::/3`.
+2. `NODE_TLS_REJECT_UNAUTHORIZED=0` in the worker's environment disables certificate checks; set
+   `rejectUnauthorized: true` on the agent (verified to override the variable).
+3. The pinned lookup returns only the first validated DNS answer, so an IPv6-first answer on an
+   IPv4-only host fails instead of falling back to another validated address.
+4. Devpost, GitHub and oEmbed adapters do not verify the final origin after redirects (Devpost
+   hard-codes `host: 'devpost.com'`).
+5. GitHub: private repositories are accepted if the token can read them; secondary-rate-limit 403s
+   and invalid-token 401s are reported as `http_api_error`.
+6. The secret filter is path-only (`serviceAccount.json`, `client_secret_*.json`, `wp-config.php`,
+   PEM blocks inside `.txt` pass); add a deterministic content scan before persisting.
+7. Database gaps: `DELETE` and `TRUNCATE` on `analysis_runs` are unguarded; the database accepts a
+   `captured` snapshot with no artifacts and an arbitrary hash, artifacts on a `failed` snapshot, and
+   two pending snapshots for one source (one-pending is API-only).
+8. Lease and timestamps use the worker clock; the failure branch of `finalize` does not clamp
+   `completedAt` to `created_at`, so a worker clock behind the API's can violate the timestamp CHECK
+   for fast rejections (the new emergency path records it, but the cause remains). Use database
+   `now()`.
+9. No lease heartbeat or outer per-capture watchdog; `CAPTURE_LEASE_MS` may be set as low as 10 s;
+   GitHub blob workers keep running after a failed `Promise.all`.
+10. An authenticated judge or organizer can create unlimited immutable, undeletable snapshots; add a
+    per-source cap or cooldown.
+11. Artifact order: the hash sorts in JavaScript (UTF-16 code units), the database lists in `C`
+    collation (code points); they differ for astral characters versus U+E000-U+FFFF. Track-key order
+    in the API is still database-locale dependent.
+12. `truncateUtf8` drops one complete multibyte character at the truncation boundary.
+13. `AUTH_MODE=dev` is allowed whenever `NODE_ENV` is not `production` (default `development`);
+    refuse it on a non-loopback `API_HOST`.
+14. Minor: the fixture loader's path-escape check is a prefix comparison, `static-fetcher` is
+    exported from the production index, the authentication guard runs as a `preHandler` (bodies parse
+    before authentication; use `onRequest`), DNS lookups cannot be cancelled.
+15. GitHub tree responses over 16 MiB fail `response_too_large` instead of becoming `partial`
+    (GitHub itself truncates trees well below that size).
 
 ## Deferred to M3+
 
@@ -224,8 +317,9 @@ per-event role assignment, web UI user login.
 ## Known limitations
 
 - Roles are global (organizer/judge), not per event.
-- The web UI has no per-user login: it forwards one server-side `JUDGE_API_TOKEN`, so it must stay
-  on a trusted network until a login flow exists. The API itself is fully protected.
+- The web UI has no per-user login: it forwards one server-side `JUDGE_API_TOKEN` and is therefore
+  loopback-only (`--hostname 127.0.0.1`); exposing it is unsupported until a login flow exists. The
+  API itself is fully protected.
 - Unauthenticated GitHub access is limited to 60 requests/hour; larger captures need
   `GITHUB_TOKEN` (read-only). Private repositories are out of scope.
 - Devpost parsing depends on the public page's server-rendered structure; changes surface as

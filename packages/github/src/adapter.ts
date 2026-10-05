@@ -1,4 +1,5 @@
 import {
+  canonicalJson,
   classifyRepositoryPath,
   compareSelection,
   failure,
@@ -6,6 +7,7 @@ import {
   failureResult,
   jsonArtifact,
   looksBinary,
+  utf8ByteLength,
   parseGithubRepositoryUrl,
   textArtifact,
   type CaptureFailure,
@@ -41,7 +43,13 @@ export const GITHUB_ADAPTER_VERSION = 'github-capture/v1';
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 
 export const GITHUB_CAPTURE_LIMITS = {
+  /** Entries (outside ignored directories) considered for file selection and listed in tree.json. */
   maxTreeEntries: 20_000,
+  /**
+   * Byte budget for the entries listed in `tree.json`. It leaves 1 MiB of headroom under the 4 MiB
+   * artifact cap, so a large tree is listed up to the budget instead of failing the snapshot.
+   */
+  treeListingBudgetBytes: 3 * 1024 * 1024,
   maxCommits: 250,
   maxFileBytes: 256 * 1024,
   maxTotalTextBytes: 8 * 1024 * 1024,
@@ -166,6 +174,47 @@ function retryAfter(
   const reset = Number(headers['x-ratelimit-reset']);
   if (Number.isInteger(reset) && reset > nowSeconds) return reset - Math.floor(nowSeconds);
   return undefined;
+}
+
+function isUnderIgnoredDirectory(path: string): boolean {
+  const segments = path.split('/');
+  return segments.some(
+    (segment, position) =>
+      position < segments.length - 1 && IGNORED_DIRECTORIES.includes(segment.toLowerCase()),
+  );
+}
+
+function treeListingItem(entry: TreeEntry): JsonObject {
+  return {
+    path: entry.path,
+    type: entry.type,
+    mode: entry.mode,
+    sha: entry.sha,
+    size: entry.size ?? null,
+  };
+}
+
+/** Bytes one entry adds to the pretty-printed `entries` array (indentation and separator). */
+function listingItemBytes(entry: TreeEntry): number {
+  const pretty = canonicalJson(treeListingItem(entry), 2);
+  const lines = pretty.split('\n').length;
+  return utf8ByteLength(pretty) + 4 * lines + 2;
+}
+
+/**
+ * The longest prefix of `entries` (already in deterministic path order) whose serialized form
+ * stays inside `budgetBytes`. A fixed reserve covers the artifact's other fields.
+ */
+function listTreeEntries(entries: readonly TreeEntry[], budgetBytes: number): TreeEntry[] {
+  const reserve = 4 * 1024;
+  let used = reserve;
+  const listed: TreeEntry[] = [];
+  for (const entry of entries) {
+    used += listingItemBytes(entry);
+    if (used > budgetBytes) break;
+    listed.push(entry);
+  }
+  return listed;
 }
 
 export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourceAdapter {
@@ -316,8 +365,12 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
       const sortedEntries = [...tree.tree].sort((a, b) =>
         a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
       );
-      if (sortedEntries.length > limits.maxTreeEntries) partial.add('tree_entry_limit');
-      const entries = sortedEntries.slice(0, limits.maxTreeEntries);
+      // Entries inside generated/vendored directories (node_modules, dist, ...) never compete for
+      // the entry cap or the tree.json budget; their files are still classified and counted below.
+      const ignoredEntries = sortedEntries.filter((entry) => isUnderIgnoredDirectory(entry.path));
+      const keptEntries = sortedEntries.filter((entry) => !isUnderIgnoredDirectory(entry.path));
+      if (keptEntries.length > limits.maxTreeEntries) partial.add('tree_entry_limit');
+      const entries = keptEntries.slice(0, limits.maxTreeEntries);
 
       // File selection from the tree alone (no content read yet).
       const omitted = new Map<RepositoryOmissionReason, string[]>();
@@ -328,7 +381,7 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
         omitted.set(reason, list);
       };
       const candidates: (TreeEntry & { priority: number })[] = [];
-      for (const entry of entries) {
+      for (const entry of [...entries, ...ignoredEntries]) {
         if (entry.type === 'tree') continue;
         if (entry.type === 'commit') {
           omit('submodule', entry.path);
@@ -485,6 +538,34 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
         openIssues: repository.open_issues_count ?? null,
         sizeKb: repository.size ?? null,
       };
+      const listing = listTreeEntries(entries, limits.treeListingBudgetBytes);
+      if (listing.length < entries.length) partial.add('tree_entry_limit');
+      const treeArtifact = (listed: readonly TreeEntry[]) =>
+        jsonArtifact('tree.json', 'tree', {
+          revision,
+          treeSha: tree.sha,
+          truncatedByGithub: tree.truncated,
+          entryCount: tree.tree.length,
+          entryLimit: limits.maxTreeEntries,
+          ignoredDirectoryEntryCount: ignoredEntries.length,
+          eligibleEntryCount: keptEntries.length,
+          listedEntryCount: listed.length,
+          listingByteBudget: limits.treeListingBudgetBytes,
+          listingComplete: listed.length === keptEntries.length,
+          entries: listed.map(treeListingItem),
+        });
+      // The budget leaves headroom, so this is a safety net: shrink deterministically (never emit
+      // an artifact over the cap, never fail the snapshot because of it).
+      let listed: readonly TreeEntry[] = listing;
+      let treeJson = treeArtifact(listed);
+      while (
+        treeJson.byteLength > SOURCE_INGESTION_LIMITS.artifactTextMaxBytes &&
+        listed.length > 0
+      ) {
+        listed = listed.slice(0, Math.floor(listed.length / 2));
+        partial.add('tree_entry_limit');
+        treeJson = treeArtifact(listed);
+      }
       const artifacts: CapturedArtifact[] = [
         jsonArtifact('repository.json', 'repository_metadata', repositoryJson),
         jsonArtifact('commits.json', 'commit_history', {
@@ -501,20 +582,7 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
           truncated: history.length > limits.maxCommits,
           limit: limits.maxCommits,
         }),
-        jsonArtifact('tree.json', 'tree', {
-          revision,
-          treeSha: tree.sha,
-          truncatedByGithub: tree.truncated,
-          entryCount: tree.tree.length,
-          entryLimit: limits.maxTreeEntries,
-          entries: entries.map((entry) => ({
-            path: entry.path,
-            type: entry.type,
-            mode: entry.mode,
-            sha: entry.sha,
-            size: entry.size ?? null,
-          })),
-        }),
+        treeJson,
         jsonArtifact('omissions.json', 'omissions', {
           counts: omissionCounts,
           paths: omissionPaths,
@@ -539,6 +607,7 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
           defaultBranch: branch,
           treeSha: tree.sha,
           treeEntryCount: tree.tree.length,
+          treeListedEntryCount: listed.length,
           fileCount: files.length,
           totalTextBytes,
           commitCount: commits.length,

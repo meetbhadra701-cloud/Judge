@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateCaptureResult, type CaptureResult } from '@judge-copilot/capture';
+import { SOURCE_INGESTION_LIMITS } from '@judge-copilot/schemas';
 import { describe, expect, it } from 'vitest';
 import {
   createGithubAdapter,
@@ -328,5 +329,95 @@ describe('GitHub adapter', () => {
     )) {
       expect(readFileSync(join(import.meta.dirname, file), 'utf8'), file).not.toMatch(forbidden);
     }
+  });
+});
+
+/*
+ * tree.json used to list up to 20,000 entries unconditionally. With ~60-character paths that
+ * exceeds the 4 MiB artifact cap, the adapter result was rejected as invalid, and the whole
+ * snapshot (README and sources included) became failed/internal_error.
+ */
+describe('GitHub tree listing budget', () => {
+  const treeRepository = (files: Record<string, string>): GithubFixtureRepository => ({
+    owner: 'synthetic',
+    repo: 'atlas',
+    commits: [{ id: 'A', message: 'Big tree', date: '2026-10-01T10:00:00Z', files }],
+  });
+
+  it('lists a huge tree with long paths up to its byte budget and stays partial, not failed', async () => {
+    const files: Record<string, string> = {
+      'README.md': '# Big\n',
+      'src/index.ts': 'export const answer = 42;\n',
+    };
+    for (let index = 0; index < 26_000; index += 1) {
+      const group = `packages/group-${String(index % 40)}/src/features/some-very-long-feature-name/internal`;
+      files[`${group}/module-with-a-long-name-${String(index)}.ts`] = 'x';
+    }
+    expect(
+      Object.keys(files).filter((path) => path.length < 90 && path.startsWith('packages')),
+    ).toEqual([]);
+    const { result } = await capture(treeRepository(files));
+    const captured = content(result);
+    expect(captured.status).toBe('partial');
+    expect(captured.partialReasons).toContain('tree_entry_limit');
+
+    const treeArtifact = artifact(result, 'tree.json');
+    expect(treeArtifact).toBeDefined();
+    expect(treeArtifact?.byteLength).toBeLessThanOrEqual(
+      SOURCE_INGESTION_LIMITS.artifactTextMaxBytes,
+    );
+    // Valid JSON that says exactly what was listed and why the rest was not.
+    const tree = JSON.parse(treeArtifact?.textContent ?? '') as {
+      entries: { path: string }[];
+      listedEntryCount: number;
+      eligibleEntryCount: number;
+      listingComplete: boolean;
+      listingByteBudget: number;
+      entryCount: number;
+    };
+    expect(tree.entries).toHaveLength(tree.listedEntryCount);
+    expect(tree.listedEntryCount).toBeLessThan(tree.eligibleEntryCount);
+    expect(tree.listingComplete).toBe(false);
+    expect(tree.entryCount).toBeGreaterThanOrEqual(26_000);
+    expect(treeArtifact?.byteLength).toBeLessThan(tree.listingByteBudget + 64 * 1024);
+    // Deterministic prefix in path order.
+    const paths = tree.entries.map((entry) => entry.path);
+    expect(paths).toEqual([...paths].sort());
+    // The rest of the snapshot survives.
+    expect(artifact(result, 'files/README.md')?.textContent).toBe('# Big\n');
+    expect(artifact(result, 'repository.json')).toBeDefined();
+    expect(captured.metadata['treeListedEntryCount']).toBe(tree.listedEntryCount);
+  });
+
+  it('does not let ignored directories spend the entry cap or the listing budget', async () => {
+    const files: Record<string, string> = {
+      'README.md': '# Vendored\n',
+      'src/index.ts': 'export const answer = 42;\n',
+    };
+    for (let index = 0; index < 30_000; index += 1) {
+      files[`node_modules/some-package-${String(index)}/lib/internal/module-${String(index)}.js`] =
+        'x';
+    }
+    const { result } = await capture(treeRepository(files));
+    const captured = content(result);
+    // node_modules sorts before src/: it used to eat the whole 20,000-entry cap.
+    expect(captured.status).toBe('captured');
+    expect(artifact(result, 'files/src/index.ts')).toBeDefined();
+    const tree = JSON.parse(artifact(result, 'tree.json')?.textContent ?? '') as {
+      ignoredDirectoryEntryCount: number;
+      listingComplete: boolean;
+      entries: { path: string }[];
+    };
+    expect(tree.listingComplete).toBe(true);
+    expect(tree.ignoredDirectoryEntryCount).toBeGreaterThanOrEqual(30_000);
+    expect(tree.entries.some((entry) => entry.path.startsWith('node_modules/some-package'))).toBe(
+      false,
+    );
+    const omissions = JSON.parse(artifact(result, 'omissions.json')?.textContent ?? '') as {
+      counts: Record<string, number>;
+      ignoredDirectories: Record<string, number>;
+    };
+    expect(omissions.counts['ignored_directory']).toBeGreaterThanOrEqual(30_000);
+    expect(omissions.ignoredDirectories['node_modules']).toBeGreaterThanOrEqual(30_000);
   });
 });

@@ -3,15 +3,21 @@ import {
   failure,
   failureResult,
   fallbackVisibleText,
+  HTML_EXTRACTION_LIMITS,
+  HtmlBudgetError,
+  isSkippedContentTag,
   jsonArtifact,
   normalizeWhitespace,
   parseDevpostProjectUrl,
   parseGithubRepositoryUrl,
   parseHtml,
   parseVideoUrl,
+  StructuredText,
   textArtifact,
-  visibleText,
+  TextCollector,
+  walkHtml,
   type CaptureInput,
+  type HtmlElement,
   type CaptureResult,
   type HttpFetcher,
   type JsonObject,
@@ -93,8 +99,47 @@ function uniqueSorted(values: Iterable<string>, max: number): string[] {
   return [...new Set(values)].sort().slice(0, max);
 }
 
-/** Deterministic parse of a Devpost project page. Exported for direct testing. */
-export function parseDevpostPage(html: string, pageUrl: string): DevpostSubmission {
+// Mask bits returned by the traversal's `enter` and handed back to `leave`.
+const M_DETAILS = 1;
+const M_BUILT_WITH = 2;
+const M_APP_LINKS = 4;
+const M_SUBMISSIONS = 8;
+const M_HEADER = 16;
+const M_SKIP = 32;
+const M_LIST = 64;
+const M_PART = 128;
+const M_H2 = 256;
+const M_TITLE = 512;
+const M_TAGLINE_LARGE = 1024;
+const M_TAGLINE_ID = 2048;
+const M_TAG = 4096;
+const M_BLOCK = 8192;
+const M_BLOCK_ANCHOR = 16384;
+const M_LABEL = 32768;
+
+const PART_TAGS = new Set(['p', 'ul', 'ol', 'pre', 'blockquote', 'h3', 'h4']);
+const LIST_TAGS = new Set(['ul', 'ol', 'pre', 'blockquote']);
+/** Candidate links considered per page; further links are ignored (bounded work). */
+const MAX_CANDIDATE_LINKS = 2_000;
+const MAX_BUILT_WITH_CANDIDATES = 1_000;
+
+function hasClass(element: HtmlElement, name: string): boolean {
+  const value = element.getAttribute('class');
+  return value !== undefined && value.split(/\s+/).includes(name);
+}
+
+/**
+ * Deterministic parse of a Devpost project page. Exported for direct testing.
+ *
+ * ONE bounded traversal of the tree (`walkHtml`) tracks which region each node is in and feeds
+ * small collectors; no whole-tree selector is ever run, and nothing is re-parsed. Throws
+ * `HtmlBudgetError` when the page has more nodes than the traversal budget allows.
+ */
+export function parseDevpostPage(
+  html: string,
+  pageUrl: string,
+  options: { readonly maxNodes?: number } = {},
+): DevpostSubmission {
   const limits = DEVPOST_CAPTURE_LIMITS;
   const root = parseHtml(html);
   const text = (value: string | undefined | null, max = 500) => {
@@ -102,90 +147,295 @@ export function parseDevpostPage(html: string, pageUrl: string): DevpostSubmissi
     return normalized === '' ? null : normalized.slice(0, max);
   };
 
-  const title = text(root.querySelector('#app-title')?.text, 300);
-  const tagline = text(
-    (root.querySelector('#software-header .large') ?? root.querySelector('#app-tagline'))?.text,
-    500,
-  );
-
   const sections = Object.fromEntries(
     DEVPOST_SECTION_FIELDS.map((field) => [field, null]),
   ) as Record<DevpostSectionField, string | null>;
   const otherSections: { heading: string; text: string }[] = [];
-  let description: string | null = null;
-  const details = root.querySelector('#app-details-left');
-  if (details) {
-    // Walk the details area: each h2 opens a section that runs until the next h2.
-    const nodes = details.querySelectorAll('h2, p, ul, ol, pre, blockquote, h3, h4');
-    let current: { heading: string; parts: string[] } | null = null;
-    const flush = () => {
-      if (!current) return;
-      const body = normalizeWhitespace(current.parts.join('\n\n')).slice(0, limits.maxSectionChars);
-      const field = sectionFieldFor(current.heading);
-      if (field && body !== '' && sections[field] === null) sections[field] = body;
-      else if (!field && body !== '' && otherSections.length < 20) {
-        otherSections.push({ heading: current.heading.slice(0, 200), text: body });
-      }
-      current = null;
-    };
-    for (const node of nodes) {
-      if (node.closest('#built-with')) continue;
-      if (node.tagName === 'H2') {
-        flush();
-        current = { heading: normalizeWhitespace(node.text), parts: [] };
-      } else if (current && !node.parentNode?.closest('ul, ol, pre, blockquote')) {
-        current.parts.push(visibleText(node));
-      }
-    }
-    flush();
-    const hasSections =
-      DEVPOST_SECTION_FIELDS.some((field) => sections[field] !== null) || otherSections.length > 0;
-    if (!hasSections) {
-      const clone = parseHtml(details.toString());
-      clone.querySelector('#built-with')?.remove();
-      description = text(visibleText(clone), limits.maxSectionChars);
-    }
+
+  interface OpenSection {
+    heading: string;
+    parts: string[];
+    chars: number;
   }
+  interface OpenBlock {
+    hackathon: string | null;
+    url: string | null;
+    anchorSeen: boolean;
+    labels: string[];
+  }
+  const submittedTo: { hackathon: string; url: string | null; labels: string[] }[] = [];
+  const builtWithTags = new Set<string>();
+  const hrefs: string[] = [];
+  const appLinkHrefs = new Set<string>();
+  const iframeSources: string[] = [];
 
-  const builtWith = uniqueSorted(
-    root
-      .querySelectorAll('#built-with .cp-tag')
-      .map((tag) => text(tag.text, 100))
-      .filter((tag): tag is string => tag !== null),
-    limits.maxListItems,
+  const s = {
+    skipDepth: 0,
+    detailsSeen: false,
+    detailsDepth: 0,
+    builtWithDepth: 0,
+    appLinksDepth: 0,
+    submissionsDepth: 0,
+    headerDepth: 0,
+    listDepth: 0,
+    titleSeen: false,
+    titleCollector: null as TextCollector | null,
+    title: null as string | null,
+    largeSeen: false,
+    largeCollector: null as TextCollector | null,
+    large: null as string | null,
+    taglineIdSeen: false,
+    taglineIdCollector: null as TextCollector | null,
+    taglineId: null as string | null,
+    section: null as OpenSection | null,
+    headingCollector: null as TextCollector | null,
+    partRoot: null as HtmlElement | null,
+    part: null as StructuredText | null,
+    detailsText: new StructuredText(),
+    tagCollector: null as TextCollector | null,
+    block: null as OpenBlock | null,
+    blockAnchorCollector: null as TextCollector | null,
+    labelCollector: null as TextCollector | null,
+  };
+
+  const flushSection = () => {
+    const section = s.section;
+    if (!section) return;
+    const body = normalizeWhitespace(section.parts.join('\n\n')).slice(0, limits.maxSectionChars);
+    const field = sectionFieldFor(section.heading);
+    if (field && body !== '' && sections[field] === null) sections[field] = body;
+    else if (!field && body !== '' && otherSections.length < 20) {
+      otherSections.push({ heading: section.heading.slice(0, 200), text: body });
+    }
+    s.section = null;
+  };
+  const endPart = () => {
+    const section = s.section;
+    if (section && s.part && section.chars < limits.maxSectionChars) {
+      const partText = s.part.toString();
+      section.parts.push(partText);
+      section.chars += partText.length;
+    }
+    s.part = null;
+    s.partRoot = null;
+  };
+  const inDetails = () => s.detailsDepth > 0 && s.builtWithDepth === 0;
+
+  walkHtml(
+    root,
+    {
+      enter(element, tag) {
+        let mask = 0;
+        if (isSkippedContentTag(tag)) {
+          s.skipDepth += 1;
+          mask |= M_SKIP;
+        } else if (s.skipDepth === 0) {
+          if (inDetails()) s.detailsText.enterElement(tag);
+          s.part?.enterElement(tag);
+        }
+        if (tag === 'br') {
+          s.titleCollector?.add('\n');
+          s.headingCollector?.add('\n');
+        }
+        const id = element.rawAttrs ? element.getAttribute('id') : undefined;
+
+        // Regions. A `.class` selector matches descendants only, so it is evaluated before this
+        // element opens its own region.
+        if (hasClass(element, 'large') && s.headerDepth > 0 && !s.largeSeen) {
+          s.largeSeen = true;
+          s.largeCollector = new TextCollector();
+          mask |= M_TAGLINE_LARGE;
+        }
+        if (hasClass(element, 'cp-tag') && s.builtWithDepth > 0 && s.tagCollector === null) {
+          s.tagCollector = new TextCollector();
+          mask |= M_TAG;
+        }
+        if (
+          hasClass(element, 'software-list-content') &&
+          s.submissionsDepth > 0 &&
+          s.block === null &&
+          submittedTo.length < 20
+        ) {
+          s.block = { hackathon: null, url: null, anchorSeen: false, labels: [] };
+          mask |= M_BLOCK;
+        } else if (s.block) {
+          if (tag === 'a' && !s.block.anchorSeen) {
+            s.block.anchorSeen = true;
+            s.block.url = absoluteHttpUrl(element.getAttribute('href'), pageUrl);
+            s.blockAnchorCollector = new TextCollector();
+            mask |= M_BLOCK_ANCHOR;
+          } else if (tag === 'li' && s.labelCollector === null && s.block.labels.length < 20) {
+            s.labelCollector = new TextCollector();
+            mask |= M_LABEL;
+          }
+        }
+        if (id === 'app-title' && !s.titleSeen) {
+          s.titleSeen = true;
+          s.titleCollector = new TextCollector();
+          mask |= M_TITLE;
+        }
+        if (id === 'app-tagline' && !s.taglineIdSeen) {
+          s.taglineIdSeen = true;
+          s.taglineIdCollector = new TextCollector();
+          mask |= M_TAGLINE_ID;
+        }
+        if (id === 'software-header') {
+          s.headerDepth += 1;
+          mask |= M_HEADER;
+        }
+        if (id === 'built-with') {
+          s.builtWithDepth += 1;
+          mask |= M_BUILT_WITH;
+        }
+        if (hasClass(element, 'app-links')) {
+          s.appLinksDepth += 1;
+          mask |= M_APP_LINKS;
+        }
+        if (id === 'submissions') {
+          s.submissionsDepth += 1;
+          mask |= M_SUBMISSIONS;
+        }
+        if (id === 'app-details-left' && !s.detailsSeen) {
+          s.detailsSeen = true;
+          s.detailsDepth += 1;
+          mask |= M_DETAILS;
+        }
+
+        // Sections of the details area: each h2 opens a section that runs until the next h2.
+        if (inDetails() && s.detailsDepth > 0 && (mask & M_DETAILS) === 0) {
+          if (tag === 'h2' && s.headingCollector === null) {
+            if (s.part) endPart();
+            flushSection();
+            s.section = { heading: '', parts: [], chars: 0 };
+            s.headingCollector = new TextCollector();
+            mask |= M_H2;
+          } else if (
+            PART_TAGS.has(tag) &&
+            s.section &&
+            !s.part &&
+            s.headingCollector === null &&
+            s.listDepth === 0
+          ) {
+            s.part = new StructuredText(limits.maxSectionChars);
+            s.partRoot = element;
+            mask |= M_PART;
+            s.part.enterElement(tag);
+          }
+          if (LIST_TAGS.has(tag)) {
+            s.listDepth += 1;
+            mask |= M_LIST;
+          }
+        }
+
+        if (tag === 'a' && element.hasAttribute('href')) {
+          const inAppLinks = s.appLinksDepth > 0;
+          if ((inAppLinks || s.detailsDepth > 0) && hrefs.length < MAX_CANDIDATE_LINKS) {
+            const href = absoluteHttpUrl(element.getAttribute('href'), pageUrl);
+            if (href) {
+              hrefs.push(href);
+              if (inAppLinks) appLinkHrefs.add(href);
+            }
+          }
+        } else if (
+          tag === 'iframe' &&
+          element.hasAttribute('src') &&
+          iframeSources.length < MAX_CANDIDATE_LINKS
+        ) {
+          const src = absoluteHttpUrl(element.getAttribute('src'), pageUrl);
+          if (src) iframeSources.push(src);
+        }
+        return mask;
+      },
+      leave(element, tag, mask) {
+        if (mask & M_SKIP) s.skipDepth -= 1;
+        else if (s.skipDepth === 0) {
+          s.part?.leaveElement(tag);
+          if (inDetails()) s.detailsText.leaveElement(tag);
+        }
+        if (mask & M_PART && s.partRoot === element) endPart();
+        if (mask & M_LIST) s.listDepth -= 1;
+        if (mask & M_H2) {
+          if (s.section)
+            s.section.heading = normalizeWhitespace(s.headingCollector?.toString() ?? '');
+          s.headingCollector = null;
+        }
+        if (mask & M_TITLE) {
+          s.title = text(s.titleCollector?.toString(), 300);
+          s.titleCollector = null;
+        }
+        if (mask & M_TAGLINE_LARGE) {
+          s.large = text(s.largeCollector?.toString(), 500);
+          s.largeCollector = null;
+        }
+        if (mask & M_TAGLINE_ID) {
+          s.taglineId = text(s.taglineIdCollector?.toString(), 500);
+          s.taglineIdCollector = null;
+        }
+        if (mask & M_TAG) {
+          const tagText = text(s.tagCollector?.toString(), 100);
+          if (tagText !== null && builtWithTags.size < MAX_BUILT_WITH_CANDIDATES) {
+            builtWithTags.add(tagText);
+          }
+          s.tagCollector = null;
+        }
+        if (mask & M_BLOCK_ANCHOR && s.block) {
+          s.block.hackathon = text(s.blockAnchorCollector?.toString(), 200);
+          s.blockAnchorCollector = null;
+        }
+        if (mask & M_LABEL && s.block) {
+          const label = text(s.labelCollector?.toString(), 200);
+          if (label !== null) s.block.labels.push(label);
+          s.labelCollector = null;
+        }
+        if (mask & M_BLOCK && s.block) {
+          if ((s.block.hackathon ?? '') !== '') {
+            submittedTo.push({
+              hackathon: s.block.hackathon ?? '',
+              url: s.block.url,
+              labels: s.block.labels,
+            });
+          }
+          // Blocks that lack a hackathon name are dropped, as before.
+          s.block = null;
+        }
+        if (mask & M_HEADER) s.headerDepth -= 1;
+        if (mask & M_BUILT_WITH) s.builtWithDepth -= 1;
+        if (mask & M_APP_LINKS) s.appLinksDepth -= 1;
+        if (mask & M_SUBMISSIONS) s.submissionsDepth -= 1;
+        if (mask & M_DETAILS) s.detailsDepth -= 1;
+      },
+      text(node) {
+        const raw = node.rawText;
+        const decoded = node.text;
+        if (s.skipDepth === 0) {
+          if (inDetails()) s.detailsText.addText(raw, decoded);
+          s.part?.addText(raw, decoded);
+        }
+        s.titleCollector?.add(decoded);
+        s.largeCollector?.add(decoded);
+        s.taglineIdCollector?.add(decoded);
+        s.headingCollector?.add(decoded);
+        s.tagCollector?.add(decoded);
+        s.blockAnchorCollector?.add(decoded);
+        s.labelCollector?.add(decoded);
+      },
+    },
+    options.maxNodes ?? HTML_EXTRACTION_LIMITS.maxNodes,
   );
+  if (s.part) endPart();
+  flushSection();
 
-  const submittedTo = root
-    .querySelectorAll('#submissions .software-list-content')
-    .slice(0, 20)
-    .map((block) => {
-      const anchor = block.querySelector('a');
-      return {
-        hackathon: text(anchor?.text, 200) ?? '',
-        url: absoluteHttpUrl(anchor?.getAttribute('href'), pageUrl),
-        labels: block
-          .querySelectorAll('li')
-          .map((item) => text(item.text, 200))
-          .filter((label): label is string => label !== null)
-          .slice(0, 20),
-      };
-    })
-    .filter((entry) => entry.hackathon !== '');
+  const hasSections =
+    DEVPOST_SECTION_FIELDS.some((field) => sections[field] !== null) || otherSections.length > 0;
+  const description =
+    s.detailsSeen && !hasSections ? text(s.detailsText.toString(), limits.maxSectionChars) : null;
 
-  const hrefs = [
-    ...root
-      .querySelectorAll('.app-links a[href], #app-details-left a[href]')
-      .map((a) => a.getAttribute('href')),
-    ...root
-      .querySelectorAll('#gallery iframe[src], iframe[src]')
-      .map((frame) => frame.getAttribute('src')),
-  ]
-    .map((href) => absoluteHttpUrl(href, pageUrl))
-    .filter((href): href is string => href !== null);
+  const builtWith = uniqueSorted(builtWithTags, limits.maxListItems);
+
   const githubLinks: string[] = [];
   const videoLinks: string[] = [];
   const demoLinks: string[] = [];
-  for (const href of hrefs) {
+  for (const href of [...hrefs, ...iframeSources]) {
     const github = parseGithubRepositoryUrl(href);
     if (typeof github !== 'string') {
       githubLinks.push(github.canonicalUrl);
@@ -197,18 +447,12 @@ export function parseDevpostPage(html: string, pageUrl: string): DevpostSubmissi
       videoLinks.push(video.canonicalUrl);
       continue;
     }
-    if (
-      root
-        .querySelectorAll('.app-links a[href]')
-        .some((a) => absoluteHttpUrl(a.getAttribute('href'), pageUrl) === href)
-    ) {
-      demoLinks.push(href);
-    }
+    if (appLinkHrefs.has(href)) demoLinks.push(href);
   }
 
   return {
-    title,
-    tagline,
+    title: s.title,
+    tagline: s.large ?? s.taglineId,
     sections,
     otherSections,
     description,
@@ -299,8 +543,10 @@ export function createDevpostAdapter(options: DevpostAdapterOptions): ProjectSou
       let submission: DevpostSubmission;
       try {
         submission = parseDevpostPage(response.body, response.finalUrl);
-      } catch {
-        // Unparseable structure: keep the visible text only and say the sections are missing.
+      } catch (error) {
+        // Over the traversal budget or unparseable structure: keep the visible text only and say
+        // the sections are missing. The page is never re-traversed.
+        if (error instanceof HtmlBudgetError) partial.add('html_structure_limit');
         submission = {
           ...EMPTY_SUBMISSION,
           description:

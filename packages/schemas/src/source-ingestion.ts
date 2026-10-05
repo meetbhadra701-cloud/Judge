@@ -49,6 +49,7 @@ export const CAPTURE_PARTIAL_REASON_VALUES = [
   'body_truncated',
   'body_not_captured',
   'sections_missing',
+  'html_structure_limit',
   'generic_metadata_only',
 ] as const;
 export const CapturePartialReason = z.enum(CAPTURE_PARTIAL_REASON_VALUES);

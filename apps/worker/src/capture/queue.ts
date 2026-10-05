@@ -257,7 +257,7 @@ export class CaptureQueue {
    * Fails captures whose worker vanished (lease expired while running). The snapshot becomes
    * `failed` (`internal_error`, reason `worker_lease_expired`); a new capture can be requested.
    */
-  async reapExpired(): Promise<number> {
+  async reapExpired(onError?: (runId: string, error: unknown) => void): Promise<number> {
     const expired = await this.db
       .select({
         id: analysisRuns.id,
@@ -276,32 +276,37 @@ export class CaptureQueue {
     let reaped = 0;
     for (const run of expired) {
       if (!run.leaseToken || !run.snapshotId) continue;
-      const [snapshot] = await this.db
-        .select()
-        .from(sourceSnapshots)
-        .where(eq(sourceSnapshots.id, run.snapshotId));
-      if (!snapshot) continue;
-      const outcome = await this.finalize(
-        {
-          runId: run.id,
-          leaseToken: run.leaseToken,
-          snapshotId: snapshot.id,
-          projectId: snapshot.projectId,
-          sourceId: snapshot.projectSourceId,
-          sourceType: snapshot.sourceType,
-          sourceUrl: snapshot.sourceUrl,
-          captureNumber: snapshot.captureNumber,
-        },
-        {
-          result: {
-            status: 'failed',
-            failure: { category: 'internal_error', metadata: { reason: 'worker_lease_expired' } },
+      try {
+        const [snapshot] = await this.db
+          .select()
+          .from(sourceSnapshots)
+          .where(eq(sourceSnapshots.id, run.snapshotId));
+        if (!snapshot) continue;
+        const outcome = await this.finalize(
+          {
+            runId: run.id,
+            leaseToken: run.leaseToken,
+            snapshotId: snapshot.id,
+            projectId: snapshot.projectId,
+            sourceId: snapshot.projectSourceId,
+            sourceType: snapshot.sourceType,
+            sourceUrl: snapshot.sourceUrl,
+            captureNumber: snapshot.captureNumber,
           },
-          attempts: 0,
-          capturedAt: this.now(),
-        },
-      );
-      if (outcome === 'finalized') reaped += 1;
+          {
+            result: {
+              status: 'failed',
+              failure: { category: 'internal_error', metadata: { reason: 'worker_lease_expired' } },
+            },
+            attempts: 0,
+            capturedAt: this.now(),
+          },
+        );
+        if (outcome === 'finalized') reaped += 1;
+      } catch (error) {
+        // One run that cannot be failed must not stop the others from being reaped.
+        onError?.(run.id, error);
+      }
     }
     return reaped;
   }

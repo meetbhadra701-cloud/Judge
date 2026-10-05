@@ -377,14 +377,15 @@ Adding a new package requires assigning it a layer in the test and in this table
 Migrations live in `packages/database/drizzle/` and are applied in order. Each milestone adds
 its own migrations; existing migrations are never edited after being committed.
 
-| Migration                               | Contents                                                                                                                                                                                                            |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0000_m0_foundation`                    | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                                                 |
-| `0001_audit_events_append_only`         | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                                                          |
-| `0002_m1_event_context`                 | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id`                               |
-| `0003_m1_event_context_immutability`    | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                                                 |
-| `0004_m2_source_ingestion`              | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK |
-| `0005_m2_source_ingestion_immutability` | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                      |
+| Migration                                     | Contents                                                                                                                                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0000_m0_foundation`                          | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                                                 |
+| `0001_audit_events_append_only`               | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                                                          |
+| `0002_m1_event_context`                       | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id`                               |
+| `0003_m1_event_context_immutability`          | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                                                 |
+| `0004_m2_source_ingestion`                    | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK |
+| `0005_m2_source_ingestion_immutability`       | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                      |
+| `0006_m2_partial_reason_html_structure_limit` | adds `html_structure_limit` to the `source_snapshots` partial-reason CHECK (the vocabulary is generated from the shared tuple)                                                                                      |
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` timestamps.
 - Vocabulary CHECK constraints are generated from the same tuples as the Zod schemas
@@ -405,7 +406,9 @@ its own migrations; existing migrations are never edited after being committed.
   cleanly on SIGINT/SIGTERM.
 - **web** renders the M1 Event Context views and the M2 project, source and snapshot views using
   server components and server actions that call the API server-side (`JUDGE_API_URL`,
-  `JUDGE_API_TOKEN`). No scoring or fake judging UI exists.
+  `JUDGE_API_TOKEN`). It binds **127.0.0.1** explicitly (its scripts pass `--hostname 127.0.0.1`): it
+  has no per-user login, so exposing it beyond the local machine is unsupported (SECURITY §10).
+  No scoring or fake judging UI exists.
 
 Only the worker contacts external services, and only through `safe-http` (source capture) or, for
 JWT verification, the configured identity provider's JWKS (API). The database pool connects lazily.
@@ -577,19 +580,21 @@ PostgreSQL-backed queue: claim = `SELECT … FOR UPDATE SKIP LOCKED` on pending 
 fresh lease token, committed before the adapter runs. Finalize re-locks run and snapshot and
 discards the result if the lease token changed or the snapshot is no longer pending, so two
 workers can never both finalize one snapshot. Bounded concurrency (`CAPTURE_CONCURRENCY`, default
-3, max 8); a transient network failure is retried once inside the run; expired leases are failed
+3, max 8); a transient network failure is retried once inside the run; if persisting a result fails,
+only ids and a SQLSTATE are logged and a sanitized `finalization_failed` outcome is recorded in a
+second transaction (SECURITY §13); expired leases are failed
 (`internal_error`, `worker_lease_expired`); on shutdown in-flight captures get a grace period, then
 are aborted (snapshot `failed` with `worker_shutdown`, run `cancelled`). One failed capture never
 stops the loop.
 
 ### Adapters (all GET-only, all through the `HttpFetcher` port)
 
-| Adapter    | Behaviour                                                                                                                                                                                                                                                                                                                                    |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub     | repository metadata → default branch → exact SHA (single ref lookup) → commit, recursive tree, history (`commits?sha=`), blobs by object id, each blob verified against its Git SHA-1. Secret-prone paths never fetched; omissions recorded. Limits: 20,000 tree entries, 250 commits, 256 KiB per file, 8 MiB total text, 400 files, 120 s. |
-| Devpost    | one public project page, parsed deterministically; missing sections stay null; structure gaps → `partial`.                                                                                                                                                                                                                                   |
-| Deployment | one GET; status, final URL, redirects, allow-listed headers, page metadata, bounded visible text; HTTP errors are observations.                                                                                                                                                                                                              |
-| Video      | YouTube/Vimeo/Loom via fixed oEmbed endpoints; other URLs as page metadata (`partial`); never media.                                                                                                                                                                                                                                         |
+| Adapter    | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub     | repository metadata → default branch → exact SHA (single ref lookup) → commit, recursive tree, history (`commits?sha=`), blobs by object id, each blob verified against its Git SHA-1. Secret-prone paths never fetched; omissions recorded. Limits: 20,000 tree entries (entries inside ignored directories such as `node_modules` do not count), a 3 MiB byte budget for the entries listed in `tree.json` (the longest path-ordered prefix that fits; the rest is `partial` / `tree_entry_limit`, never a failed snapshot), 250 commits, 256 KiB per file, 8 MiB total text, 400 files, 120 s. |
+| Devpost    | one public project page, parsed deterministically; missing sections stay null; structure gaps → `partial`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Deployment | one GET; status, final URL, redirects, allow-listed headers, page metadata, bounded visible text; HTTP errors are observations.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Video      | YouTube/Vimeo/Loom via fixed oEmbed endpoints; other URLs as page metadata (`partial`); never media.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## 11. Authentication and authorization (M2)
 

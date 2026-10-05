@@ -45,7 +45,7 @@ pnpm db:migrate       # apply migrations (requires DATABASE_URL)
 
 pnpm --filter @judge-copilot/api dev      # API on http://127.0.0.1:3001/health
 pnpm --filter @judge-copilot/worker dev   # capture worker (idle without DATABASE_URL)
-pnpm --filter @judge-copilot/web dev      # Event Context UI on http://localhost:3000
+pnpm --filter @judge-copilot/web dev      # Event Context UI on http://127.0.0.1:3000 (loopback only)
 ```
 
 ### Continuous integration
@@ -82,6 +82,11 @@ closed (503). Locally, enable the development actors explicitly (refused in prod
 AUTH_MODE=dev DATABASE_URL=postgres://… pnpm --filter @judge-copilot/api dev
 JUDGE_API_TOKEN=dev-organizer JUDGE_API_URL=http://127.0.0.1:3001 pnpm --filter @judge-copilot/web dev
 ```
+
+**The web UI is loopback-only.** Its `dev`/`start` scripts bind `127.0.0.1` explicitly (Next.js
+would otherwise listen on every interface), because the UI forwards one server-side bearer
+credential to the API for every visitor and has no login of its own. Exposing it beyond the local
+machine is unsupported until a real per-user authentication/session boundary exists.
 
 `dev-organizer` may do everything; `dev-judge` may read and request captures. Deployments use
 `AUTH_MODE=jwt` with `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWKS_URL` (and optionally

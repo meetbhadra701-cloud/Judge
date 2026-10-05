@@ -10,7 +10,8 @@ import {
 } from '@judge-copilot/schemas';
 import { z } from 'zod';
 import { sha256Hex, utf8ByteLength } from './hash.js';
-import type { CaptureFailure, CaptureResult, JsonObject } from './ports.js';
+import { emptyCounts, hasReplacements, scrubJson, scrubText } from './sanitize.js';
+import type { CaptureFailure, CaptureResult, JsonObject, JsonValue } from './ports.js';
 
 /*
  * Orchestration never trusts adapter output blindly: a result is validated for shape, limits and
@@ -63,6 +64,56 @@ export class InvalidCaptureResultError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Makes captured content storable (see `sanitize.ts`): U+0000 and unpaired surrogates in artifact
+ * text, artifact keys and every metadata string become U+FFFD. An artifact whose text changed gets
+ * its byte length and SHA-256 recomputed (the adapter's values described text that cannot be
+ * stored). The number of replacements is recorded in `metadata.contentSanitization`.
+ */
+function scrubContentResult(result: unknown): unknown {
+  if (!isRecord(result) || !Array.isArray(result['artifacts']) || !isRecord(result['metadata'])) {
+    return result;
+  }
+  const counts = emptyCounts();
+  try {
+    const artifacts = (result['artifacts'] as unknown[]).map((raw) => {
+      if (!isRecord(raw)) return raw;
+      const next: Record<string, unknown> = { ...raw };
+      if (typeof raw['key'] === 'string') next['key'] = scrubText(raw['key'], counts);
+      if (isRecord(raw['metadata'])) {
+        next['metadata'] = scrubJson(raw['metadata'] as JsonValue, counts);
+      }
+      if (typeof raw['textContent'] === 'string') {
+        const before = counts.nulReplaced + counts.invalidSurrogatesReplaced;
+        const text = scrubText(raw['textContent'], counts);
+        if (counts.nulReplaced + counts.invalidSurrogatesReplaced !== before) {
+          next['textContent'] = text;
+          next['byteLength'] = utf8ByteLength(text);
+          next['contentHash'] = sha256Hex(text);
+        }
+      }
+      return next;
+    });
+    const metadata = scrubJson(result['metadata'] as JsonValue, counts) as JsonObject;
+    return {
+      ...result,
+      artifacts,
+      metadata: hasReplacements(counts)
+        ? { ...metadata, contentSanitization: { ...counts } }
+        : metadata,
+    };
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new InvalidCaptureResultError(['metadata nesting is too deep']);
+    }
+    throw error;
+  }
+}
+
 /** Validates an adapter result for the given source type. Throws `InvalidCaptureResultError`. */
 export function validateCaptureResult(
   sourceType: ProjectSourceType,
@@ -82,7 +133,7 @@ export function validateCaptureResult(
     }
     return parsed.data;
   }
-  const parsed = ContentResult.safeParse(result);
+  const parsed = ContentResult.safeParse(scrubContentResult(result));
   if (!parsed.success) throw new InvalidCaptureResultError(describe(parsed.error));
   const value = parsed.data;
   if (value.status === 'partial' && value.partialReasons.length === 0) {

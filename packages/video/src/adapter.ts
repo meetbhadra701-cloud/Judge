@@ -123,6 +123,7 @@ export function createVideoAdapter(options: VideoAdapterOptions): ProjectSourceA
       const reasons: CapturePartialReason[] = ['generic_metadata_only'];
       if (response.truncated) reasons.push('body_truncated');
       if (response.bodyOmitted) reasons.push('body_not_captured');
+      if (document?.degraded) reasons.push('html_structure_limit');
       return {
         status: 'partial',
         revision: null,

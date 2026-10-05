@@ -43,6 +43,13 @@
       "when": 1791147073750,
       "tag": "0005_m2_source_ingestion_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791159140227,
+      "tag": "0006_m2_partial_reason_html_structure_limit",
+      "breakpoints": true
     }
   ]
 }
