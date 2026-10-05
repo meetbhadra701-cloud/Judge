@@ -1,10 +1,11 @@
 import { createDevVerifier, createJwtVerifier } from '@judge-copilot/auth';
 import { createReplayExtractor } from '@judge-copilot/context';
-import { createDatabase } from '@judge-copilot/database';
+import { createDatabase, EvidenceGraphStore } from '@judge-copilot/database';
 import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { buildApp, SERVICE_NAME } from './app.js';
 import { loadApiEnv } from './env.js';
 import { EventContextService } from './event-context/service.js';
+import { EvidenceGraphService } from './evidence-graph/service.js';
 import { ProjectService } from './projects/service.js';
 import { loadReplayRecordings } from './replay.js';
 
@@ -48,6 +49,9 @@ const app = buildApp({
   verifier,
   eventContext: database ? new EventContextService({ db: database.db, extractor }) : null,
   projects: database ? new ProjectService({ db: database.db }) : null,
+  evidenceGraph: database
+    ? new EvidenceGraphService({ store: new EvidenceGraphStore({ db: database.db }) })
+    : null,
 });
 
 handleShutdownSignals(

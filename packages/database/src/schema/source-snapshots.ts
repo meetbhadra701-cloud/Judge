@@ -209,6 +209,8 @@ export const sourceSnapshotArtifacts = pgTable(
   },
   (table) => [
     unique('source_snapshot_artifacts_snapshot_key_key').on(table.snapshotId, table.artifactKey),
+    // Target for evidence provenance (M3): an evidence item's artifact must belong to its snapshot.
+    unique('source_snapshot_artifacts_id_snapshot_id_key').on(table.id, table.snapshotId),
     check(
       'source_snapshot_artifacts_kind_valid',
       sql`artifact_kind IN (${sqlLiteralList(SNAPSHOT_ARTIFACT_KIND_VALUES)})`,

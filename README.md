@@ -5,10 +5,13 @@ evidence-backed pre-reads, shows where its assessment is uncertain, suggests the
 most likely to resolve that uncertainty, reassesses only what the interview affects, and leaves
 the **final score to the human judge**.
 
-> **Status: Milestone 2 — Immutable project-source ingestion.** Events with versioned, locked
-> official context (M1); projects, declared Devpost/GitHub/deployment/video sources and immutable,
-> hashed source snapshots captured read-only through an SSRF-safe client (M2), behind
-> organizer/judge authentication. There is no claim extraction, evidence, scoring or model use yet.
+> **Status: Milestone 3 — Evidence Graph.** Events with versioned, locked official context (M1);
+> projects, declared Devpost/GitHub/deployment/video sources and immutable, hashed source snapshots
+> captured read-only through an SSRF-safe client (M2); and an immutable evidence graph — claims,
+> evidence with exact snapshot/span provenance, relations, unknowns and contradictions, with
+> deterministic verification rules, ID-integrity validation and read-only graph queries (M3),
+> behind organizer/judge authentication. There is no claim _extraction_, scoring, assessment,
+> question generation or model use yet: M3 is the deterministic substrate they will consume.
 
 ## Read first
 
@@ -25,7 +28,9 @@ the **final score to the human judge**.
 
 - Node.js ≥ 22.12
 - pnpm 10 (`corepack enable`)
-- PostgreSQL ≥ 16 — only for `pnpm db:migrate`; tests use in-process PGlite
+- PostgreSQL ≥ 16 — for `pnpm db:migrate`; tests use in-process PGlite, and the database-backed
+  tests also run against a real PostgreSQL 16 when `TEST_DATABASE_URL` names a disposable `*_test`
+  database (CI does)
 
 ## Commands
 
@@ -45,7 +50,7 @@ pnpm db:migrate       # apply migrations (requires DATABASE_URL)
 
 pnpm --filter @judge-copilot/api dev      # API on http://127.0.0.1:3001/health
 pnpm --filter @judge-copilot/worker dev   # capture worker (idle without DATABASE_URL)
-pnpm --filter @judge-copilot/web dev      # Event Context UI on http://127.0.0.1:3000 (loopback only)
+pnpm --filter @judge-copilot/web dev      # Event Context, project and evidence-graph UI on http://127.0.0.1:3000 (loopback only)
 ```
 
 ### Continuous integration
@@ -107,3 +112,19 @@ stored.
 
 Copy `.env.example` to `.env` for local overrides. Never commit real values.
 Package scripts use POSIX `VAR=value cmd` syntax; on Windows use WSL.
+
+### Evidence graph (M3)
+
+The graph (`claims`, `evidence_items`, `evidence_relations`, `unknowns`, `contradictions`) is
+append-only and is written only by trusted server code through `EvidenceGraphStore.createGraph`
+(`packages/database`): a validated, transactional batch whose IDs are assigned by the server and
+whose references are checked against the authoritative set. There is no producer in M3 and no
+write endpoint. Authenticated organizers and judges can inspect a project's graph:
+
+```sh
+curl -H 'authorization: Bearer dev-judge' http://127.0.0.1:3001/projects/<projectId>/evidence-graph
+curl -H 'authorization: Bearer dev-judge' http://127.0.0.1:3001/projects/<projectId>/claims
+```
+
+The web UI shows the same data read-only at `/projects/<projectId>/evidence`. Nothing is scored,
+and project text is shown as escaped text. See [docs/ARCHITECTURE.md §12](docs/ARCHITECTURE.md).

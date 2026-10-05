@@ -12,6 +12,7 @@ export const PERMISSIONS = [
   'project.read',
   'project.write',
   'source.capture',
+  'evidence.read',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -19,6 +20,9 @@ export type Permission = (typeof PERMISSIONS)[number];
  * organizer — manages Event Context, projects, source declarations and captures.
  * judge     — reads Event Context, projects and snapshots, and may request a fresh capture
  *             (which only ever adds a new snapshot). A judge never edits official Event Context.
+ *
+ * `evidence.read` (M3) lets both roles inspect a project's evidence graph. There is no evidence
+ * write permission: M3 has no producer, and the graph is written only by trusted server code.
  */
 export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>> = {
   organizer: [
@@ -27,8 +31,9 @@ export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>
     'project.read',
     'project.write',
     'source.capture',
+    'evidence.read',
   ],
-  judge: ['event_context.read', 'project.read', 'source.capture'],
+  judge: ['event_context.read', 'project.read', 'source.capture', 'evidence.read'],
 };
 
 export function hasPermission(roles: readonly ActorRole[], permission: Permission): boolean {

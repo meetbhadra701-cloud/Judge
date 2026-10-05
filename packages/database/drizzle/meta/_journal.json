@@ -50,6 +50,20 @@
       "when": 1791159140227,
       "tag": "0006_m2_partial_reason_html_structure_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791173339276,
+      "tag": "0007_m3_evidence_graph",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791173354036,
+      "tag": "0008_m3_evidence_graph_integrity",
+      "breakpoints": true
     }
   ]
 }

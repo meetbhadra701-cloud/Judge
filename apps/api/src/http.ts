@@ -12,10 +12,10 @@ export interface RequestIssue {
 
 /** A malformed request (bad UUID, invalid body). Issues describe rules, never echo values. */
 export class RequestValidationError extends Error {
-  readonly location: 'body' | 'params';
+  readonly location: 'body' | 'params' | 'query';
   readonly issues: readonly RequestIssue[];
 
-  constructor(location: 'body' | 'params', issues: readonly RequestIssue[]) {
+  constructor(location: 'body' | 'params' | 'query', issues: readonly RequestIssue[]) {
     super(`Invalid request ${location}`);
     this.name = 'RequestValidationError';
     this.location = location;
@@ -26,7 +26,7 @@ export class RequestValidationError extends Error {
 export function parseRequest<TSchema extends z.ZodType>(
   schema: TSchema,
   value: unknown,
-  location: 'body' | 'params',
+  location: 'body' | 'params' | 'query',
 ): z.output<TSchema> {
   const result = schema.safeParse(value ?? {});
   if (!result.success) {

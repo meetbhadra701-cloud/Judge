@@ -1,7 +1,11 @@
 # Judge Copilot — AI Pipeline
 
-> **Status:** No model or provider calls exist (M0–M2; M2 source capture is deterministic). The `llm` and `prompts` packages are
-> README-only placeholders. M1 implemented stage 1's **port** (`EventContextExtractor`) and its
+> **Status:** No model or provider calls exist (M0–M3; M2 source capture and the M3 evidence graph
+> are deterministic). The `llm` and `prompts` packages are
+> README-only placeholders. M3 implemented the deterministic half of stages 3–5 — trusted ID
+> assignment, ID-integrity validation, provenance to snapshot spans, relation and verification
+> rules, never an accusation — behind a validated write path (`EvidenceGraphStore.createGraph`);
+> the model-backed producer that feeds it arrives in M5. M1 implemented stage 1's **port** (`EventContextExtractor`) and its
 > full schema → domain validation path, exercised by a deterministic replay extractor. The first
 > model-backed implementation arrives no earlier than M5 (see §11).
 

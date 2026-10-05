@@ -1,10 +1,31 @@
-# packages/evidence — Evidence graph (not yet implemented)
+# packages/evidence — Evidence graph rules (M3)
 
-**Milestone:** M3 · **Layer:** 2 (deterministic core — no I/O, no model calls)
+**Layer:** 2 (deterministic core — no I/O, no database, no model calls, no scoring)
 
-Future responsibility: `Claim`, `EvidenceItem`, `EvidenceRelation`, `Unknown` and
-`Contradiction` models and graph operations; verification-level rules (team statements stay
-claims until corroborated, invariant 4); ID-integrity validation for model output (invariant
-20); traversal from new evidence to affected dimensions (invariant 11).
+The pure domain logic of the evidence graph: `Claim`, `EvidenceItem`, `EvidenceRelation`, `Unknown`
+and `Contradiction`. Persistence lives in `packages/database`, HTTP in `apps/api`. Record types and
+Zod creation inputs are defined in `@judge-copilot/schemas`; this package contains the rules.
 
-This directory is intentionally not a workspace package until M3. See `docs/V1_CONTRACT.md`.
+| Module            | Responsibility                                                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verification.ts` | verification ladder; the 7 × 7 claim transition matrix; allowed levels per evidence origin and kind; anchors levels need; claim justification rules |
+| `provenance.ts`   | provenance shape and reference rules (snapshot, artifact, code-point span, verbatim excerpt, frozen event context version)                          |
+| `known.ts`        | the authoritative entity set and reference classification (nonexistent / wrong type / other project)                                                |
+| `plan.ts`         | `planEvidenceGraphBatch`: the ID-integrity validator and trusted ID assignment for a creation batch (all-or-nothing)                                |
+| `integrity.ts`    | `validateGraphIntegrity`: dangling, cross-project and rule violations in a loaded graph                                                             |
+| `graph.ts`        | in-memory graph with deterministic ordering (`seq`), contradiction pair canonicalization                                                            |
+| `queries.ts`      | claim/evidence views, unknowns, contradictions, bounded neighbors, supersession, provenance trace, plain-count summary, pagination                  |
+| `ids.ts`          | `IdAllocator` port: random (production) and deterministic (tests, demos)                                                                            |
+| `issues.ts`       | typed issue codes, `EvidenceGraphError`, `EvidenceGraphInputError`, `EvidenceGraphPersistenceError`                                                 |
+
+Rules that matter (see `docs/ARCHITECTURE.md` §12 and `docs/SCORING.md` §8):
+
+- A team statement is a claim, not a fact: project-authored prose never exceeds `team_claim`.
+- Producers never choose persisted IDs (invariant 20); a well-formed UUID proves nothing.
+- Missing evidence is not negative evidence: absence/unknown evidence cannot support or contradict.
+- Relations never change a claim; a corrected claim supersedes the old one (verification never
+  silently drops).
+- A contradiction is data for a judge: two structural sides and a neutral note, never an accusation.
+
+Nothing here scores, weighs, ranks, estimates confidence or coverage, generates questions or calls
+a model; those are M4, M5 and M6.

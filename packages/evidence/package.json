@@ -1,0 +1,25 @@
+{
+  "name": "@judge-copilot/evidence",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Evidence graph domain rules: verification levels, provenance, ID integrity, graph integrity and deterministic graph queries. Layer 2 (deterministic core): no I/O, no model calls.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/domain": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*"
+  }
+}

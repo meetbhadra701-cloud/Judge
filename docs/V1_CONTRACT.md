@@ -57,6 +57,22 @@ local-only: the API binds to `127.0.0.1` by default.
 - Deployment inspection in M2 is a single SSRF-safe HTTP observation; the sandboxed headless
   browser (`packages/browser`) remains deferred. Video capture is metadata only.
 
+### Refinements recorded in M3
+
+- The evidence graph adds exactly the five artifacts the architecture names (`Claim`,
+  `EvidenceItem`, `EvidenceRelation`, `Unknown`, `Contradiction`). No version or root entity was
+  added. The only new vocabulary is the relation type (`supports`, `contradicts`); the existing
+  vocabularies are unchanged.
+- M3 has no semantic extractor and no producer. Its write path is a validated, transactional
+  service (`EvidenceGraphStore.createGraph`) that M5 will call. The HTTP surface is read-only.
+- `team_answer` and `judge_observation` stay in the evidence-origin vocabulary but cannot be created
+  until M7 provides the records they point at. Judge verification levels are likewise unreachable
+  until then.
+- One compatibility change to an M2 table (`source_snapshot_artifacts(id, snapshot_id)` unique key)
+  was made in a new migration so evidence can pin an artifact to its snapshot with a composite key.
+  No M2 trigger or constraint was modified.
+- `evidence.read` is a new permission held by both roles; there is no evidence write permission.
+
 ## Definition of done (every milestone)
 
 - dependencies install cleanly from the lockfile;
@@ -74,3 +90,4 @@ local-only: the API binds to `127.0.0.1` by default.
 - [M0 — Foundation](./milestones/M0-report.md)
 - [M1 — Event Context Pack](./milestones/M1-report.md)
 - [M2 — Immutable Project-Source Ingestion](./milestones/M2-report.md)
+- [M3 — Evidence Graph](./milestones/M3-report.md)
