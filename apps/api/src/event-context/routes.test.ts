@@ -10,7 +10,10 @@ import { createLogger } from '@judge-copilot/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp, SERVICE_NAME, type ApiApp } from '../app.js';
 import {
+  bearer,
+  fakeVerifier,
   loadFixtures,
+  TEST_TOKENS,
   replayService,
   requireValue,
   serviceWith,
@@ -21,10 +24,17 @@ import {
 const logger = createLogger({ service: SERVICE_NAME, level: 'silent' });
 const MISSING = '5b4d7c3e-2f1a-4c6b-9d8e-7f6a5b4c3d2e';
 
-async function call(app: ApiApp, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: unknown) {
+async function call(
+  app: ApiApp,
+  method: 'GET' | 'POST' | 'PATCH',
+  url: string,
+  payload?: unknown,
+  token: string = TEST_TOKENS.organizer,
+) {
   const response = await app.inject({
     method,
     url,
+    headers: bearer(token),
     ...(payload === undefined ? {} : { payload: payload as object }),
   });
   return { status: response.statusCode, body: response.json<unknown>() };
@@ -44,7 +54,12 @@ describe('Event Context HTTP API', () => {
   beforeAll(async () => {
     testDb = await openDatabase();
     fixtures = await loadFixtures();
-    app = buildApp({ logger, eventContext: replayService(testDb.db, fixtures.values()) });
+    app = buildApp({
+      logger,
+      db: testDb.db,
+      verifier: fakeVerifier(),
+      eventContext: replayService(testDb.db, fixtures.values()),
+    });
   });
 
   afterAll(async () => {
@@ -171,7 +186,7 @@ describe('Event Context HTTP API', () => {
     const notJson = await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...bearer(TEST_TOKENS.organizer) },
       payload: '{"name":',
     });
     expect(notJson.statusCode).toBe(400);
@@ -246,7 +261,12 @@ describe('Event Context HTTP API', () => {
   });
 
   it('responds 503 when no extractor is configured for build', async () => {
-    const manualApp = buildApp({ logger, eventContext: serviceWith(testDb.db, null) });
+    const manualApp = buildApp({
+      logger,
+      db: testDb.db,
+      verifier: fakeVerifier(),
+      eventContext: serviceWith(testDb.db, null),
+    });
     const created = await call(manualApp, 'POST', '/events', {
       name: 'Manual',
       slug: 'manual-http',

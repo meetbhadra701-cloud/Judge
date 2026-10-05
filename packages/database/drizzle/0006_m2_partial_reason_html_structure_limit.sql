@@ -1,0 +1,2 @@
+ALTER TABLE "source_snapshots" DROP CONSTRAINT "source_snapshots_partial_reasons_valid";--> statement-breakpoint
+ALTER TABLE "source_snapshots" ADD CONSTRAINT "source_snapshots_partial_reasons_valid" CHECK (partial_reasons <@ ARRAY['tree_truncated', 'tree_entry_limit', 'commit_limit', 'file_size_limit', 'file_count_limit', 'total_text_limit', 'blob_unavailable', 'time_budget_exhausted', 'body_truncated', 'body_not_captured', 'sections_missing', 'html_structure_limit', 'generic_metadata_only']::text[]);

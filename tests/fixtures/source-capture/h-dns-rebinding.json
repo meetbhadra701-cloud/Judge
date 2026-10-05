@@ -1,0 +1,16 @@
+{
+  "name": "fixture-h-dns-rebinding",
+  "description": "The host first resolves to a public address, then to 127.0.0.1. The connection is pinned to the validated answer; a later lookup returning loopback is refused.",
+  "hosts": {
+    "rebind.example.org": [["93.184.216.38"], ["127.0.0.1"]]
+  },
+  "routes": {
+    "https://rebind.example.org/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "body": "<title>Rebind</title><p>public answer</p>"
+    }
+  }
+}

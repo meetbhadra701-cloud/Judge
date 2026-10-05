@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@judge-copilot/audit": "workspace:*",
+    "@judge-copilot/auth": "workspace:*",
+    "@judge-copilot/capture": "workspace:*",
     "@judge-copilot/context": "workspace:*",
     "@judge-copilot/database": "workspace:*",
     "@judge-copilot/domain": "workspace:*",

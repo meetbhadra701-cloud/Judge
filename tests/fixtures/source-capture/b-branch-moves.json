@@ -1,0 +1,34 @@
+{
+  "name": "fixture-b-branch-moves",
+  "description": "The default branch resolves to commit B1 on the first capture and B2 on the next.",
+  "hosts": {
+    "api.github.com": ["140.82.112.6"]
+  },
+  "githubRepositories": [
+    {
+      "owner": "synthetic",
+      "repo": "moving",
+      "commits": [
+        {
+          "id": "B1",
+          "message": "First version",
+          "date": "2026-10-02T10:00:00Z",
+          "files": {
+            "README.md": "# Moving v1\n",
+            "src/app.py": "print('v1')\n"
+          }
+        },
+        {
+          "id": "B2",
+          "message": "Force-pushed rewrite",
+          "date": "2026-10-03T10:00:00Z",
+          "files": {
+            "README.md": "# Moving v2\n",
+            "src/app.py": "print('v2')\n"
+          }
+        }
+      ],
+      "headSequence": ["B1", "B2"]
+    }
+  ]
+}

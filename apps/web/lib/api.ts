@@ -3,6 +3,16 @@ import { ApiErrorBody } from '@judge-copilot/schemas';
 /** Server-side only: the browser never talks to the API directly. */
 const API_URL = process.env['JUDGE_API_URL'] ?? 'http://127.0.0.1:3001';
 
+/**
+ * Bearer credential the server forwards to the API (M2). Server-side only: never sent to the
+ * browser. Locally `dev-organizer` / `dev-judge` with the API's explicit `AUTH_MODE=dev`; in a
+ * deployment, a token issued by the identity provider.
+ */
+function authHeader(): Record<string, string> {
+  const token = process.env['JUDGE_API_TOKEN'];
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 export interface ApiIssue {
   path: string;
   message: string;
@@ -23,9 +33,11 @@ export async function apiRequest<T>(
     response = await fetch(`${API_URL}${path}`, {
       method,
       cache: 'no-store',
-      ...(body === undefined
-        ? {}
-        : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      headers: {
+        ...authHeader(),
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     return {
@@ -66,4 +78,8 @@ export function eventPath(eventId: string): string {
 
 export function versionPath(eventId: string, versionId: string): string {
   return `${eventPath(eventId)}/context-versions/${encodeURIComponent(versionId)}`;
+}
+
+export function projectPath(projectId: string): string {
+  return `/projects/${encodeURIComponent(projectId)}`;
 }

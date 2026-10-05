@@ -11,6 +11,22 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@judge-copilot/shared": "workspace:*"
+    "@judge-copilot/audit": "workspace:*",
+    "@judge-copilot/capture": "workspace:*",
+    "@judge-copilot/database": "workspace:*",
+    "@judge-copilot/deployment": "workspace:*",
+    "@judge-copilot/devpost": "workspace:*",
+    "@judge-copilot/domain": "workspace:*",
+    "@judge-copilot/github": "workspace:*",
+    "@judge-copilot/safe-http": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "@judge-copilot/shared": "workspace:*",
+    "@judge-copilot/video": "workspace:*",
+    "drizzle-orm": "^0.45.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "postgres": "^3.4.9"
   }
 }

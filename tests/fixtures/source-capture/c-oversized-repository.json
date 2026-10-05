@@ -1,0 +1,173 @@
+{
+  "name": "fixture-c-oversized-repository",
+  "description": "Exceeds the per-file cap, the total-text cap and the commit cap; GitHub also reports a truncated tree.",
+  "hosts": {
+    "api.github.com": ["140.82.112.6"]
+  },
+  "githubRepositories": [
+    {
+      "owner": "synthetic",
+      "repo": "oversized",
+      "treeTruncated": true,
+      "extraHistory": 300,
+      "commits": [
+        {
+          "id": "C1",
+          "message": "Huge drop",
+          "date": "2026-10-02T12:00:00Z",
+          "files": {
+            "README.md": "# Oversized\n",
+            "huge/generated.ts": {
+              "fill": "x",
+              "bytes": 307200
+            },
+            "src/module00.ts": {
+              "fill": "// module 0\n",
+              "bytes": 245760
+            },
+            "src/module01.ts": {
+              "fill": "// module 1\n",
+              "bytes": 245760
+            },
+            "src/module02.ts": {
+              "fill": "// module 2\n",
+              "bytes": 245760
+            },
+            "src/module03.ts": {
+              "fill": "// module 3\n",
+              "bytes": 245760
+            },
+            "src/module04.ts": {
+              "fill": "// module 4\n",
+              "bytes": 245760
+            },
+            "src/module05.ts": {
+              "fill": "// module 5\n",
+              "bytes": 245760
+            },
+            "src/module06.ts": {
+              "fill": "// module 6\n",
+              "bytes": 245760
+            },
+            "src/module07.ts": {
+              "fill": "// module 7\n",
+              "bytes": 245760
+            },
+            "src/module08.ts": {
+              "fill": "// module 8\n",
+              "bytes": 245760
+            },
+            "src/module09.ts": {
+              "fill": "// module 9\n",
+              "bytes": 245760
+            },
+            "src/module10.ts": {
+              "fill": "// module 10\n",
+              "bytes": 245760
+            },
+            "src/module11.ts": {
+              "fill": "// module 11\n",
+              "bytes": 245760
+            },
+            "src/module12.ts": {
+              "fill": "// module 12\n",
+              "bytes": 245760
+            },
+            "src/module13.ts": {
+              "fill": "// module 13\n",
+              "bytes": 245760
+            },
+            "src/module14.ts": {
+              "fill": "// module 14\n",
+              "bytes": 245760
+            },
+            "src/module15.ts": {
+              "fill": "// module 15\n",
+              "bytes": 245760
+            },
+            "src/module16.ts": {
+              "fill": "// module 16\n",
+              "bytes": 245760
+            },
+            "src/module17.ts": {
+              "fill": "// module 17\n",
+              "bytes": 245760
+            },
+            "src/module18.ts": {
+              "fill": "// module 18\n",
+              "bytes": 245760
+            },
+            "src/module19.ts": {
+              "fill": "// module 19\n",
+              "bytes": 245760
+            },
+            "src/module20.ts": {
+              "fill": "// module 20\n",
+              "bytes": 245760
+            },
+            "src/module21.ts": {
+              "fill": "// module 21\n",
+              "bytes": 245760
+            },
+            "src/module22.ts": {
+              "fill": "// module 22\n",
+              "bytes": 245760
+            },
+            "src/module23.ts": {
+              "fill": "// module 23\n",
+              "bytes": 245760
+            },
+            "src/module24.ts": {
+              "fill": "// module 24\n",
+              "bytes": 245760
+            },
+            "src/module25.ts": {
+              "fill": "// module 25\n",
+              "bytes": 245760
+            },
+            "src/module26.ts": {
+              "fill": "// module 26\n",
+              "bytes": 245760
+            },
+            "src/module27.ts": {
+              "fill": "// module 27\n",
+              "bytes": 245760
+            },
+            "src/module28.ts": {
+              "fill": "// module 28\n",
+              "bytes": 245760
+            },
+            "src/module29.ts": {
+              "fill": "// module 29\n",
+              "bytes": 245760
+            },
+            "src/module30.ts": {
+              "fill": "// module 30\n",
+              "bytes": 245760
+            },
+            "src/module31.ts": {
+              "fill": "// module 31\n",
+              "bytes": 245760
+            },
+            "src/module32.ts": {
+              "fill": "// module 32\n",
+              "bytes": 245760
+            },
+            "src/module33.ts": {
+              "fill": "// module 33\n",
+              "bytes": 245760
+            },
+            "src/module34.ts": {
+              "fill": "// module 34\n",
+              "bytes": 245760
+            },
+            "src/module35.ts": {
+              "fill": "// module 35\n",
+              "bytes": 245760
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

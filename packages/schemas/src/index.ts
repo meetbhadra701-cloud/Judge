@@ -2,3 +2,5 @@ export * from './primitives.js';
 export * from './enums.js';
 export * from './event-context.js';
 export * from './event-context-api.js';
+export * from './source-ingestion.js';
+export * from './source-ingestion-api.js';

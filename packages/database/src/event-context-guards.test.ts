@@ -144,12 +144,15 @@ describe.each(testDatabaseTargets())('M1 Event Context guards on %s', (_name, op
     );
   });
 
-  it('keeps Event Context independent of projects: no project tables or columns exist in M1', async () => {
-    const projectColumns = await rows<{ table_name: string; column_name: string }>(
+  it('keeps Event Context tables independent of projects, and no score columns exist anywhere', async () => {
+    // M2 added project tables; Event Context tables still have no project or score columns.
+    const columns = await rows<{ table_name: string; column_name: string }>(
       db,
       sql`SELECT table_name, column_name FROM information_schema.columns
-          WHERE table_schema = 'public' AND (column_name LIKE '%project%' OR table_name LIKE '%project%' OR column_name LIKE '%score%' AND table_name <> 'rubric_anchors')`,
+          WHERE table_schema = 'public'
+            AND ((column_name LIKE '%project%' AND table_name IN ('events', 'event_context_versions', 'event_sources', 'tracks', 'rubrics', 'rubric_criteria', 'rubric_anchors'))
+              OR (column_name LIKE '%score%' AND table_name <> 'rubric_anchors'))`,
     );
-    expect(projectColumns).toEqual([]);
+    expect(columns).toEqual([]);
   });
 });

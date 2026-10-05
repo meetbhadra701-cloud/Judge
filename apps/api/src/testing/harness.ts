@@ -7,6 +7,7 @@ import {
   type ReplayRecordingInput,
 } from '@judge-copilot/context';
 import { auditEvents, migrationsFolder, schema, type JudgeDatabase } from '@judge-copilot/database';
+import type { AuthVerifier, VerifiedIdentity } from '@judge-copilot/domain';
 import { asc, eq } from 'drizzle-orm';
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
@@ -108,4 +109,46 @@ export async function auditTrail(db: JudgeDatabase, entityId: string) {
 export function requireValue<T>(value: T | undefined | null, label = 'value'): T {
   if (value === undefined || value === null) throw new Error(`Missing ${label}`);
   return value;
+}
+
+/** Deterministic fake credentials for the fake verifier. Never real tokens. */
+export const TEST_TOKENS = {
+  organizer: 'test-organizer-credential',
+  judge: 'test-judge-credential',
+  secondOrganizer: 'test-second-organizer-credential',
+  noRole: 'test-no-role-credential',
+} as const;
+
+const TEST_IDENTITIES: Record<string, VerifiedIdentity> = {
+  [TEST_TOKENS.organizer]: { issuer: 'urn:test', subject: 'organizer-1', roles: ['organizer'] },
+  [TEST_TOKENS.judge]: { issuer: 'urn:test', subject: 'judge-1', roles: ['judge'] },
+  [TEST_TOKENS.secondOrganizer]: {
+    issuer: 'urn:test',
+    subject: 'organizer-2',
+    roles: ['organizer'],
+  },
+  [TEST_TOKENS.noRole]: { issuer: 'urn:test', subject: 'nobody', roles: [] },
+};
+
+/** A deterministic AuthVerifier for tests (no crypto, no network). */
+export function fakeVerifier(): AuthVerifier {
+  return {
+    name: 'fake',
+    verify: (credential) => Promise.resolve(TEST_IDENTITIES[credential] ?? null),
+  };
+}
+
+export function bearer(token: string): { authorization: string } {
+  return { authorization: `Bearer ${token}` };
+}
+
+/** Creates an event whose v1 Event Context (built from the recording) is locked. */
+export async function lockedEventFromRecording(
+  service: EventContextService,
+  recording: ReplayRecordingInput,
+) {
+  const seeded = await seedFromRecording(service, recording);
+  await service.buildContext(seeded.eventId, seeded.versionId, { replaceHumanEdits: false });
+  await service.lockContext(seeded.eventId, seeded.versionId);
+  return seeded;
 }

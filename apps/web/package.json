@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Judge Copilot web UI (Next.js): minimal Event Context setup, review and lock views.",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build",
-    "start": "next start",
+    "start": "next start --hostname 127.0.0.1",
     "typecheck": "next typegen && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

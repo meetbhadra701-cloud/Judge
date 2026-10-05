@@ -47,6 +47,16 @@ local-only: the API binds to `127.0.0.1` by default.
 - `in_review` remains in the Event Context vocabulary but is unused. The explicit lock action is
   the human review gate.
 
+### Refinements recorded in M2
+
+- Authentication and authorization (organizer, judge) were delivered in M2 as the contract
+  requires: an `AuthVerifier` port, provider-neutral JWT/JWKS verification and an explicit,
+  production-refused development verifier. They protect the M1 Event Context routes as well.
+- `analysis_runs` gained the `pending` state for queued capture work (with project/snapshot links
+  and a worker lease). Terminal runs are now frozen by trigger.
+- Deployment inspection in M2 is a single SSRF-safe HTTP observation; the sandboxed headless
+  browser (`packages/browser`) remains deferred. Video capture is metadata only.
+
 ## Definition of done (every milestone)
 
 - dependencies install cleanly from the lockfile;
@@ -63,3 +73,4 @@ local-only: the API binds to `127.0.0.1` by default.
 
 - [M0 — Foundation](./milestones/M0-report.md)
 - [M1 — Event Context Pack](./milestones/M1-report.md)
+- [M2 — Immutable Project-Source Ingestion](./milestones/M2-report.md)

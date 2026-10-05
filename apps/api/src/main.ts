@@ -1,9 +1,11 @@
+import { createDevVerifier, createJwtVerifier } from '@judge-copilot/auth';
 import { createReplayExtractor } from '@judge-copilot/context';
 import { createDatabase } from '@judge-copilot/database';
 import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { buildApp, SERVICE_NAME } from './app.js';
 import { loadApiEnv } from './env.js';
 import { EventContextService } from './event-context/service.js';
+import { ProjectService } from './projects/service.js';
 import { loadReplayRecordings } from './replay.js';
 
 const env = loadApiEnv();
@@ -23,9 +25,29 @@ if (extractor) {
   logger.warn({ extractor: extractor.name }, 'development replay extractor enabled');
 }
 
+const verifier =
+  env.AUTH_MODE === 'jwt' && env.AUTH_JWT_ISSUER && env.AUTH_JWT_AUDIENCE && env.AUTH_JWKS_URL
+    ? createJwtVerifier({
+        issuer: env.AUTH_JWT_ISSUER,
+        audience: env.AUTH_JWT_AUDIENCE,
+        jwksUrl: env.AUTH_JWKS_URL,
+        rolesClaim: env.AUTH_JWT_ROLES_CLAIM,
+      })
+    : env.AUTH_MODE === 'dev'
+      ? createDevVerifier({ nodeEnv: env.NODE_ENV })
+      : null;
+if (env.AUTH_MODE === 'dev') {
+  logger.warn('development authentication enabled (synthetic dev-organizer/dev-judge actors)');
+} else if (!verifier && database) {
+  logger.warn('AUTH_MODE is not configured; protected routes will respond 503');
+}
+
 const app = buildApp({
   logger,
+  db: database?.db ?? null,
+  verifier,
   eventContext: database ? new EventContextService({ db: database.db, extractor }) : null,
+  projects: database ? new ProjectService({ db: database.db }) : null,
 });
 
 handleShutdownSignals(

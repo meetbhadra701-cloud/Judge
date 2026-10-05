@@ -14,8 +14,8 @@ const SCOPE = '@judge-copilot/';
  * Layer of every package, including packages planned for later milestones.
  *   0 foundation       — shared, schemas
  *   1 domain           — domain
- *   2 deterministic core (pure, no I/O, no AI) — audit, context, evidence, scoring, uncertainty, questions
- *   3 adapters (I/O and AI) — database, llm, prompts, github, devpost, browser
+ *   2 deterministic core (pure, no I/O, no AI) — audit, context, capture, evidence, scoring, uncertainty, questions
+ *   3 adapters (I/O and AI) — database, auth, safe-http, github, devpost, deployment, video, browser, llm, prompts
  *   4 apps             — api, worker, web
  * A package may depend only on packages in a strictly lower layer, except that layer-2
  * packages may depend on each other (acyclically).
@@ -26,11 +26,16 @@ const LAYERS: Record<string, number> = {
   domain: 1,
   audit: 2,
   context: 2,
+  capture: 2,
   evidence: 2,
   scoring: 2,
   uncertainty: 2,
   questions: 2,
   database: 3,
+  auth: 3,
+  'safe-http': 3,
+  deployment: 3,
+  video: 3,
   llm: 3,
   prompts: 3,
   github: 3,

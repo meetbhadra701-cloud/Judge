@@ -1,8 +1,8 @@
 # Judge Copilot — Architecture
 
-> **Status:** Milestone 1 (Event Context Pack) on top of the M0 foundation. Everything after
-> Event Context (ingestion, evidence, scoring, questions, interview, reassessment) is
-> intentionally **not implemented yet**. This document specifies the target architecture so that every
+> **Status:** Milestone 2 (immutable project-source ingestion) on top of M0 and M1 (Event Context
+> Pack). Everything after source snapshots (claims, evidence, scoring, questions, interview,
+> reassessment) is intentionally **not implemented yet**. This document specifies the target architecture so that every
 > milestone builds toward it. It is binding on human and AI contributors.
 
 ---
@@ -222,20 +222,25 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 
 ### How M0/M1 already encode some invariants
 
-| Invariant                 | M0 mechanism                                                                                                                                                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10, 17 (immutability)     | `audit_events` is append-only via DB trigger; Event Context versions are append-only rows with `UNIQUE(event_id, version)`                                                                                            |
-| 18 (locked context)       | `event_context_versions`: `locked_at` is required exactly for frozen statuses; at most one `locked` version per event (partial unique index); a version can only supersede a version of the same event (composite FK) |
-| 21 (no execution)         | ESLint forbids `child_process` and `vm` in all non-test code, plus `eval`/`new Function`                                                                                                                              |
-| 22 (no fabricated scores) | `analysis_runs`: a `failed` run must carry a `failure_category`; "insufficient evidence" is deliberately not a failure category                                                                                       |
-| 13                        | `Ratio` is documented as a closed interval, not a probability                                                                                                                                                         |
-| Secrets (SECURITY.md)     | logger redacts secret-bearing keys and serializes errors through an allow-list                                                                                                                                        |
-| Dependency direction      | `tests/integration/dependency-rules.test.ts`                                                                                                                                                                          |
-| 1 (official context wins) | M1: explicit source-authority precedence; conflicts are resolved by authority in deterministic code, a human may only choose between tied top-authority positions, and losing positions are kept                      |
-| 3, 14 (unclear ≠ guessed) | M1: every Event Context fact carries `certainty`; `unclear` facts need no source, may be locked, and are listed as unresolved; unweighted official rubrics stay unweighted                                            |
-| 10, 17, 18 (frozen)       | M1: triggers freeze locked/superseded versions and their sources, tracks, rubrics, criteria and anchors; lock stores a SHA-256 content hash that later reads recompute (`integrity: verified`)                        |
-| 19, 20 (validated output) | M1: extractor output is `unknown` → Zod (`EventContextExtraction`, which forbids IDs) → domain validation; code assigns all IDs; DB triggers reject provenance references to sources of another version               |
-| 22 (no fabrication)       | M1: a failed build records a `failed` analysis run with a sanitized category and leaves the previous draft untouched                                                                                                  |
+| Invariant                  | M0 mechanism                                                                                                                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10, 17 (immutability)      | `audit_events` is append-only via DB trigger; Event Context versions are append-only rows with `UNIQUE(event_id, version)`                                                                                            |
+| 18 (locked context)        | `event_context_versions`: `locked_at` is required exactly for frozen statuses; at most one `locked` version per event (partial unique index); a version can only supersede a version of the same event (composite FK) |
+| 21 (no execution)          | ESLint forbids `child_process` and `vm` in all non-test code, plus `eval`/`new Function`                                                                                                                              |
+| 22 (no fabricated scores)  | `analysis_runs`: a `failed` run must carry a `failure_category`; "insufficient evidence" is deliberately not a failure category                                                                                       |
+| 13                         | `Ratio` is documented as a closed interval, not a probability                                                                                                                                                         |
+| Secrets (SECURITY.md)      | logger redacts secret-bearing keys and serializes errors through an allow-list                                                                                                                                        |
+| Dependency direction       | `tests/integration/dependency-rules.test.ts`                                                                                                                                                                          |
+| 1 (official context wins)  | M1: explicit source-authority precedence; conflicts are resolved by authority in deterministic code, a human may only choose between tied top-authority positions, and losing positions are kept                      |
+| 3, 14 (unclear ≠ guessed)  | M1: every Event Context fact carries `certainty`; `unclear` facts need no source, may be locked, and are listed as unresolved; unweighted official rubrics stay unweighted                                            |
+| 10, 17, 18 (frozen)        | M1: triggers freeze locked/superseded versions and their sources, tracks, rubrics, criteria and anchors; lock stores a SHA-256 content hash that later reads recompute (`integrity: verified`)                        |
+| 19, 20 (validated output)  | M1: extractor output is `unknown` → Zod (`EventContextExtraction`, which forbids IDs) → domain validation; code assigns all IDs; DB triggers reject provenance references to sources of another version               |
+| 22 (no fabrication)        | M1: a failed build records a `failed` analysis run with a sanitized category and leaves the previous draft untouched                                                                                                  |
+| 7, 21 (no execution)       | M2: repositories are read through GET-only GitHub REST calls as data; no clone, git, install, build or import; a source scan test forbids process/VM/worker/dynamic-import code paths                                 |
+| 17 (immutable snapshots)   | M2: `source_snapshots` go `pending` → terminal exactly once (trigger); terminal rows, their artifacts and declared sources can never change or be deleted; GitHub snapshots pin an exact commit SHA                   |
+| 3, 14 (missing ≠ negative) | M2: refused URLs are `rejected` (an unknown), network problems `failed`, limits `partial` with explicit reasons; deployment HTTP 404/500 are observations                                                             |
+| 5 (commit counts)          | M2: commit, file, star and LOC counts are stored as data only; nothing reads them as a score                                                                                                                          |
+| 8, 23 (untrusted content)  | M2: captured text is stored verbatim as bounded data, never logged, never rendered as HTML, never sent to a model                                                                                                     |
 
 ---
 
@@ -245,8 +250,8 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 judge-copilot/
 ├── apps/
 │   ├── web/        Next.js UI (M1: Event Context setup, review and lock views)
-│   ├── api/        Fastify HTTP API (GET /health + M1 Event Context routes)
-│   └── worker/     background pipeline runner (boots/stops, no jobs yet)
+│   ├── api/        Fastify HTTP API (GET /health, M1 Event Context, M2 projects/sources/snapshots)
+│   └── worker/     background runner (M2: project-source capture jobs)
 ├── packages/
 │   ├── shared/     env validation, structured logger, shutdown handling        [implemented]
 │   ├── schemas/    foundational Zod schemas and vocabularies                   [implemented]
@@ -254,19 +259,24 @@ judge-copilot/
 │   ├── audit/      append-only audit event contract (AuditSink port)           [implemented]
 │   ├── database/   Drizzle schema, migrations, persistence adapters            [implemented]
 │   ├── context/    Event Context domain rules + extraction port                [implemented, M1]
+│   ├── capture/    capture ports, URL/path rules, hashing, HTML extraction     [implemented, M2]
 │   ├── evidence/   claims, evidence graph, relations, contradictions, unknowns [M3, README only]
 │   ├── scoring/    deterministic score engine                                  [M4, README only]
 │   ├── uncertainty/ coverage, confidence, uncertainty analysis                 [M6, README only]
 │   ├── questions/  question validation + information-gain ranking              [M6, README only]
-│   ├── github/     read-only GitHub snapshot adapter                           [M2, README only]
-│   ├── devpost/    Devpost snapshot adapter                                    [M2, README only]
-│   ├── browser/    sandboxed deployment inspection adapter                     [M2+, README only]
+│   ├── safe-http/  SSRF-safe HTTP client (DNS pinning, redirect policy)        [implemented, M2]
+│   ├── github/     read-only GitHub snapshot adapter                           [implemented, M2]
+│   ├── devpost/    Devpost snapshot adapter                                    [implemented, M2]
+│   ├── deployment/ deployment HTTP observation adapter                         [implemented, M2]
+│   ├── video/      video metadata adapter                                      [implemented, M2]
+│   ├── auth/       AuthVerifier adapters (JWT/JWKS, dev-only)                  [implemented, M2]
+│   ├── browser/    sandboxed headless-browser inspection                       [deferred, README only]
 │   ├── llm/        model/provider abstraction                                  [M5, README only]
 │   └── prompts/    versioned prompt templates                                  [M5, README only]
 ├── tests/
 │   ├── support/    test-only helpers (network guard)
 │   ├── integration/ cross-package tests (dependency rules, process boot)
-│   ├── fixtures/   [later milestones]
+│   ├── fixtures/   Event Context recordings (M1), source-capture worlds A–I (M2)
 │   ├── e2e/        [Playwright, later milestones]
 │   └── benchmark/  [later milestones]
 └── docs/
@@ -306,13 +316,13 @@ Each package's `exports` has three conditions:
 
 These rules are **enforced** by `tests/integration/dependency-rules.test.ts`.
 
-| Layer                     | Packages                                                              | May depend on                                    |
-| ------------------------- | --------------------------------------------------------------------- | ------------------------------------------------ |
-| 0 — foundation            | `shared`, `schemas`                                                   | external libraries only                          |
-| 1 — domain                | `domain`                                                              | layer 0                                          |
-| 2 — deterministic core    | `audit`, `context`, `evidence`, `scoring`, `uncertainty`, `questions` | layers 0–1, and other layer-2 packages (acyclic) |
-| 3 — adapters (I/O and AI) | `database`, `llm`, `prompts`, `github`, `devpost`, `browser`          | layers 0–2                                       |
-| 4 — apps                  | `api`, `worker`, `web`                                                | layers 0–3                                       |
+| Layer                     | Packages                                                                                                 | May depend on                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 0 — foundation            | `shared`, `schemas`                                                                                      | external libraries only                          |
+| 1 — domain                | `domain`                                                                                                 | layer 0                                          |
+| 2 — deterministic core    | `audit`, `context`, `capture`, `evidence`, `scoring`, `uncertainty`, `questions`                         | layers 0–1, and other layer-2 packages (acyclic) |
+| 3 — adapters (I/O and AI) | `database`, `auth`, `safe-http`, `github`, `devpost`, `deployment`, `video`, `browser`, `llm`, `prompts` | layers 0–2                                       |
+| 4 — apps                  | `api`, `worker`, `web`                                                                                   | layers 0–3                                       |
 
 Rules:
 
@@ -331,16 +341,27 @@ Rules:
 Current actual dependencies:
 
 ```
-shared   → (none)
-schemas  → (none)
-domain   → schemas
-audit    → schemas
-context  → schemas
-database → audit, domain, schemas
-api      → audit, context, database, domain, schemas, shared
-worker   → shared
-web      → context, schemas
+shared     → (none)
+schemas    → (none)
+domain     → schemas
+audit      → schemas
+context    → schemas
+capture    → domain, schemas
+database   → audit, domain, schemas
+auth       → domain, schemas
+safe-http  → capture, schemas
+github     → capture, schemas
+devpost    → capture, schemas
+deployment → capture, schemas
+video      → capture, schemas
+api        → audit, auth, capture, context, database, domain, schemas, shared
+worker     → audit, capture, database, deployment, devpost, domain, github, safe-http, schemas, shared, video
+web        → context, schemas
 ```
+
+The capture adapters cannot depend on `safe-http` (both are layer 3). They depend only on the
+`HttpFetcher` port in `capture` (layer 2); the worker composes them with the SSRF-safe client, so
+no adapter can open a connection that bypasses the policy.
 
 `apps/api` composes the Event Context workflow (`EventContextService`) from the database
 adapter, the `context` domain rules, the `audit` port and an optional `EventContextExtractor`.
@@ -356,18 +377,21 @@ Adding a new package requires assigning it a layer in the test and in this table
 Migrations live in `packages/database/drizzle/` and are applied in order. Each milestone adds
 its own migrations; existing migrations are never edited after being committed.
 
-| Migration                            | Contents                                                                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0000_m0_foundation`                 | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                   |
-| `0001_audit_events_append_only`      | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                            |
-| `0002_m1_event_context`              | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id` |
-| `0003_m1_event_context_immutability` | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                   |
+| Migration                                     | Contents                                                                                                                                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0000_m0_foundation`                          | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                                                 |
+| `0001_audit_events_append_only`               | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                                                          |
+| `0002_m1_event_context`                       | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id`                               |
+| `0003_m1_event_context_immutability`          | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                                                 |
+| `0004_m2_source_ingestion`                    | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK |
+| `0005_m2_source_ingestion_immutability`       | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                      |
+| `0006_m2_partial_reason_html_structure_limit` | adds `html_structure_limit` to the `source_snapshots` partial-reason CHECK (the vocabulary is generated from the shared tuple)                                                                                      |
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` timestamps.
 - Vocabulary CHECK constraints are generated from the same tuples as the Zod schemas
   (`@judge-copilot/schemas`), so the database and validation cannot drift.
-- `analysis_runs.project_id` is deliberately omitted until projects exist (M2).
-- `audit_events.actor_id` has no foreign key until authentication exists.
+- `analysis_runs.project_id` and `source_snapshot_id` link capture runs (M2).
+- `audit_events.actor_id` references `actors` (M2); it is null for system actions (the worker).
 
 ---
 
@@ -377,13 +401,17 @@ its own migrations; existing migrations are never edited after being committed.
   `{"status":"ok","service":"judge-copilot-api"}` (never touches the database) and the M1 Event
   Context routes (§9). Without `DATABASE_URL` it still boots; Event Context routes then answer
   `503 DATABASE_NOT_CONFIGURED`. It closes cleanly on SIGINT/SIGTERM.
-- **worker** starts, logs `worker started` with `jobHandlers: 0`, and stops cleanly. It registers
-  no jobs and contacts nothing (unchanged in M1).
-- **web** renders the M1 Event Context setup/review/lock views using server components and
-  server actions that call the API server-side (`JUDGE_API_URL`). No project, scoring or fake
-  judging UI exists.
+- **worker** without `DATABASE_URL` idles with `jobHandlers: 0` and contacts nothing. With a
+  database it runs the project-source capture loop (§10) with bounded concurrency and stops
+  cleanly on SIGINT/SIGTERM.
+- **web** renders the M1 Event Context views and the M2 project, source and snapshot views using
+  server components and server actions that call the API server-side (`JUDGE_API_URL`,
+  `JUDGE_API_TOKEN`). It binds **127.0.0.1** explicitly (its scripts pass `--hostname 127.0.0.1`): it
+  has no per-user login, so exposing it beyond the local machine is unsupported (SECURITY §10).
+  No scoring or fake judging UI exists.
 
-No process contacts an external service. The database pool connects lazily on first query.
+Only the worker contacts external services, and only through `safe-http` (source capture) or, for
+JWT verification, the configured identity provider's JWKS (API). The database pool connects lazily.
 
 ---
 
@@ -481,4 +509,119 @@ resolution ever deletes a position or a source.
 
 Errors are `{ "error": { "code", "message", "details?" } }` with stable codes (for example
 `INVALID_RUBRIC_WEIGHTS` 422, `LOCKED_CONTEXT_IMMUTABLE` 409, `CONTEXT_VERSION_NOT_FOUND` 404,
-`INVALID_REQUEST` 400). There is no authentication yet (see V1_CONTRACT.md).
+`INVALID_REQUEST` 400). Since M2 every route except `/health` requires authentication (§11).
+
+---
+
+## 10. Immutable project-source ingestion (M2)
+
+```
+locked Event Context → project (+ declared tracks) → declared sources
+→ capture request (202: pending snapshot + pending run) → worker claims (SKIP LOCKED, lease)
+→ adapter capture through SafeHttpClient, no transaction open → validate result
+→ one transaction: artifacts + terminal snapshot + terminal run + audit
+```
+
+### Data model
+
+- **`projects`** — belongs to exactly one event for life (trigger); name, team name, creator.
+  Creating one requires a locked Event Context and never starts an assessment. No score,
+  evidence or summary columns.
+- **`project_track_selections`** — declared tracks, validated against the event's _locked_
+  context at declaration time (trigger + composite FKs to the same event, version and track). Each
+  row keeps the context version it was validated against; a later version never rewrites it.
+  Immutable.
+- **`project_sources`** — immutable declarations (`devpost`, `github`, `deployment`, `video`) with
+  a canonical URL (`normalizeDeclaredSourceUrl`); identical declarations are rejected; a
+  replacement URL is a new declaration.
+- **`source_snapshots`** — one capture of one declaration: `capture_number` (gapless, monotonic per
+  source, trigger), source type and URL (composite FK to the declaration), status, `revision`
+  (exact commit SHA, required exactly for GitHub content snapshots), normalized `metadata`,
+  aggregate `content_hash`, `partial_reasons`, sanitized `failure_category` and allow-listed
+  `failure_metadata` (DB checks the keys), request/capture/completion times.
+- **`source_snapshot_artifacts`** — bounded UTF-8 text (≤ 4 MiB each, ≤ 1,000 per snapshot) with
+  key, kind, media type, metadata, byte length and SHA-256; the database recomputes length and
+  hash from the stored text. Insertable only while the parent is pending.
+- **`analysis_runs`** — `run_type = project_source_capture`, one per snapshot:
+  `pending → running → succeeded | failed | cancelled`, with a lease (`lease_token`,
+  `lease_expires_at`) and `attempt_count`. Terminal runs are frozen (trigger).
+
+### Immutability
+
+A snapshot is inserted `pending` and may transition exactly once to `captured`, `partial`,
+`failed` or `rejected`; identity columns never change; terminal rows, their artifacts and all
+declarations reject UPDATE/DELETE/TRUNCATE in PostgreSQL itself. Re-capturing always creates a new
+snapshot. The API has no mutation route for snapshots or sources (PUT/PATCH/DELETE answer 405).
+
+### Status semantics
+
+| Outcome                              | Status                | Example                                                                                                                                                                                           |
+| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| content captured within limits       | `captured`            | repository at an exact SHA; deployment answering 404                                                                                                                                              |
+| content captured, a limit or gap hit | `partial` + reasons   | tree/commit/file/total caps, truncated body, missing Devpost sections, generic video metadata                                                                                                     |
+| fetching attempted, did not succeed  | `failed` + category   | `dns_failure`, `timeout`, `tls_failure`, `connection_failure`, `rate_limited`, `not_found`, `http_api_error`, `response_too_large`, `unsupported_content_type`, `parse_failure`, `internal_error` |
+| refused by policy                    | `rejected` + category | `invalid_url`, `unsupported_source`, `ssrf_rejected`, `too_many_redirects`                                                                                                                        |
+
+`rejected` is an unknown for later stages, never negative evidence. Capture runs for `captured`,
+`partial` and `rejected` snapshots succeed (the policy decision is completed work); `failed`
+snapshots fail their run with `timeout`, `internal_error` or `source_unavailable` (provider
+categories are never used for policy rejections).
+
+### Hashes
+
+Each artifact has its own SHA-256. `snapshotContentHash` (`snapshot-content/v1`) hashes source
+type, source URL, revision, normalized metadata, partial reasons and the sorted artifact keys with
+their hashes, media types, lengths and metadata — never timestamps or IDs. Identical content
+captured twice yields two snapshots with the same content hash.
+
+### Worker
+
+PostgreSQL-backed queue: claim = `SELECT … FOR UPDATE SKIP LOCKED` on pending capture runs plus a
+fresh lease token, committed before the adapter runs. Finalize re-locks run and snapshot and
+discards the result if the lease token changed or the snapshot is no longer pending, so two
+workers can never both finalize one snapshot. Bounded concurrency (`CAPTURE_CONCURRENCY`, default
+3, max 8); a transient network failure is retried once inside the run; if persisting a result fails,
+only ids and a SQLSTATE are logged and a sanitized `finalization_failed` outcome is recorded in a
+second transaction (SECURITY §13); expired leases are failed
+(`internal_error`, `worker_lease_expired`); on shutdown in-flight captures get a grace period, then
+are aborted (snapshot `failed` with `worker_shutdown`, run `cancelled`). One failed capture never
+stops the loop.
+
+### Adapters (all GET-only, all through the `HttpFetcher` port)
+
+| Adapter    | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub     | repository metadata (public repositories only: anything not clearly public is `rejected` / `unsupported_source` before any further request) → default branch → exact SHA (single ref lookup) → commit, recursive tree, history (`commits?sha=`), blobs by object id, each blob verified against its Git SHA-1. Secret-prone paths never fetched; omissions recorded. Limits: 20,000 tree entries (entries inside ignored directories such as `node_modules` do not count), a 3 MiB byte budget for the entries listed in `tree.json` (the longest path-ordered prefix that fits; the rest is `partial` / `tree_entry_limit`, never a failed snapshot), 250 commits, 256 KiB per file, 8 MiB total text, 400 files, 120 s. |
+| Devpost    | one public project page, parsed deterministically; missing sections stay null; structure gaps → `partial`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Deployment | one GET; status, final URL, redirects, allow-listed headers, page metadata, bounded visible text; HTTP errors are observations.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Video      | YouTube/Vimeo/Loom via fixed oEmbed endpoints; other URLs as page metadata (`partial`); never media.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+## 11. Authentication and authorization (M2)
+
+`AuthVerifier` is a port in `domain`; `auth` implements a provider-neutral JWT/JWKS verifier
+(`jose`; issuer, audience, expiry, asymmetric algorithms only) and an explicit development
+verifier (`dev-organizer`, `dev-judge`) that is refused in production and whenever `API_HOST` is not
+loopback. The API (`AUTH_MODE` =
+`none` | `jwt` | `dev`, default `none` = fail closed with 503) requires a bearer credential on every
+route except `/health`, records the verified `(issuer, subject)` as an `actors` row, and audits
+writes with that actor. Production with a database requires `AUTH_MODE=jwt`.
+
+| Permission                                | organizer | judge |
+| ----------------------------------------- | --------- | ----- |
+| `event_context.read`, `project.read`      | ✓         | ✓     |
+| `event_context.write`, `project.write`    | ✓         | —     |
+| `source.capture` (request a new snapshot) | ✓         | ✓     |
+
+### M2 API
+
+| Method   | Path                                                               | Purpose                                             |
+| -------- | ------------------------------------------------------------------ | --------------------------------------------------- |
+| GET      | `/me`                                                              | the authenticated actor                             |
+| GET/POST | `/events/:eventId/projects`                                        | list / create (with `trackKeys`)                    |
+| GET      | `/projects/:projectId`                                             | project, tracks, sources with latest snapshot       |
+| GET/POST | `/projects/:projectId/sources`                                     | list / declare                                      |
+| POST     | `/projects/:projectId/sources/:sourceId/captures`                  | 202: new pending snapshot + run                     |
+| POST     | `/projects/:projectId/captures`                                    | 202: capture every source without a pending capture |
+| GET      | `/projects/:projectId/snapshots`                                   | newest first                                        |
+| GET      | `/projects/:projectId/snapshots/:snapshotId`                       | detail, artifacts (no text), run                    |
+| GET      | `/projects/:projectId/snapshots/:snapshotId/artifacts/:artifactId` | one artifact's text                                 |

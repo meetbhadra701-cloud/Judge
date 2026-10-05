@@ -3,7 +3,7 @@
 import type { ContextVersionDetail, EventRecord } from '@judge-copilot/schemas';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { apiRequest, eventPath, versionPath, type ApiIssue } from '../lib/api';
+import { apiRequest, eventPath, projectPath, versionPath, type ApiIssue } from '../lib/api';
 
 function field(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -119,4 +119,47 @@ export async function saveDraftAction(
   const page = uiVersionPath(eventId, versionId);
   revalidatePath(page);
   redirect(page);
+}
+
+// -- M2: projects, declared sources and capture requests --------------------------------------
+
+export async function createProjectAction(formData: FormData): Promise<void> {
+  const eventId = field(formData, 'eventId');
+  const teamName = field(formData, 'teamName').trim();
+  const trackKeys = formData
+    .getAll('trackKeys')
+    .filter((value): value is string => typeof value === 'string');
+  const result = await apiRequest<{ id: string }>('POST', `${eventPath(eventId)}/projects`, {
+    name: field(formData, 'name'),
+    teamName: teamName || null,
+    trackKeys,
+  });
+  const page = `/events/${encodeURIComponent(eventId)}`;
+  if (!result.ok) {
+    redirect(withError(page, result.message));
+  }
+  redirect(`/projects/${encodeURIComponent(result.data.id)}`);
+}
+
+export async function addProjectSourceAction(formData: FormData): Promise<void> {
+  const projectId = field(formData, 'projectId');
+  const result = await apiRequest('POST', `${projectPath(projectId)}/sources`, {
+    sourceType: field(formData, 'sourceType'),
+    url: field(formData, 'url'),
+  });
+  const page = `/projects/${encodeURIComponent(projectId)}`;
+  revalidatePath(page);
+  redirect(result.ok ? page : withError(page, result.message));
+}
+
+export async function requestCaptureAction(formData: FormData): Promise<void> {
+  const projectId = field(formData, 'projectId');
+  const sourceId = field(formData, 'sourceId');
+  const path = sourceId
+    ? `${projectPath(projectId)}/sources/${encodeURIComponent(sourceId)}/captures`
+    : `${projectPath(projectId)}/captures`;
+  const result = await apiRequest('POST', path);
+  const page = `/projects/${encodeURIComponent(projectId)}`;
+  revalidatePath(page);
+  redirect(result.ok ? page : withError(page, result.message));
 }

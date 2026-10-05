@@ -48,7 +48,36 @@ describe('api environment', () => {
       API_HOST: '127.0.0.1',
       API_PORT: 3001,
       EVENT_CONTEXT_EXTRACTOR: 'none',
+      AUTH_MODE: 'none',
+      AUTH_JWT_ROLES_CLAIM: 'roles',
     });
+  });
+
+  it('never enables development auth implicitly and refuses it in production', () => {
+    expect(loadApiEnv({}).AUTH_MODE).toBe('none');
+    expect(ApiEnv.safeParse({ AUTH_MODE: 'dev' }).success).toBe(true);
+    expect(ApiEnv.safeParse({ AUTH_MODE: 'dev', NODE_ENV: 'production' }).success).toBe(false);
+    // Production with a database must use JWT verification.
+    expect(
+      ApiEnv.safeParse({ NODE_ENV: 'production', DATABASE_URL: 'postgres://db/x' }).success,
+    ).toBe(false);
+    expect(ApiEnv.safeParse({ AUTH_MODE: 'jwt' }).success).toBe(false);
+    const jwt = {
+      AUTH_MODE: 'jwt',
+      AUTH_JWT_ISSUER: 'https://idp.example.test/',
+      AUTH_JWT_AUDIENCE: 'judge-copilot-api',
+      AUTH_JWKS_URL: 'https://idp.example.test/.well-known/jwks.json',
+    };
+    expect(
+      ApiEnv.safeParse({ ...jwt, NODE_ENV: 'production', DATABASE_URL: 'postgres://db/x' }).success,
+    ).toBe(true);
+    expect(
+      ApiEnv.safeParse({
+        ...jwt,
+        NODE_ENV: 'production',
+        AUTH_JWKS_URL: 'http://idp.example.test/jwks',
+      }).success,
+    ).toBe(false);
   });
 
   it('never enables the replay extractor implicitly, and refuses it in production', () => {

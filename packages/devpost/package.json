@@ -1,0 +1,25 @@
+{
+  "name": "@judge-copilot/devpost",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only Devpost project-page snapshot adapter (deterministic HTML parsing, no JavaScript). Layer 3 (I/O adapter).",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/capture": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*"
+  }
+}
