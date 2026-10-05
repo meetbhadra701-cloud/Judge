@@ -8,7 +8,7 @@ import { isIP } from 'node:net';
  * client has already resolved and validated. Node's `lookup` hook is replaced by a function that
  * only ever returns that address, so no second, uncontrolled DNS resolution can happen (DNS
  * rebinding defence). The URL's host name is kept for the Host header and TLS SNI/certificate
- * verification. A fresh agent per request means no connection reuse, no cookies, no proxy from
+ * verification, which is forced on (`rejectUnauthorized: true`) whatever the process environment says. A fresh agent per request means no connection reuse, no cookies, no proxy from
  * the environment and no state shared between captures.
  */
 
@@ -72,7 +72,12 @@ export function pinnedRequestOptions(request: TransportRequest): https.RequestOp
     headers: { ...request.headers, host: url.host },
     lookup: pinnedLookup(hostname, request.address, request.family),
     ...(secure && !literal ? { servername: hostname } : {}),
-    agent: secure ? new https.Agent(agentOptions) : new http.Agent(agentOptions),
+    // Certificates are ALWAYS verified. Without this, NODE_TLS_REJECT_UNAUTHORIZED=0 in the
+    // worker's environment would silently disable verification for every capture.
+    ...(secure ? { rejectUnauthorized: true } : {}),
+    agent: secure
+      ? new https.Agent({ ...agentOptions, rejectUnauthorized: true })
+      : new http.Agent(agentOptions),
     signal: request.signal,
   };
 }

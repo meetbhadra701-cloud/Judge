@@ -421,3 +421,65 @@ describe('GitHub tree listing budget', () => {
     expect(omissions.ignoredDirectories['node_modules']).toBeGreaterThanOrEqual(30_000);
   });
 });
+
+/*
+ * M2 ingests PUBLIC repositories only. A token that can read a private repository must not turn
+ * confidential source into a snapshot that every judge can read.
+ */
+describe('GitHub adapter enforces public repositories', () => {
+  const BASE = 'https://api.github.com/repos/synthetic/atlas';
+  const token = 'synthetic-github-token-value-1234';
+
+  async function withMetadata(patch: Record<string, unknown>, drop: string[] = []) {
+    const routes = githubFixtureRoutes(ATLAS);
+    const original = routes[BASE] as { json: Record<string, unknown> };
+    const json = Object.fromEntries(
+      Object.entries({ ...original.json, ...patch }).filter(([key]) => !drop.includes(key)),
+    );
+    routes[BASE] = { ...original, json };
+    const fake = fakeHttp(routes);
+    const adapter = createGithubAdapter({ http: fake.http, token });
+    const result = validateCaptureResult(
+      'github',
+      await adapter.capture({ sourceType: 'github', url: URL_, signal: signal() }),
+    );
+    return { result, requests: fake.requests };
+  }
+
+  it.each([
+    ['private: true with visibility private', { private: true, visibility: 'private' }, []],
+    ['internal visibility', { private: false, visibility: 'internal' }, []],
+    ['private: true but visibility says public', { private: true, visibility: 'public' }, []],
+    ['private: true and no visibility field', { private: true }, ['visibility']],
+    ['visibility private and no private field', { visibility: 'private' }, ['private']],
+    ['neither field present (cannot prove public)', {}, ['private', 'visibility']],
+    ['both fields null (cannot prove public)', { private: null, visibility: null }, []],
+    ['unknown visibility value', { private: false, visibility: 'enterprise' }, []],
+  ] as const)('rejects %s and makes no request after the metadata', async (_label, patch, drop) => {
+    const { result, requests } = await withMetadata({ ...patch }, [...drop]);
+    expect(result).toEqual({
+      status: 'rejected',
+      failure: {
+        category: 'unsupported_source',
+        metadata: { adapter: 'github', reason: 'private_repository' },
+      },
+    });
+    // Rejected: no artifacts, and the only request ever made was the repository metadata.
+    expect('artifacts' in result).toBe(false);
+    expect(requests.map((request) => request.url)).toEqual([BASE]);
+    // The token was only ever sent to the API origin and appears nowhere in the outcome.
+    expect(JSON.stringify(result)).not.toContain(token);
+    expect(JSON.stringify(result)).not.toContain('Synthetic Atlas');
+  });
+
+  it('still captures a repository that is clearly public', async () => {
+    const { result, requests } = await withMetadata({ private: false, visibility: 'public' });
+    expect(result.status).toBe('captured');
+    expect(requests.length).toBeGreaterThan(5);
+    // Public with only one proving field is accepted too.
+    expect((await withMetadata({ visibility: 'public' }, ['private'])).result.status).toBe(
+      'captured',
+    );
+    expect((await withMetadata({ private: false }, ['visibility'])).result.status).toBe('captured');
+  });
+});

@@ -269,42 +269,59 @@ failure with no marker in any log line; a 26,052-entry tree with 90+ character p
 - Sanitization replaces characters (U+FFFD) instead of dropping them, so a text artifact's bytes can
   differ from the source in those positions; the count is recorded but not the positions.
 
-### Open P2 findings (not addressed in the hardening pass)
+## Final security hardening (second pre-merge pass)
 
-1. `safe-http` IP policy: IPv4-compatible `::7f00:1` and non-`2000::/3` IPv6 space (`4000::1`) are
-   classified `unicast`. No exploit confirmed (no IPv6 available to test); deny `::/96` and allow
-   only `2000::/3`.
-2. `NODE_TLS_REJECT_UNAUTHORIZED=0` in the worker's environment disables certificate checks; set
-   `rejectUnauthorized: true` on the agent (verified to override the variable).
-3. The pinned lookup returns only the first validated DNS answer, so an IPv6-first answer on an
+A final audit found five more pre-merge fixes and one small SSRF item. They are fixed in the
+commit "Finish M2 security hardening" and nothing else was changed.
+
+| Item | Problem                                                                                                                                                                                                                                                   | Fix                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A1   | `StructuredText.toString()` trimmed with `/\s+$/`, which backtracks quadratically on a long whitespace run that is not at the end (`<br>&#9;` repeated): about 16-20 s of synchronous CPU at 1 MiB for a deployment page or a Devpost details area.       | `.trimEnd()` (identical whitespace set, linear). Regression tests drive the real extraction paths (`extractHtmlDocument`, `parseDevpostPage`) and the capture worker; the worker test's event-loop sampler now takes one more tick after the run so a stall is observed. Removing the fix fails all three.                                                                                                                                 |
+| B2   | Certificate verification came from Node's defaults, so `NODE_TLS_REJECT_UNAUTHORIZED=0` disabled it for every capture.                                                                                                                                    | The pinned transport sets `rejectUnauthorized: true` on the request and the agent for HTTPS (HTTP unaffected; SNI, Host and the pinned address unchanged). A real local TLS server with a run-time-generated self-signed certificate must still be refused with the variable set to `0` and never receives the `Authorization` header; controls prove the server works and that the variable really disables checks for a default request. |
+| B5   | A token that can read a private repository turned it into a snapshot every judge can read.                                                                                                                                                                | Right after the repository metadata, anything not clearly public (`private: true`, `visibility` other than `public`, or metadata that cannot prove public visibility) is `rejected` / `unsupported_source` / `private_repository`, with no artifacts and zero further requests.                                                                                                                                                            |
+| B8   | The unsuccessful-result branch of `finalize` wrote the worker-clock `completedAt`; a worker clock behind the API's violated `source_snapshots_timestamps_ordered`, so fast policy rejections were never recorded and became `worker_lease_expired` later. | `completedAt` is never before the stored `created_at` (with a 1 ms floor, because PostgreSQL keeps microseconds and a JavaScript `Date` milliseconds; PGlite does not show this, real PostgreSQL does), `captured_at` likewise, and the run's `finished_at` is never before its `started_at`, in the content and the failure/rejection branches, hence also for emergency finalization and the lease reaper. Constraints are unchanged.    |
+| B13  | `AUTH_MODE=dev` was refused only when `NODE_ENV=production`; with `NODE_ENV` unset the publicly known `dev-organizer` bearer was valid on any bind address.                                                                                               | `AUTH_MODE=dev` additionally requires `API_HOST` to be loopback (`localhost`, `::1`, or an IPv4 address in `127.0.0.0/8`; brackets tolerated), whatever `NODE_ENV` says.                                                                                                                                                                                                                                                                   |
+| B1   | IPv6 was allowed whenever `ipaddr.js` called it `unicast`, which includes IPv4-compatible `::/96` (`::7f00:1`), `4000::/2` and `8000::/1`.                                                                                                                | An IPv6 address must also lie in `2000::/3`; every existing explicit deny and the IPv4 policy are unchanged.                                                                                                                                                                                                                                                                                                                               |
+
+### Final hardening verification
+
+| Command                                                                                  | Result                                  |
+| ---------------------------------------------------------------------------------------- | --------------------------------------- |
+| `pnpm check` (format, lint, typecheck, migration check, tests, build)                    | exit 0                                  |
+| `pnpm test` (PGlite)                                                                     | 48 files, 482 tests passed              |
+| `TEST_DATABASE_URL=... CI=true pnpm test` (PostgreSQL 16, ICU `en-US` default collation) | 48 files, 572 tests passed              |
+| `pnpm db:generate`                                                                       | "No schema changes, nothing to migrate" |
+| secrets scan (tracked and new files)                                                     | no matches                              |
+
+Whitespace-run benchmark (1,016 KiB, same machine): deployment page before about 16-20 s, after
+534 ms; Devpost details before 16,225 ms, after 486 ms.
+
+### Open P2 findings (remaining after both hardening passes)
+
+1. The pinned lookup returns only the first validated DNS answer, so an IPv6-first answer on an
    IPv4-only host fails instead of falling back to another validated address.
-4. Devpost, GitHub and oEmbed adapters do not verify the final origin after redirects (Devpost
+2. Devpost, GitHub and oEmbed adapters do not verify the final origin after redirects (Devpost
    hard-codes `host: 'devpost.com'`).
-5. GitHub: private repositories are accepted if the token can read them; secondary-rate-limit 403s
-   and invalid-token 401s are reported as `http_api_error`.
-6. The secret filter is path-only (`serviceAccount.json`, `client_secret_*.json`, `wp-config.php`,
+3. GitHub secondary-rate-limit 403s and invalid-token 401s are reported as `http_api_error`.
+4. The secret filter is path-only (`serviceAccount.json`, `client_secret_*.json`, `wp-config.php`,
    PEM blocks inside `.txt` pass); add a deterministic content scan before persisting.
-7. Database gaps: `DELETE` and `TRUNCATE` on `analysis_runs` are unguarded; the database accepts a
+5. Database gaps: `DELETE` and `TRUNCATE` on `analysis_runs` are unguarded; the database accepts a
    `captured` snapshot with no artifacts and an arbitrary hash, artifacts on a `failed` snapshot, and
    two pending snapshots for one source (one-pending is API-only).
-8. Lease and timestamps use the worker clock; the failure branch of `finalize` does not clamp
-   `completedAt` to `created_at`, so a worker clock behind the API's can violate the timestamp CHECK
-   for fast rejections (the new emergency path records it, but the cause remains). Use database
-   `now()`.
-9. No lease heartbeat or outer per-capture watchdog; `CAPTURE_LEASE_MS` may be set as low as 10 s;
-   GitHub blob workers keep running after a failed `Promise.all`.
-10. An authenticated judge or organizer can create unlimited immutable, undeletable snapshots; add a
-    per-source cap or cooldown.
-11. Artifact order: the hash sorts in JavaScript (UTF-16 code units), the database lists in `C`
-    collation (code points); they differ for astral characters versus U+E000-U+FFFF. Track-key order
-    in the API is still database-locale dependent.
-12. `truncateUtf8` drops one complete multibyte character at the truncation boundary.
-13. `AUTH_MODE=dev` is allowed whenever `NODE_ENV` is not `production` (default `development`);
-    refuse it on a non-loopback `API_HOST`.
-14. Minor: the fixture loader's path-escape check is a prefix comparison, `static-fetcher` is
+6. Lease expiry still uses the worker clock (timestamps are now clamped, but a fast worker clock can
+   reap another worker's live capture); no lease heartbeat or outer per-capture watchdog;
+   `CAPTURE_LEASE_MS` may be set as low as 10 s; GitHub blob workers keep running after a failed
+   `Promise.all`.
+7. An authenticated judge or organizer can create unlimited immutable, undeletable snapshots; add a
+   per-source cap or cooldown.
+8. Artifact order: the hash sorts in JavaScript (UTF-16 code units), the database lists in `C`
+   collation (code points); they differ for astral characters versus U+E000-U+FFFF. Track-key order
+   in the API is still database-locale dependent.
+9. `truncateUtf8` drops one complete multibyte character at the truncation boundary.
+10. Minor: the fixture loader's path-escape check is a prefix comparison, `static-fetcher` is
     exported from the production index, the authentication guard runs as a `preHandler` (bodies parse
     before authentication; use `onRequest`), DNS lookups cannot be cancelled.
-15. GitHub tree responses over 16 MiB fail `response_too_large` instead of becoming `partial`
+11. GitHub tree responses over 16 MiB fail `response_too_large` instead of becoming `partial`
     (GitHub itself truncates trees well below that size).
 
 ## Deferred to M3+
@@ -321,7 +338,8 @@ per-event role assignment, web UI user login.
   loopback-only (`--hostname 127.0.0.1`); exposing it is unsupported until a login flow exists. The
   API itself is fully protected.
 - Unauthenticated GitHub access is limited to 60 requests/hour; larger captures need
-  `GITHUB_TOKEN` (read-only). Private repositories are out of scope.
+  `GITHUB_TOKEN` (read-only). Only public repositories are ingested: the adapter rejects anything
+  not clearly public (`private_repository`).
 - Devpost parsing depends on the public page's server-rendered structure; changes surface as
   `partial` (`sections_missing`), never as invented data.
 - Deployment inspection does not run JavaScript, so client-rendered apps may show little text.

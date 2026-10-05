@@ -193,6 +193,15 @@ describe('Devpost parsing is structurally bounded', () => {
     expect(value.demoLinks).toEqual([]);
   });
 
+  it('survives a long whitespace run in the details area (the `/\\s+$/` backtracking regression)', () => {
+    // No h2, so this takes the description path; the trim used to take about 16 s at 1 MiB.
+    const html = `<div id="app-details-left">x${'<br>&#9;'.repeat(130_000)}y</div>`;
+    expect(html.length).toBeGreaterThan(900 * 1024);
+    const { value, ms } = timed(() => parseDevpostPage(html, PAGE));
+    expect(ms).toBeLessThan(CEILING_MS);
+    expect(value.description).toBe('x\n\ny');
+  });
+
   it('handles deep nesting and unclosed tags, and degrades over the node budget', async () => {
     for (const html of [
       `<div id="app-details-left"><h2>Inspiration</h2>${'<div>'.repeat(150_000)}text`,

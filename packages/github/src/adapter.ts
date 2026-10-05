@@ -176,6 +176,22 @@ function retryAfter(
   return undefined;
 }
 
+/**
+ * Public only. `private: true` is refused; a `visibility` other than `public` (private, internal)
+ * is refused; and when the metadata cannot PROVE public visibility (neither field present, or a
+ * contradictory/null combination) it is refused too rather than risk persisting private source.
+ */
+function isClearlyPublic(repository: {
+  readonly private?: boolean | null | undefined;
+  readonly visibility?: string | null | undefined;
+}): boolean {
+  if (repository.private === true) return false;
+  if (repository.visibility !== undefined && repository.visibility !== null) {
+    return repository.visibility === 'public';
+  }
+  return repository.private === false;
+}
+
 function isUnderIgnoredDirectory(path: string): boolean {
   const segments = path.split('/');
   return segments.some(
@@ -303,6 +319,14 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
     try {
       // 1–3: metadata, default branch, exact HEAD commit SHA.
       const repository = await api(base, RepositoryResponse, deadline);
+      // M2 ingests PUBLIC repositories only. A token that can see a private repository must not
+      // turn confidential source into a snapshot every judge can read, so anything that is not
+      // clearly public is refused before a single further request is made.
+      if (!isClearlyPublic(repository)) {
+        return failureResult(
+          failure('unsupported_source', { adapter: 'github', reason: 'private_repository' }),
+        );
+      }
       const branch = repository.default_branch;
       const refs = await api(`${base}/git/ref/heads/${encodePath(branch)}`, RefResponse, deadline);
       const match = (Array.isArray(refs) ? refs : [refs]).find(

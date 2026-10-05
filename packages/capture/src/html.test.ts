@@ -108,6 +108,18 @@ describe('HTML extraction is structurally bounded', () => {
     }
   });
 
+  it('survives a long non-trailing whitespace run (the `/\\s+$/` backtracking regression)', () => {
+    // Each `<br>&#160;` adds blank lines; the trailing-whitespace trim used to be quadratic here
+    // (about 16-20 s at 1 MiB).
+    const html = `<html><body>x${'<br>&#9;'.repeat(130_000)}y</body></html>`;
+    expect(html.length).toBeGreaterThan(900 * 1024);
+    const { value: doc, ms } = timed(() => extractHtmlDocument(html, 'https://atlas.example/'));
+    expect(ms).toBeLessThan(CEILING_MS);
+    expect(doc.degraded).toBe(false);
+    // Correct output: the blank-line run collapses to one blank line.
+    expect(doc.text).toBe('x\n\ny');
+  });
+
   it('visits every node at most once and iterates (depth cannot exhaust the stack)', () => {
     const root = parseHtml(`${'<div>'.repeat(100_000)}<span>x</span>`);
     let enters = 0;

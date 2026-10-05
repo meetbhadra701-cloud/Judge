@@ -287,7 +287,8 @@ export class StructuredText {
     const joined = this.blocks
       .map((block) => block.parts.join('').replace(/\s{2,}/g, ' '))
       .join('\n')
-      .replace(/\s+$/, '');
+      // Linear: `/\s+$/` backtracks quadratically on a long whitespace run that is not the end.
+      .trimEnd();
     return normalizeWhitespace(joined);
   }
 }

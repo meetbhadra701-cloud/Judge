@@ -6,8 +6,8 @@ import ipaddr from 'ipaddr.js';
  * IP/CIDR library, never compared as string prefixes. Only globally routable unicast addresses
  * may be contacted; every other range ipaddr.js knows (loopback, private, link-local, multicast,
  * unspecified, broadcast, carrier-grade NAT, unique-local, reserved/documentation, IPv4-mapped,
- * NAT64, 6to4, Teredo, deprecated site-local, ...) is refused. An explicit CIDR denylist repeats
- * the most important ranges as defence in depth.
+ * NAT64, 6to4, Teredo, deprecated site-local, ...) is refused, and an IPv6 address must also lie
+ * in 2000::/3. An explicit CIDR denylist repeats the most important ranges as defence in depth.
  */
 
 const DENIED_CIDRS: readonly [ipaddr.IPv4 | ipaddr.IPv6, number][] = [
@@ -41,6 +41,14 @@ const DENIED_CIDRS: readonly [ipaddr.IPv4 | ipaddr.IPv6, number][] = [
   'ff00::/8',
 ].map((cidr) => ipaddr.parseCIDR(cidr));
 
+/**
+ * The only IPv6 space currently allocated for global unicast (RFC 4291 / IANA). ipaddr.js labels
+ * everything outside its special ranges `unicast`, which would include IPv4-compatible `::/96`
+ * (`::7f00:1`), `4000::/2`, `8000::/1` and other non-global or future space. An IPv6 address is
+ * fetchable only if it is inside this block AND not on the denylist above.
+ */
+const IPV6_GLOBAL_UNICAST = ipaddr.parseCIDR('2000::/3');
+
 export interface AddressDecision {
   readonly allowed: boolean;
   /** The ipaddr.js range name (e.g. `unicast`, `private`, `linkLocal`) or `invalid`. */
@@ -54,6 +62,9 @@ export function classifyAddress(address: string): AddressDecision {
   const parsed = ipaddr.parse(literal);
   const range = parsed.range();
   if (range !== 'unicast') return { allowed: false, range };
+  if (parsed.kind() === 'ipv6' && !parsed.match(IPV6_GLOBAL_UNICAST[0], IPV6_GLOBAL_UNICAST[1])) {
+    return { allowed: false, range: 'outside_global_unicast' };
+  }
   for (const [network, bits] of DENIED_CIDRS) {
     if (parsed.kind() === network.kind() && parsed.match(network, bits)) {
       return { allowed: false, range: 'denylisted' };

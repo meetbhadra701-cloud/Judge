@@ -46,9 +46,13 @@ URLs, and enforces:
   addresses are classified with `ipaddr.js` (only global unicast is allowed: loopback, private,
   link-local/metadata, CGNAT, multicast, unspecified, broadcast, unique-local, reserved and
   documentation, IPv4-mapped, NAT64, 6to4, Teredo and site-local are refused, plus an explicit CIDR
-  denylist); **every** DNS answer must be public; the connection uses Node's `lookup` hook pinned to
+  denylist; an IPv6 address must additionally lie in the global-unicast block `2000::/3`, so
+  IPv4-compatible `::/96` such as `::7f00:1` and space like `4000::/2` or `8000::/1` is refused even
+  though `ipaddr.js` labels it `unicast`); **every** DNS answer must be public; the connection uses Node's `lookup` hook pinned to
   the validated address while keeping the Host header and TLS SNI, so no second, uncontrolled
-  resolution can happen; redirects are followed manually (≤ 5), each target re-validated and
+  resolution can happen; HTTPS certificates are **always** verified (`rejectUnauthorized: true` is
+  set on every request and agent, so `NODE_TLS_REJECT_UNAUTHORIZED=0` in the worker's environment
+  cannot weaken it; a regression test uses a real self-signed server); redirects are followed manually (≤ 5), each target re-validated and
   re-pinned, https → http downgrades refused, caller headers (credentials) dropped across origins;
   no cookies are sent or kept, no proxy is inherited, only `identity` encoding is accepted, and a
   total timeout, a body limit and a content-type allowlist apply (bodies of other types are never
@@ -117,7 +121,12 @@ bodies as properties.
 - **[M2]** Only GET requests to `https://api.github.com`; no GraphQL, no write endpoint. The
   optional `GITHUB_TOKEN` is attached only to requests the adapter builds for that origin (the HTTP
   client strips it on any cross-origin redirect); it is never logged, stored in artifacts, metadata
-  or audit events, or sent anywhere else. Public repositories need no token (unauthenticated mode
+  or audit events, or sent anywhere else. **Only public repositories are ingested, and the adapter
+  enforces it**: right after the repository metadata is read, a repository that is not clearly
+  public (`private: true`, a `visibility` other than `public`, or metadata that cannot prove public
+  visibility) is `rejected` / `unsupported_source` / `private_repository`, with no artifacts and no
+  further request, so a token that can read private source never turns it into a snapshot every
+  judge can read. Public repositories need no token (unauthenticated mode
   is subject to GitHub's 60 requests/hour limit, which surfaces as `rate_limited` or a `partial`
   snapshot).
 - **[M2]** Secret-prone paths are never fetched: `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`,
@@ -154,8 +163,11 @@ official rules.
   closed (`503 AUTH_NOT_CONFIGURED`).
 - Production verification is provider-neutral JWT/JWKS (`jose`: signature, issuer, audience,
   expiry; asymmetric algorithms only; JWKS over https). There is no password system.
-- The development verifier (`AUTH_MODE=dev`, two fixed synthetic actors) never enables implicitly
-  and is refused when `NODE_ENV=production`; production with a database requires `AUTH_MODE=jwt`.
+- The development verifier (`AUTH_MODE=dev`, two fixed, publicly known synthetic bearer values)
+  never enables implicitly, is refused when `NODE_ENV=production`, and is refused unless
+  `API_HOST` is loopback (`127.0.0.1`/`127.0.0.0/8`, `::1` or `localhost`) **whatever `NODE_ENV`
+  says**, so it can never be valid on a remotely reachable API. Production with a database
+  requires `AUTH_MODE=jwt`.
 - Credentials are never logged (redaction plus no header logging), echoed in errors or stored:
   only the verified `(issuer, subject)` becomes an `actors` row, referenced by audit events.
 - The web UI forwards one server-side `JUDGE_API_TOKEN` for every visitor and has no per-user

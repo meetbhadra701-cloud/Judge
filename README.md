@@ -79,7 +79,7 @@ Every API route except `/health` requires a bearer credential. Without `AUTH_MOD
 closed (503). Locally, enable the development actors explicitly (refused in production):
 
 ```sh
-AUTH_MODE=dev DATABASE_URL=postgres://… pnpm --filter @judge-copilot/api dev
+AUTH_MODE=dev DATABASE_URL=postgres://… pnpm --filter @judge-copilot/api dev   # API_HOST must be loopback
 JUDGE_API_TOKEN=dev-organizer JUDGE_API_URL=http://127.0.0.1:3001 pnpm --filter @judge-copilot/web dev
 ```
 

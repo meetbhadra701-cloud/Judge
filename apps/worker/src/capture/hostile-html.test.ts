@@ -47,6 +47,7 @@ describe.each(testDatabaseTargets())('hostile HTML capture on %s', (_name, open)
       'https://anchors.example.org/': html(flood('<a href="/x">y</a>', MIB - 200)),
       'https://headings.example.org/': html(flood('<h1>a</h1><h2>b</h2>', MIB - 200)),
       'https://nested.example.org/': html(`${'<div>'.repeat(150_000)}text`),
+      'https://whitespace.example.org/': html(`x${'<br>&#9;'.repeat(130_000)}y`),
     };
     const network = createFixtureNetwork({
       hosts: Object.fromEntries(Object.keys(pages).map((url) => [new URL(url).hostname, [PUBLIC]])),
@@ -79,6 +80,8 @@ describe.each(testDatabaseTargets())('hostile HTML capture on %s', (_name, open)
     }, 10);
     const started = performance.now();
     expect(await loop.drain()).toBe(requests.length);
+    // Let the sampler fire once more: a stall is only observed by the first tick after it ends.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     clearInterval(sampler);
     const total = performance.now() - started;
 

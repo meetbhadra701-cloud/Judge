@@ -41,6 +41,39 @@ describe('address policy', () => {
     expect(classifyAddress(address)).toEqual({ allowed: false, range });
   });
 
+  it.each([
+    // IPv4-compatible and other space ipaddr.js calls "unicast" but that is not global unicast.
+    ['::7f00:1', 'outside_global_unicast'],
+    ['::a9fe:a9fe', 'outside_global_unicast'],
+    ['::a00:1', 'outside_global_unicast'],
+    ['4000::1', 'outside_global_unicast'],
+    ['8000::1', 'outside_global_unicast'],
+    ['e000::1', 'outside_global_unicast'],
+    ['100:0:0:1::1', 'outside_global_unicast'],
+    ['[::7f00:1]', 'outside_global_unicast'],
+  ])('rejects IPv6 %s outside 2000::/3 (%s)', (address, range) => {
+    expect(classifyAddress(address)).toEqual({ allowed: false, range });
+  });
+
+  it('keeps allowing public IPv6 inside 2000::/3 and does not touch the IPv4 policy', () => {
+    for (const address of ['2606:4700::1111', '2001:4860:4860::8888', '2a00:1450:4001::200e']) {
+      expect(classifyAddress(address)).toEqual({ allowed: true, range: 'unicast' });
+    }
+    // Edges of 2000::/3 itself.
+    expect(isPublicAddress('2000::1')).toBe(true);
+    expect(isPublicAddress('3fff::1')).toBe(false); // documentation range, denied by ipaddr.js
+    expect(isPublicAddress('1fff:ffff::1')).toBe(false);
+    expect(isPublicAddress('4000::')).toBe(false);
+    // Existing explicit denies are still in force inside 2000::/3.
+    for (const address of ['2001:db8::1', '2002:a00:1::', '2001::1']) {
+      expect(isPublicAddress(address)).toBe(false);
+    }
+    // IPv4 is unchanged.
+    expect(isPublicAddress('93.184.216.34')).toBe(true);
+    expect(isPublicAddress('1.1.1.1')).toBe(true);
+    expect(isPublicAddress('10.0.0.1')).toBe(false);
+  });
+
   it('accepts global unicast and rejects non-strict syntax', () => {
     expect(isPublicAddress('93.184.216.34')).toBe(true);
     expect(isPublicAddress('2606:4700::1111')).toBe(true);

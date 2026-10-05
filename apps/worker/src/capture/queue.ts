@@ -84,6 +84,19 @@ function runStateFor(result: CaptureResult, cancelled: boolean) {
 
 const ARTIFACT_BATCH = 50;
 
+function laterOf(a: Date, b: Date): Date {
+  return a < b ? b : a;
+}
+
+/**
+ * `value`, but never before a timestamp read back from the database. PostgreSQL stores
+ * microseconds while a JavaScript `Date` keeps milliseconds, so a value read from the database can
+ * be up to 1 ms earlier than the stored one; the 1 ms floor keeps `value >= stored` exact.
+ */
+function notBefore(value: Date, stored: Date): Date {
+  return laterOf(value, new Date(stored.getTime() + 1));
+}
+
 export class CaptureQueue {
   private readonly db: JudgeDatabase;
   private readonly leaseMs: number;
@@ -152,7 +165,11 @@ export class CaptureQueue {
         .where(eq(sourceSnapshots.id, claim.snapshotId))
         .for('update');
       if (!snapshot || snapshot.status !== 'pending') return 'lease_lost';
-      const completedAt = this.now();
+      // Terminal timestamps are never earlier than what the database already stores. The worker's
+      // clock can lag the API's (which stamped `created_at`) or its own claim time, and the
+      // timestamp CHECKs must not be weakened to tolerate that. Every outcome uses this clamp:
+      // content, failure, rejection, emergency finalization and the lease reaper.
+      let completedAt = notBefore(this.now(), snapshot.createdAt);
       const audit: Record<string, string | number | boolean | null | string[]> = {
         projectId: claim.projectId,
         sourceId: claim.sourceId,
@@ -186,8 +203,8 @@ export class CaptureQueue {
           partialReasons: result.partialReasons,
           artifacts: result.artifacts,
         });
-        const capturedAt =
-          input.capturedAt < snapshot.createdAt ? snapshot.createdAt : input.capturedAt;
+        const capturedAt = notBefore(input.capturedAt, snapshot.createdAt);
+        completedAt = laterOf(completedAt, capturedAt);
         await tx
           .update(sourceSnapshots)
           .set({
@@ -197,7 +214,7 @@ export class CaptureQueue {
             contentHash,
             partialReasons: [...result.partialReasons],
             capturedAt,
-            completedAt: completedAt < capturedAt ? capturedAt : completedAt,
+            completedAt,
           })
           .where(eq(sourceSnapshots.id, claim.snapshotId));
         Object.assign(audit, {
@@ -235,7 +252,7 @@ export class CaptureQueue {
         .set({
           state: outcome.state,
           failureCategory: outcome.failureCategory,
-          finishedAt: completedAt,
+          finishedAt: run.startedAt ? laterOf(completedAt, run.startedAt) : completedAt,
           attemptCount: input.attempts,
         })
         .where(eq(analysisRuns.id, claim.runId));
