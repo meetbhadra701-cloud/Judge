@@ -15,6 +15,13 @@ describe('authorization policy', () => {
     expect(hasPermission(['judge'], 'event_context.read')).toBe(true);
     expect(hasPermission(['judge'], 'project.read')).toBe(true);
     expect(hasPermission(['judge'], 'source.capture')).toBe(true);
+    expect(hasPermission(['judge'], 'evidence.read')).toBe(true);
+    expect(hasPermission(['organizer'], 'evidence.read')).toBe(true);
+    expect(hasPermission([], 'evidence.read')).toBe(false);
+    // There is no evidence write permission: M3 has no producer and the graph is trusted-code only.
+    expect(PERMISSIONS.filter((permission) => permission.startsWith('evidence'))).toEqual([
+      'evidence.read',
+    ]);
     expect(hasPermission(['judge'], 'event_context.write')).toBe(false);
     expect(hasPermission(['judge'], 'project.write')).toBe(false);
     expect(hasPermission([], 'project.read')).toBe(false);

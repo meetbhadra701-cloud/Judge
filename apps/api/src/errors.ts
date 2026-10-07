@@ -1,6 +1,7 @@
 import { EventContextError, type EventContextErrorCode } from '@judge-copilot/context';
 import type { ApiErrorBody } from '@judge-copilot/schemas';
 import { AUTH_STATUS, AuthError } from './auth.js';
+import { EVIDENCE_GRAPH_API_STATUS, EvidenceGraphApiError } from './evidence-graph/errors.js';
 import { RequestValidationError, type ApiApp } from './http.js';
 import { SOURCE_INGESTION_STATUS, SourceIngestionError } from './projects/errors.js';
 
@@ -79,6 +80,11 @@ export function installErrorHandling(app: ApiApp): void {
             Object.keys(error.details).length > 0 ? error.details : undefined,
           ),
         );
+    }
+    if (error instanceof EvidenceGraphApiError) {
+      return reply
+        .code(EVIDENCE_GRAPH_API_STATUS[error.code])
+        .send(body(error.code, error.message));
     }
     if (error instanceof RequestValidationError) {
       return reply.code(400).send(

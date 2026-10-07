@@ -48,6 +48,43 @@ export function testDatabaseTargets(): [string, () => Promise<TestDatabase>][] {
   return targets;
 }
 
+/** An EMPTY (unmigrated) database, for tests that apply migrations themselves. */
+export function openEmptyPglite(): Promise<TestDatabase> {
+  const client = new PGlite();
+  return Promise.resolve({ db: drizzlePglite(client, { schema }), close: () => client.close() });
+}
+
+export async function openEmptyPostgres(url: string): Promise<TestDatabase> {
+  if (!new URL(url).pathname.slice(1).endsWith('_test')) {
+    throw new Error('TEST_DATABASE_URL must name a disposable database ending in "_test"');
+  }
+  const client = postgres(url, { max: 1, onnotice: () => undefined });
+  await client.unsafe(
+    'DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;',
+  );
+  return { db: drizzlePostgres(client, { schema }), close: () => client.end() };
+}
+
+export function emptyDatabaseTargets(): [string, () => Promise<TestDatabase>][] {
+  const targets: [string, () => Promise<TestDatabase>][] = [['PGlite', openEmptyPglite]];
+  const url = process.env['TEST_DATABASE_URL'];
+  if (url) targets.push(['PostgreSQL (TEST_DATABASE_URL)', () => openEmptyPostgres(url)]);
+  return targets;
+}
+
+/** Applies migrations from `folder` through the dialect's migrator. */
+export async function migrateFolder(testDb: TestDatabase, folder: string): Promise<void> {
+  // Both migrators only need a drizzle instance; PGlite and postgres.js differ by driver.
+  const db = testDb.db as unknown;
+  if ((db as { $client?: unknown }).$client instanceof PGlite) {
+    await migratePglite(db as Parameters<typeof migratePglite>[0], { migrationsFolder: folder });
+  } else {
+    await migratePostgres(db as Parameters<typeof migratePostgres>[0], {
+      migrationsFolder: folder,
+    });
+  }
+}
+
 export async function rows<T>(db: JudgeDatabase, query: SQL): Promise<T[]> {
   // postgres.js returns an array of rows; PGlite returns `{ rows }`.
   const result: unknown = await db.execute(query);

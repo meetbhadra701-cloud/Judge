@@ -1,8 +1,9 @@
 # Judge Copilot — Architecture
 
-> **Status:** Milestone 2 (immutable project-source ingestion) on top of M0 and M1 (Event Context
-> Pack). Everything after source snapshots (claims, evidence, scoring, questions, interview,
-> reassessment) is intentionally **not implemented yet**. This document specifies the target architecture so that every
+> **Status:** Milestone 3 (evidence graph) on top of M0, M1 (Event Context Pack) and M2 (immutable
+> project-source ingestion). Everything after the evidence graph (scoring, model-backed extraction
+> and assessment, uncertainty, questions, interview, reassessment) is intentionally **not
+> implemented yet**. This document specifies the target architecture so that every
 > milestone builds toward it. It is binding on human and AI contributors.
 
 ---
@@ -131,6 +132,10 @@ The human judge's final score is authoritative. AI output is decision support.
 | `JudgeFinalScore`                                        | human judge                                   | authoritative; AI can never write it                         |
 | `AuditEvent`                                             | every state-changing action                   | append-only (DB-enforced)                                    |
 
+M3 persists the five graph artifacts (`Claim`, `EvidenceItem`, `EvidenceRelation`, `Unknown`,
+`Contradiction`) and the rules around them (§12). Their producers arrive later: model-backed
+extraction in M5, team answers in M7. M3 has no producer, only a validated write path.
+
 Every assessment references the exact snapshot IDs and the exact locked Event Context version it
 used (invariant 17). Re-running ingestion creates _new_ snapshots; it never rewrites old ones.
 
@@ -222,25 +227,31 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 
 ### How M0/M1 already encode some invariants
 
-| Invariant                  | M0 mechanism                                                                                                                                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10, 17 (immutability)      | `audit_events` is append-only via DB trigger; Event Context versions are append-only rows with `UNIQUE(event_id, version)`                                                                                            |
-| 18 (locked context)        | `event_context_versions`: `locked_at` is required exactly for frozen statuses; at most one `locked` version per event (partial unique index); a version can only supersede a version of the same event (composite FK) |
-| 21 (no execution)          | ESLint forbids `child_process` and `vm` in all non-test code, plus `eval`/`new Function`                                                                                                                              |
-| 22 (no fabricated scores)  | `analysis_runs`: a `failed` run must carry a `failure_category`; "insufficient evidence" is deliberately not a failure category                                                                                       |
-| 13                         | `Ratio` is documented as a closed interval, not a probability                                                                                                                                                         |
-| Secrets (SECURITY.md)      | logger redacts secret-bearing keys and serializes errors through an allow-list                                                                                                                                        |
-| Dependency direction       | `tests/integration/dependency-rules.test.ts`                                                                                                                                                                          |
-| 1 (official context wins)  | M1: explicit source-authority precedence; conflicts are resolved by authority in deterministic code, a human may only choose between tied top-authority positions, and losing positions are kept                      |
-| 3, 14 (unclear ≠ guessed)  | M1: every Event Context fact carries `certainty`; `unclear` facts need no source, may be locked, and are listed as unresolved; unweighted official rubrics stay unweighted                                            |
-| 10, 17, 18 (frozen)        | M1: triggers freeze locked/superseded versions and their sources, tracks, rubrics, criteria and anchors; lock stores a SHA-256 content hash that later reads recompute (`integrity: verified`)                        |
-| 19, 20 (validated output)  | M1: extractor output is `unknown` → Zod (`EventContextExtraction`, which forbids IDs) → domain validation; code assigns all IDs; DB triggers reject provenance references to sources of another version               |
-| 22 (no fabrication)        | M1: a failed build records a `failed` analysis run with a sanitized category and leaves the previous draft untouched                                                                                                  |
-| 7, 21 (no execution)       | M2: repositories are read through GET-only GitHub REST calls as data; no clone, git, install, build or import; a source scan test forbids process/VM/worker/dynamic-import code paths                                 |
-| 17 (immutable snapshots)   | M2: `source_snapshots` go `pending` → terminal exactly once (trigger); terminal rows, their artifacts and declared sources can never change or be deleted; GitHub snapshots pin an exact commit SHA                   |
-| 3, 14 (missing ≠ negative) | M2: refused URLs are `rejected` (an unknown), network problems `failed`, limits `partial` with explicit reasons; deployment HTTP 404/500 are observations                                                             |
-| 5 (commit counts)          | M2: commit, file, star and LOC counts are stored as data only; nothing reads them as a score                                                                                                                          |
-| 8, 23 (untrusted content)  | M2: captured text is stored verbatim as bounded data, never logged, never rendered as HTML, never sent to a model                                                                                                     |
+| Invariant                  | M0 mechanism                                                                                                                                                                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10, 17 (immutability)      | `audit_events` is append-only via DB trigger; Event Context versions are append-only rows with `UNIQUE(event_id, version)`                                                                                                                                        |
+| 18 (locked context)        | `event_context_versions`: `locked_at` is required exactly for frozen statuses; at most one `locked` version per event (partial unique index); a version can only supersede a version of the same event (composite FK)                                             |
+| 21 (no execution)          | ESLint forbids `child_process` and `vm` in all non-test code, plus `eval`/`new Function`                                                                                                                                                                          |
+| 22 (no fabricated scores)  | `analysis_runs`: a `failed` run must carry a `failure_category`; "insufficient evidence" is deliberately not a failure category                                                                                                                                   |
+| 13                         | `Ratio` is documented as a closed interval, not a probability                                                                                                                                                                                                     |
+| Secrets (SECURITY.md)      | logger redacts secret-bearing keys and serializes errors through an allow-list                                                                                                                                                                                    |
+| Dependency direction       | `tests/integration/dependency-rules.test.ts`                                                                                                                                                                                                                      |
+| 1 (official context wins)  | M1: explicit source-authority precedence; conflicts are resolved by authority in deterministic code, a human may only choose between tied top-authority positions, and losing positions are kept                                                                  |
+| 3, 14 (unclear ≠ guessed)  | M1: every Event Context fact carries `certainty`; `unclear` facts need no source, may be locked, and are listed as unresolved; unweighted official rubrics stay unweighted                                                                                        |
+| 10, 17, 18 (frozen)        | M1: triggers freeze locked/superseded versions and their sources, tracks, rubrics, criteria and anchors; lock stores a SHA-256 content hash that later reads recompute (`integrity: verified`)                                                                    |
+| 19, 20 (validated output)  | M1: extractor output is `unknown` → Zod (`EventContextExtraction`, which forbids IDs) → domain validation; code assigns all IDs; DB triggers reject provenance references to sources of another version                                                           |
+| 22 (no fabrication)        | M1: a failed build records a `failed` analysis run with a sanitized category and leaves the previous draft untouched                                                                                                                                              |
+| 7, 21 (no execution)       | M2: repositories are read through GET-only GitHub REST calls as data; no clone, git, install, build or import; a source scan test forbids process/VM/worker/dynamic-import code paths                                                                             |
+| 17 (immutable snapshots)   | M2: `source_snapshots` go `pending` → terminal exactly once (trigger); terminal rows, their artifacts and declared sources can never change or be deleted; GitHub snapshots pin an exact commit SHA                                                               |
+| 3, 14 (missing ≠ negative) | M2: refused URLs are `rejected` (an unknown), network problems `failed`, limits `partial` with explicit reasons; deployment HTTP 404/500 are observations                                                                                                         |
+| 5 (commit counts)          | M2: commit, file, star and LOC counts are stored as data only; nothing reads them as a score                                                                                                                                                                      |
+| 8, 23 (untrusted content)  | M2: captured text is stored verbatim as bounded data, never logged, never rendered as HTML, never sent to a model                                                                                                                                                 |
+| 2, 19, 20 (ID integrity)   | M3: producers name new entities with batch-local refs; trusted code assigns every UUID; references to existing entities are resolved against the authoritative set and classified (nonexistent / wrong type / other project)                                      |
+| 3 (missing ≠ negative)     | M3: `absence` and `unknown` evidence can neither support nor contradict a claim nor be a contradiction side (domain rule and trigger); Unknowns carry no score                                                                                                    |
+| 4 (team statements)        | M3: Devpost/video prose and README-like text cap at `team_claim`; a relation never changes a claim's level; `repo_corroborated` needs source-code anchors and supporting evidence; producers cannot reach `machine_verified`, `judge_verified` or `live_verified` |
+| 17 (exact snapshots)       | M3: evidence cites an exact captured/partial snapshot of its own project, an artifact of that snapshot and a verified code-point span; no "latest" pointer exists                                                                                                 |
+| 25 (no accusations)        | M3: a Contradiction is two structural sides plus a neutral note, with no accusation, penalty or score field; creating one changes nothing                                                                                                                         |
+| 8, 23 (untrusted content)  | M3: evidence text is stored and returned as inert data (tests with prompt-injection, script and tool-call text); there is no model and nothing is executed                                                                                                        |
 
 ---
 
@@ -249,8 +260,8 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 ```
 judge-copilot/
 ├── apps/
-│   ├── web/        Next.js UI (M1: Event Context setup, review and lock views)
-│   ├── api/        Fastify HTTP API (GET /health, M1 Event Context, M2 projects/sources/snapshots)
+│   ├── web/        Next.js UI (M1 Event Context views, M2 project/snapshot views, M3 read-only evidence view)
+│   ├── api/        Fastify HTTP API (GET /health, M1 Event Context, M2 projects/sources/snapshots, M3 read-only evidence graph)
 │   └── worker/     background runner (M2: project-source capture jobs)
 ├── packages/
 │   ├── shared/     env validation, structured logger, shutdown handling        [implemented]
@@ -260,7 +271,7 @@ judge-copilot/
 │   ├── database/   Drizzle schema, migrations, persistence adapters            [implemented]
 │   ├── context/    Event Context domain rules + extraction port                [implemented, M1]
 │   ├── capture/    capture ports, URL/path rules, hashing, HTML extraction     [implemented, M2]
-│   ├── evidence/   claims, evidence graph, relations, contradictions, unknowns [M3, README only]
+│   ├── evidence/   evidence graph rules, ID integrity, graph queries           [implemented, M3]
 │   ├── scoring/    deterministic score engine                                  [M4, README only]
 │   ├── uncertainty/ coverage, confidence, uncertainty analysis                 [M6, README only]
 │   ├── questions/  question validation + information-gain ranking              [M6, README only]
@@ -347,14 +358,15 @@ domain     → schemas
 audit      → schemas
 context    → schemas
 capture    → domain, schemas
-database   → audit, domain, schemas
+evidence   → domain, schemas
+database   → audit, domain, evidence, schemas
 auth       → domain, schemas
 safe-http  → capture, schemas
 github     → capture, schemas
 devpost    → capture, schemas
 deployment → capture, schemas
 video      → capture, schemas
-api        → audit, auth, capture, context, database, domain, schemas, shared
+api        → audit, auth, capture, context, database, domain, evidence, schemas, shared
 worker     → audit, capture, database, deployment, devpost, domain, github, safe-http, schemas, shared, video
 web        → context, schemas
 ```
@@ -386,6 +398,9 @@ its own migrations; existing migrations are never edited after being committed.
 | `0004_m2_source_ingestion`                    | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK |
 | `0005_m2_source_ingestion_immutability`       | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                      |
 | `0006_m2_partial_reason_html_structure_limit` | adds `html_structure_limit` to the `source_snapshots` partial-reason CHECK (the vocabulary is generated from the shared tuple)                                                                                      |
+| `0007_m3_evidence_graph`                      | `claims`, `evidence_items`, `evidence_relations`, `unknowns`, `contradictions`; the composite-key target `source_snapshot_artifacts(id, snapshot_id)`                                                               |
+| `0008_m3_evidence_graph_integrity`            | append-only triggers (UPDATE/DELETE/TRUNCATE), supersession verification guard, evidence provenance guard, relation/contradiction kind guards, unknown reference guard                                              |
+| `0009_m3_supersession_guard_hardening`        | redefines `claims_supersession_guard`: a predecessor that is not already visible is rejected (no forward references) instead of deferring to the end-of-statement foreign key                                       |
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` timestamps.
 - Vocabulary CHECK constraints are generated from the same tuples as the Zod schemas
@@ -408,7 +423,7 @@ its own migrations; existing migrations are never edited after being committed.
   server components and server actions that call the API server-side (`JUDGE_API_URL`,
   `JUDGE_API_TOKEN`). It binds **127.0.0.1** explicitly (its scripts pass `--hostname 127.0.0.1`): it
   has no per-user login, so exposing it beyond the local machine is unsupported (SECURITY §10).
-  No scoring or fake judging UI exists.
+  M3 adds a read-only evidence view per project. No scoring or fake judging UI exists.
 
 Only the worker contacts external services, and only through `safe-http` (source capture) or, for
 JWT verification, the configured identity provider's JWKS (API). The database pool connects lazily.
@@ -611,6 +626,7 @@ writes with that actor. Production with a database requires `AUTH_MODE=jwt`.
 | `event_context.read`, `project.read`      | ✓         | ✓     |
 | `event_context.write`, `project.write`    | ✓         | —     |
 | `source.capture` (request a new snapshot) | ✓         | ✓     |
+| `evidence.read` (M3 evidence graph)       | ✓         | ✓     |
 
 ### M2 API
 
@@ -625,3 +641,183 @@ writes with that actor. Production with a database requires `AUTH_MODE=jwt`.
 | GET      | `/projects/:projectId/snapshots`                                   | newest first                                        |
 | GET      | `/projects/:projectId/snapshots/:snapshotId`                       | detail, artifacts (no text), run                    |
 | GET      | `/projects/:projectId/snapshots/:snapshotId/artifacts/:artifactId` | one artifact's text                                 |
+
+---
+
+## 12. Evidence graph (M3)
+
+```
+immutable snapshots → [producer: fixture today, model-backed extractor in M5]
+→ validated batch (batch-local refs, no IDs) → trusted planner (IDs, ID integrity, provenance,
+  verification rules) → one transaction: Claim / EvidenceItem / EvidenceRelation / Unknown /
+  Contradiction + audit event → read-only graph queries
+```
+
+M3 is the deterministic substrate later milestones consume. It has **no semantic extractor**:
+claims are never derived from source text by code, and the content in tests and the demo is
+explicit fixture data. It contains no scoring, weight, strength, coverage, confidence, ranking,
+question or model code. No new root or version entity was introduced: the five artifacts named in
+§2 are the whole model.
+
+### Persisted entities
+
+| Table                | Entity             | Key columns and rules                                                                                                                                                                                                                               |
+| -------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claims`             | `Claim`            | `project_id`, normalized single-line `text` (≤ 1,000), `verification_level`, `supersedes_id`, creator, `created_at`. Composite FK `(supersedes_id, project_id)` → same project only; `UNIQUE(supersedes_id)` → one successor; `supersedes_id <> id` |
+| `evidence_items`     | `EvidenceItem`     | `project_id`, `event_id`, `kind`, `origin`, `verification_level`, `text` (≤ 2,000), provenance (below)                                                                                                                                              |
+| `evidence_relations` | `EvidenceRelation` | `claim_id`, `evidence_id`, `relation_type` (`supports` \| `contradicts`); composite FKs to the same project; `UNIQUE(claim_id, evidence_id)`                                                                                                        |
+| `unknowns`           | `Unknown`          | `unknown_type` (existing vocabulary), `text` (≤ 1,000), `claim_ids[]`, `evidence_ids[]` (≤ 50 each, validated by trigger)                                                                                                                           |
+| `contradictions`     | `Contradiction`    | exactly two sides, each a claim or an evidence item (four composite FKs to the same project), generated `side_a_key` / `side_b_key`, neutral `description` (≤ 1,000)                                                                                |
+
+Every table also has `id` (UUID), `seq` (a database-generated identity value: the persisted
+insertion/allocation order, used as the deterministic, locale-independent ordering key of all
+queries; it is not content-derived, and values are allocated at insert time, not at commit),
+`created_by_actor_id` (null for system writers) and `created_at`. There is no score,
+weight, strength, confidence, coverage, rank, penalty or accusation column anywhere. Claims
+contain no dimension or rubric field. Relation vocabulary: `supports`, `contradicts` (the smallest
+set the documents require; the existing vocabularies of §2 are unchanged).
+
+### Immutability
+
+All five tables are append-only in PostgreSQL itself: triggers reject UPDATE, DELETE and TRUNCATE
+(also by `CASCADE`). A corrected claim is a **new** claim that supersedes the old one; the old row
+is never touched and stays queryable. Supersession is single-successor (a unique constraint),
+same-project (a composite foreign key) and never self (CHECK). **No forward references:** a new
+immutable claim may only reference a predecessor that already exists and is visible to the
+`claims_supersession_guard` trigger (migration `0009` closed a fail-open in `0008` that let one
+multi-row statement list a successor before its predecessor, or reference rows inserted later in
+the same statement, and so form a cycle or skip the verification-transition check). Cycles are
+impossible because of the combination: every edge points at a row that existed before the
+referencing row, that row is never updated (so an edge can never be rewired), and a claim has at
+most one successor. Within one `INSERT ... VALUES` a predecessor-first chain is accepted, and a
+successor-first chain is rejected. Siblings of one data-modifying CTE are not guaranteed to see each
+other's rows (it depends on an execution order PostgreSQL does not define), so nothing may rely on
+it; the invariant is only that the predecessor must already be visible to the trigger. The store
+inserts claims one statement at a time and never relies on same-statement visibility. A race for the
+same predecessor is won by exactly one writer (`CLAIM_ALREADY_SUPERSEDED` for the other).
+
+### Provenance
+
+| Origin                                     | Structural provenance                                                                                                                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `devpost`, `github`, `deployment`, `video` | `snapshot_id` → an **exact** M2 snapshot of the same project, `captured` or `partial`, of the matching source type; optionally `artifact_id` (must belong to **that** snapshot) and a span |
+| `event_context`                            | `context_version_id` → a `locked` or `superseded` version of the project's own event (version-level provenance: M1 facts have no stable per-item ID; documented limitation)                |
+| `team_answer`, `judge_observation`         | vocabulary only; refused until M7 supplies the records they would point at (CHECK + domain rule)                                                                                           |
+
+A **span** is `[span_start, span_end)` in **Unicode code points** of the artifact's stored text
+(not UTF-16 units, not bytes; PostgreSQL's `substr`/`char_length` use the same unit). The stored
+`excerpt` is the span's exact text; the planner derives it from the artifact (a producer may also
+supply one, which must match exactly) and a trigger re-verifies it against the persisted text.
+Spans are at most 2,000 code points, and a span needs an artifact, which needs a snapshot. An
+excerpt is a convenience copy, never an independent source of truth. A recapture is a different
+snapshot: evidence keeps pointing at the snapshot it names.
+
+### Verification rules (`packages/evidence/src/verification.ts`)
+
+Team statement ≠ verified fact. Capturing text proves the text existed, not that it is true.
+
+- **Ladder** (SCORING.md §8): `unverified` < `team_claim` < `repo_corroborated` = `machine_verified` <
+  `judge_verified` = `live_verified`; `contradicted` is off the ladder.
+- **Evidence levels** are fixed at creation and restricted per origin and kind (full matrix in
+  the source and its tests): project-authored prose (Devpost, video, README-like text) tops out at
+  `team_claim`; only GitHub facts can be `repo_corroborated` (and, in the rule tables kept for the
+  future, `machine_verified`, which GitHub and deployment facts could carry); `absence`/`unknown` are
+  `unverified`; `contradicted` never applies to an evidence item.
+- **What a span proves.** An evidence span proves **provenance**: that the quoted text exists at
+  that place in an immutable snapshot. It does **not** prove that the evidence item's semantic `text`
+  or any claim is true. M3 has no trusted code that establishes that equivalence, so a span never
+  verifies anything by itself.
+- **`machine_verified` is unreachable for producers in M3.** The level means "established by
+  trusted deterministic machine observation". A producer (a fixture today, a model in M5) must not
+  grant it by choosing the enum value, so `EvidenceGraphStore.createGraph` / the planner refuse
+  `machine_verified`, `judge_verified` and `live_verified` on both evidence items and claims
+  (`VERIFICATION_NOT_AVAILABLE`), whatever evidence the batch also contains. The vocabulary, the
+  origin/kind/level matrix, the claim-justification rules and the 49-pair transition matrix are
+  unchanged and kept for the trusted path a later milestone adds when a deterministic observation
+  producer exists. Reachable producer levels in M3 (`M3_PRODUCER_VERIFICATION_LEVELS`):
+  `unverified`, `team_claim`, `repo_corroborated` and (for claims, with a Contradiction)
+  `contradicted`. The validator for stored graphs (`validateGraphIntegrity`) does not apply this
+  producer gate, so a graph written by that future path still validates.
+- **`repo_corroborated` needs source code, not prose.** It needs an artifact anchor, and the
+  artifact must classify as repository source (`classifyRepositoryArtifact`, using only the M2
+  artifact key, kind and media type): kind `file`, key `files/<path>`, a programming-language
+  extension, and not documentation. README\*, `*.md`, `*.mdx`, `*.rst`, `*.txt`, `*.adoc`, HTML,
+  CHANGELOG/CONTRIBUTING-style names and anything under `docs/`, `doc/`, `documentation/` or `wiki/`
+  (even example code in them) are `team_prose`; metadata artifacts (`repository.json`,
+  `commits.json`, `tree.json`, `omissions.json`), configuration, data and unrecognized files are
+  `unclassified`. Only `source_code` may corroborate (`ARTIFACT_NOT_CORROBORATING` otherwise). A
+  README is still team-authored prose, so README evidence stays at most `team_claim`. Limitation:
+  classification is per file, so a span inside a source file may still quote a team-written comment.
+- **`repo_corroborated` is producer-asserted and limited.** Trusted code verifies only that the
+  cited artifact belongs to the right project's immutable GitHub snapshot, that it classifies as
+  source code, and that a `supports` relation exists for a corroborated claim. The producer chooses
+  the semantic evidence text, the claim text and the `supports` relationship; M3 does not prove that
+  those descriptions reflect the code, so a valid reference to a code file can support an unrelated
+  claim (characterized by a test through `createGraph`). It is a provenance-bounded label, **not**
+  machine-verified semantic truth.
+- **Claim levels** are checked against graph material: `repo_corroborated` needs a `supports`
+  GitHub fact at `repo_corroborated`; `contradicted` needs a Contradiction naming the claim;
+  `unverified`/`team_claim` need nothing; the rules for the other levels remain defined but producers
+  cannot reach them in M3. A relation **never** changes a claim's level.
+- **Transitions** (a new claim superseding an old one): to or from `contradicted` always; otherwise
+  the new tier may not be lower than the old one. No claim silently loses verification. The
+  database enforces the same 49-pair matrix in a trigger; a test compares it to the domain rule.
+- `absence` and `unknown` evidence can neither support nor contradict a claim and cannot be a
+  contradiction side (missing evidence is not negative evidence, invariant 3). They feed Unknowns.
+- `absence` (a defined source was searched and nothing was found), `unknown` (it cannot be
+  established) and `contradiction` (two established pieces of material conflict) stay distinct.
+  None is a score, a penalty or an accusation (invariant 25): a Contradiction is data for a judge.
+
+### ID integrity (invariants 19 and 20)
+
+Producers never choose persisted IDs. A batch (`EvidenceGraphBatchInput`, Zod `strictObject`, so a
+smuggled `id`, `createdAt`, `origin` override or score is rejected) names **new** entities with
+batch-local `ref`s; trusted code (`IdAllocator`: random by default, deterministic in tests and
+demos) assigns every UUID. A reference to something that **exists** is `{ id }` and is resolved
+against the authoritative set, looked up in every project so it can be classified exactly:
+`*_NOT_FOUND` (well-formed but nonexistent), `WRONG_ENTITY_TYPE`, `CROSS_PROJECT_REFERENCE`.
+Provenance adds `SNAPSHOT_NOT_CONTENT_BEARING`, `SOURCE_TYPE_MISMATCH`, `ARTIFACT_SNAPSHOT_MISMATCH`,
+`SPAN_OUT_OF_BOUNDS`, `EXCERPT_MISMATCH` and so on. All issues are collected and returned in a
+deterministic order (path, then code). `validateGraphIntegrity` re-checks a stored graph for
+dangling and cross-project references and every rule above.
+
+### Write path and audit
+
+`EvidenceGraphStore.createGraph(projectId, batch, actorId)` (`packages/database`) is the only
+writer and the integration point M5 will call. One transaction: lock the project row with
+`SELECT ... FOR NO KEY UPDATE` as the **first** locking operation (it conflicts with itself, so all
+`createGraph` writers of one project serialize before they count the project's records for the caps
+or read the state they extend; it does not conflict with the `FOR KEY SHARE` locks the graph tables'
+foreign keys take, and other projects' writers never touch the row; an earlier `FOR SHARE` let any
+number of writers see the same totals and exceed the caps), load exactly the
+referenced entities and the prefetched artifact spans, plan, insert in batch order (claims one by
+one so a superseding claim sees its predecessor), append the `evidence_graph.created` audit
+event, commit. Any issue means nothing is written. Unexpected database failures surface as
+`EvidenceGraphPersistenceError` carrying only a SQLSTATE and constraint name (driver errors embed
+untrusted text). Audit metadata holds counts and IDs, never claim, evidence or excerpt text. No
+transaction wraps model or network work (M3 has none).
+
+Per-batch limits: 100 claims, 200 evidence items, 400 relations, 50 unknowns, 50 contradictions.
+Per-project caps (2,000 / 5,000 / 10,000 / 1,000 / 1,000) keep every graph load bounded.
+
+### Queries (pure, deterministic, in `packages/evidence`)
+
+Claim with supporting/contradicting evidence; evidence with the claims it affects; unknowns of a
+claim; contradictions touching a node; bounded breadth-first neighbors (depth ≤ 4, ≤ 500 nodes,
+cycle-safe); supersession chain and current claim; provenance trace (evidence → snapshot →
+artifact → span); a plain-count summary; keyset pagination. Ordering is always `seq` (then ID), never
+database locale or hash-map order. Results contain no score, ranking or confidence.
+
+### API (read-only, `evidence.read`: organizer and judge)
+
+| Method | Path                                                     | Purpose                                                           |
+| ------ | -------------------------------------------------------- | ----------------------------------------------------------------- |
+| GET    | `/projects/:projectId/evidence-graph`                    | plain-count summary                                               |
+| GET    | `/projects/:projectId/evidence-graph/neighbors`          | bounded neighborhood of a node (`type`, `id`, `depth ≤ 4`)        |
+| GET    | `/projects/:projectId/claims`, `/claims/:claimId`        | page (`limit ≤ 200`, `after`, `current`) / claim detail           |
+| GET    | `/projects/:projectId/evidence`, `/evidence/:evidenceId` | page (`kind`, `origin` filters) / evidence detail with provenance |
+| GET    | `/projects/:projectId/unknowns`, `/contradictions`       | pages                                                             |
+
+POST/PUT/PATCH/DELETE on these paths answer `405 GRAPH_READ_ONLY`. A claim or evidence ID of another
+project is answered exactly like a nonexistent one (`404`). There is no score, assess, analyze,
+question, rank or winner route and no endpoint that triggers a model.

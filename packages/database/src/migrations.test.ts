@@ -49,7 +49,7 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
     return event.id;
   }
 
-  it('creates exactly the M0 + M1 + M2 tables (no evidence, scoring or question tables)', async () => {
+  it('creates exactly the M0 + M1 + M2 + M3 tables (no scoring, assessment, question or interview tables)', async () => {
     const tables = await rows<{ table_name: string }>(
       db,
       sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
@@ -58,9 +58,13 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
       'actors',
       'analysis_runs',
       'audit_events',
+      'claims',
+      'contradictions',
       'event_context_versions',
       'event_sources',
       'events',
+      'evidence_items',
+      'evidence_relations',
       'project_sources',
       'project_track_selections',
       'projects',
@@ -70,6 +74,7 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
       'source_snapshot_artifacts',
       'source_snapshots',
       'tracks',
+      'unknowns',
     ]);
   });
 

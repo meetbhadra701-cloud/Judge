@@ -4,3 +4,5 @@ export * from './event-context.js';
 export * from './event-context-api.js';
 export * from './source-ingestion.js';
 export * from './source-ingestion-api.js';
+export * from './evidence-graph.js';
+export * from './evidence-graph-api.js';

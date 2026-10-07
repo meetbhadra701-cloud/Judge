@@ -58,6 +58,10 @@ export default async function ProjectPage({
         new snapshot. Nothing here is scored.
       </p>
 
+      <p>
+        <Link href={`/projects/${project.id}/evidence`}>Evidence graph (read-only) →</Link>
+      </p>
+
       <section>
         <h2>Declared tracks</h2>
         {project.tracks.length === 0 ? (

@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@judge-copilot/evidence": "workspace:*",
     "postgres": "^3.4.9"
   }
 }

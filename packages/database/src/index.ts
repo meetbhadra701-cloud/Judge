@@ -7,12 +7,29 @@ export {
 } from './client.js';
 export { createDatabaseAuditSink } from './audit-sink.js';
 export {
+  EVIDENCE_GRAPH_AUDIT_ACTIONS,
+  EvidenceGraphStore,
+  GraphProjectNotFoundError,
+  toClaimRecord,
+  toContradictionRecord,
+  toEvidenceRecord,
+  toRelationRecord,
+  toUnknownRecord,
+  type CreatedGraph,
+  type EvidenceGraphStoreOptions,
+  type LoadedProjectGraph,
+} from './evidence-graph-store.js';
+export {
   actors,
   analysisRuns,
   auditEvents,
+  claims,
+  contradictions,
   eventContextVersions,
   eventSources,
   events,
+  evidenceItems,
+  evidenceRelations,
   projectSources,
   projects,
   projectTrackSelections,
@@ -22,4 +39,5 @@ export {
   sourceSnapshotArtifacts,
   sourceSnapshots,
   tracks,
+  unknowns,
 } from './schema/index.js';

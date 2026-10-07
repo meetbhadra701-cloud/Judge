@@ -9,6 +9,8 @@ import {
   registerUnavailableEventContextRoutes,
 } from './event-context/routes.js';
 import type { EventContextService } from './event-context/service.js';
+import { registerEvidenceGraphRoutes } from './evidence-graph/routes.js';
+import type { EvidenceGraphService } from './evidence-graph/service.js';
 import type { ApiApp } from './http.js';
 import { registerProjectRoutes, registerUnavailableProjectRoutes } from './projects/routes.js';
 import type { ProjectService } from './projects/service.js';
@@ -26,6 +28,8 @@ export interface BuildAppOptions {
   eventContext?: EventContextService | null;
   /** Null when no database is configured. */
   projects?: ProjectService | null;
+  /** Read-only evidence graph inspection (M3). Null when no database is configured. */
+  evidenceGraph?: EvidenceGraphService | null;
   /** Database used to record authenticated actors (required whenever services are present). */
   db?: JudgeDatabase | null;
   /** Null when authentication is not configured: every protected route then answers 503. */
@@ -40,6 +44,7 @@ export function buildApp({
   logger,
   eventContext = null,
   projects = null,
+  evidenceGraph = null,
   db = null,
   verifier = null,
 }: BuildAppOptions): ApiApp {
@@ -75,6 +80,7 @@ export function buildApp({
     else registerUnavailableEventContextRoutes(app);
     if (projects) registerProjectRoutes(app, projects, guard);
     else registerUnavailableProjectRoutes(app);
+    if (evidenceGraph) registerEvidenceGraphRoutes(app, evidenceGraph, guard);
   } else {
     registerUnavailableEventContextRoutes(app);
     registerUnavailableProjectRoutes(app);

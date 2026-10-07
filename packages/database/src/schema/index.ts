@@ -9,3 +9,10 @@ export { tracks } from './tracks.js';
 export { projectSources } from './project-sources.js';
 export { projects, projectTrackSelections } from './projects.js';
 export { sourceSnapshotArtifacts, sourceSnapshots } from './source-snapshots.js';
+export {
+  claims,
+  contradictions,
+  evidenceItems,
+  evidenceRelations,
+  unknowns,
+} from './evidence-graph.js';
