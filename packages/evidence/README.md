@@ -24,6 +24,10 @@ Rules that matter (see `docs/ARCHITECTURE.md` §12 and `docs/SCORING.md` §8):
 - A team statement is a claim, not a fact: project-authored prose never exceeds `team_claim`. A
   README is team-authored prose even inside a GitHub snapshot, so only source-code artifacts may
   carry `repo_corroborated`.
+- `repo_corroborated` is producer-asserted and limited: trusted code checks the artifact (right
+  project, immutable GitHub snapshot, classified as source code) and that a `supports` relation
+  exists, but the producer chooses the evidence text, the claim text and the relationship, so a valid
+  code-file reference can support an unrelated claim. It is not machine-verified semantic truth.
 - A span proves provenance, not truth. `machine_verified` (and `judge_verified`/`live_verified`) are
   unreachable for producers in M3: the planner refuses them (`VERIFICATION_NOT_AVAILABLE`). The rules
   for those levels are kept for the trusted path a later milestone adds.

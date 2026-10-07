@@ -94,7 +94,12 @@ export function isOriginCreatableInM3(origin: EvidenceOrigin): boolean {
  *  - `judge_verified` / `live_verified` need judge-observation records that M7 introduces.
  *
  * `repo_corroborated` stays reachable, but only through source-code artifacts (see artifacts.ts),
- * never team-authored prose. `contradicted` stays reachable for claims, with its Contradiction.
+ * never team-authored prose. It is PRODUCER-ASSERTED and limited: trusted code checks the cited
+ * artifact (right project, immutable GitHub snapshot, classified as source code) and that a
+ * `supports` relation exists for a corroborated claim, but the producer chooses the evidence text,
+ * the claim text and the relationship. M3 does not prove they reflect the code, so a valid code-file
+ * reference can support an unrelated claim. It is NOT machine-verified semantic truth.
+ * `contradicted` stays reachable for claims, with its Contradiction.
  */
 export const M3_PRODUCER_VERIFICATION_LEVELS = [
   'unverified',
@@ -255,6 +260,8 @@ export type ClaimJustification =
  *
  *  - `unverified`, `team_claim`: nothing (a team statement needs no corroboration to exist).
  *  - `repo_corroborated`: a `supports` GitHub `fact` at `repo_corroborated`/`machine_verified`.
+ *    This checks the graph SHAPE and the artifact class only; the producer still chooses what the
+ *    evidence and the claim say (see `M3_PRODUCER_VERIFICATION_LEVELS`).
  *  - `machine_verified`: a `supports` GitHub/deployment `fact` at `machine_verified`.
  *  - `judge_verified`: a `supports` `judge_observation` `fact` at `judge_verified`/`live_verified`
  *    (unreachable until M7 can create such evidence).

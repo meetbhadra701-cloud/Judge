@@ -169,6 +169,45 @@ describe.each(testDatabaseTargets())('M3 producer trust boundary on %s', (_name,
     expect(created.evidence[0]?.provenance.excerpt).toBe('export const health');
   });
 
+  it('CHARACTERIZATION: repo_corroborated is producer-asserted; unrelated text with a valid source-code reference is accepted', async () => {
+    // This documents the trust boundary and implies NO semantic truth. Trusted code checks the cited
+    // artifact (right project, immutable GitHub snapshot, classified as source code) and that a
+    // `supports` relation exists. The PRODUCER chooses the evidence text, the claim text and the
+    // relationship, and M3 does not check that they reflect the code.
+    const created = await store().createGraph(
+      w.project.id,
+      {
+        claims: [
+          {
+            ref: 'c',
+            text: 'The project processes card payments through a third-party gateway.',
+            verificationLevel: 'repo_corroborated',
+          },
+        ],
+        evidence: [
+          {
+            ref: 'g',
+            kind: 'fact',
+            origin: 'github',
+            verificationLevel: 'repo_corroborated',
+            // Unrelated to payments, and unrelated to what the cited span actually says.
+            text: 'The checkout module validates card numbers and calls the payment gateway.',
+            provenance: codeSpan(),
+          },
+        ],
+        relations: [{ claim: { ref: 'c' }, evidence: { ref: 'g' }, type: 'supports' }],
+      },
+      null,
+    );
+    expect(created.claims[0]?.verificationLevel).toBe('repo_corroborated');
+    const stored = must(created.evidence[0]);
+    expect(stored.verificationLevel).toBe('repo_corroborated');
+    // The cited span is real provenance in a source file, yet says nothing about payments.
+    expect(stored.provenance.excerpt).toBe('export const health');
+    expect(stored.text).not.toContain(must(stored.provenance.excerpt));
+    expect(stored.provenance.excerpt).not.toMatch(/payment|card|checkout|gateway/i);
+  });
+
   it('10. keeps Devpost and video team text capped at team_claim', async () => {
     for (const [origin, snapshotId] of [
       ['devpost', w.snapshots.devpost.snapshot.id],

@@ -235,13 +235,48 @@ first. Migration `0009` (0008 untouched) redefines the guard: a predecessor that
 visible to the trigger is rejected (SQLSTATE `23503`); self-supersession is still left to the clean
 `claims_not_self_superseding` CHECK; the transition check is unchanged. A predecessor-first chain in
 one `INSERT ... VALUES` is accepted (tested on PGlite and PostgreSQL 16) but nothing relies on it;
-successor-first chains and CTE siblings fail closed. "Cycle-free by construction" was reworded to the
+a successor-first chain is rejected, and siblings of one data-modifying CTE are not guaranteed to see
+each other's rows (execution order is undefined), so only "the predecessor must already be visible to
+the trigger" is relied on. "Cycle-free by construction" was reworded to the
 real mechanism: no forward references, immutable rows and a single successor. With the old behaviour
 restored in `0009`, the three bypass tests fail.
 
 Mutation proofs: removing the producer gate and the prose classification fails 17 regression tests;
 restoring `FOR SHARE` fails the cap-race test; restoring the fail-open trigger fails the three
 bypass tests. All were restored.
+
+## Final clarification (R1): what `repo_corroborated` does and does not mean
+
+`repo_corroborated` is **producer-asserted and limited**. Trusted code verifies that the cited
+artifact belongs to the correct project's immutable GitHub snapshot, that it is classified as source
+code, and that a `supports` relation exists for a corroborated claim. The producer chooses the
+semantic evidence text, the claim text and the `supports` relationship. M3 does **not** prove those
+descriptions accurately reflect the code, so even a valid code-file reference can support an
+unrelated claim. `repo_corroborated` is not machine-verified semantic truth. This is now stated in
+`ARCHITECTURE.md` §12, `SECURITY.md`, `packages/evidence/README.md` and `verification.ts`, and a
+characterization test through the real `EvidenceGraphStore.createGraph` accepts exactly such an
+unrelated claim, documenting the boundary (it implies no semantic truth). The SECURITY heading was
+corrected to say that producers cannot grant themselves `machine_verified`, `judge_verified` or
+`live_verified`. The migration `0009` comment about sibling data-modifying CTEs was corrected
+(comments only; the SQL statements are unchanged): sibling visibility depends on an execution order
+PostgreSQL does not define, and the only invariant is that the predecessor must already be visible to
+the trigger. No enum, transition, classifier or migration statement changed.
+
+## Prerequisites before M4 and M5
+
+These are binding follow-ups, not part of M3:
+
+- **M4 must not equate producer-asserted `repo_corroborated` with machine-verified truth.** Scoring
+  must treat it as a provenance-bounded, producer-asserted label.
+- **Before M4 relies on graph integrity or scoring reads, fix torn multi-query graph reads** (a graph
+  is loaded with several separate queries) using a consistent snapshot (for example one
+  `REPEATABLE READ` read-only transaction).
+- **Before M4 consumes privileged verification labels, audit the remaining direct-SQL
+  verification-level bypass.** The database does not enforce claim-level justification or the
+  producer-reachable levels; only the `createGraph` path does.
+- **Before M5 connects an LLM producer, require meaningful provenance spans and establish the
+  model-output trust boundary** (what a model may assert, how its text is tied to the cited span, and
+  who may assign verification levels).
 
 ## ID-integrity algorithm
 
@@ -317,7 +352,7 @@ synthetic fixtures actually contain rather than the example wording in the task.
 
 ## Verification commands (final run)
 
-Run locally on Node 22.22.0 / pnpm 10.28.0 after the hardening pass (the first M3 commit measured
+Run locally on Node 22.22.0 / pnpm 10.28.0 after the hardening pass and the R1 clarification (the first M3 commit measured
 59 files / 806 tests on PGlite and 59 files / 1,034 on PostgreSQL 16):
 
 | Command                                                          | Result                                                                                                                                                                                                                                                                                                                                                          |
@@ -325,8 +360,8 @@ Run locally on Node 22.22.0 / pnpm 10.28.0 after the hardening pass (the first M
 | `pnpm install --frozen-lockfile`                                 | clean ("Already up to date")                                                                                                                                                                                                                                                                                                                                    |
 | `pnpm check` (format, lint, typecheck, db:check, test, build)    | exit 0                                                                                                                                                                                                                                                                                                                                                          |
 | `pnpm db:check` / `pnpm db:generate`                             | "Everything's fine" / "No schema changes, nothing to migrate" (after migration `0009` and its metadata)                                                                                                                                                                                                                                                         |
-| `pnpm test` (PGlite)                                             | **62 files (61 passed, 1 skipped), 878 tests: 870 passed, 8 skipped** (the PostgreSQL-only concurrency file and test) — M2 baseline 48 / 482                                                                                                                                                                                                                    |
-| `TEST_DATABASE_URL=… pnpm test` (PostgreSQL 16.14, `en_US.utf8`) | **62 files, 1,124 tests: 1,123 passed, 1 skipped** (the same race test on PGlite) — M2 baseline 48 / 572                                                                                                                                                                                                                                                        |
+| `pnpm test` (PGlite)                                             | **62 files (61 passed, 1 skipped), 879 tests: 871 passed, 8 skipped** (the PostgreSQL-only concurrency file and test) — M2 baseline 48 / 482                                                                                                                                                                                                                    |
+| `TEST_DATABASE_URL=… pnpm test` (PostgreSQL 16.14, `en_US.utf8`) | **62 files, 1,126 tests: 1,125 passed, 1 skipped** (the same race test on PGlite) — M2 baseline 48 / 572                                                                                                                                                                                                                                                        |
 | `pnpm build`                                                     | succeeds (all packages, API, worker, Next.js)                                                                                                                                                                                                                                                                                                                   |
 | Secrets scan                                                     | no matches (AWS/GitHub/OpenAI/Slack/Google key patterns, private keys, tracked `.env`)                                                                                                                                                                                                                                                                          |
 | External network in tests                                        | none: the preloaded network guard rejects non-loopback connections; the capture demo uses the in-process fixture network                                                                                                                                                                                                                                        |

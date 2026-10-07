@@ -690,8 +690,10 @@ the same statement, and so form a cycle or skip the verification-transition chec
 impossible because of the combination: every edge points at a row that existed before the
 referencing row, that row is never updated (so an edge can never be rewired), and a claim has at
 most one successor. Within one `INSERT ... VALUES` a predecessor-first chain is accepted, and a
-successor-first chain, or siblings of one data-modifying CTE (which cannot see each other), are
-rejected; the store inserts claims one statement at a time and never relies on this. A race for the
+successor-first chain is rejected. Siblings of one data-modifying CTE are not guaranteed to see each
+other's rows (it depends on an execution order PostgreSQL does not define), so nothing may rely on
+it; the invariant is only that the predecessor must already be visible to the trigger. The store
+inserts claims one statement at a time and never relies on same-statement visibility. A race for the
 same predecessor is won by exactly one writer (`CLAIM_ALREADY_SUPERSEDED` for the other).
 
 ### Provenance
@@ -746,6 +748,13 @@ Team statement ≠ verified fact. Capturing text proves the text existed, not th
   `unclassified`. Only `source_code` may corroborate (`ARTIFACT_NOT_CORROBORATING` otherwise). A
   README is still team-authored prose, so README evidence stays at most `team_claim`. Limitation:
   classification is per file, so a span inside a source file may still quote a team-written comment.
+- **`repo_corroborated` is producer-asserted and limited.** Trusted code verifies only that the
+  cited artifact belongs to the right project's immutable GitHub snapshot, that it classifies as
+  source code, and that a `supports` relation exists for a corroborated claim. The producer chooses
+  the semantic evidence text, the claim text and the `supports` relationship; M3 does not prove that
+  those descriptions reflect the code, so a valid reference to a code file can support an unrelated
+  claim (characterized by a test through `createGraph`). It is a provenance-bounded label, **not**
+  machine-verified semantic truth.
 - **Claim levels** are checked against graph material: `repo_corroborated` needs a `supports`
   GitHub fact at `repo_corroborated`; `contradicted` needs a Contradiction naming the claim;
   `unverified`/`team_claim` need nothing; the rules for the other levels remain defined but producers

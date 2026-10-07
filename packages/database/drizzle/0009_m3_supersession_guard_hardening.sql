@@ -17,9 +17,13 @@
 -- Visibility: a row inserted by an EARLIER statement or committed transaction is always visible.
 -- Within a single INSERT ... VALUES, PostgreSQL inserts rows in the written order and a VOLATILE
 -- plpgsql trigger sees the rows already inserted by the same command, so a predecessor-first chain
--- is accepted; a successor-first chain, or siblings of one data-modifying CTE (which cannot see each
--- other), are rejected. The application (EvidenceGraphStore) inserts claims one statement at a time
--- and never relies on this.
+-- is accepted; a successor-first chain is rejected. Siblings of one data-modifying CTE are not
+-- guaranteed to see each other's inserted rows: whether a sibling's row is visible to another
+-- sibling's trigger depends on execution order, which PostgreSQL does not define for them, so no one
+-- may rely on it. The invariant is only this: the predecessor must already be visible to the trigger
+-- when the successor row is inserted, otherwise the insert is rejected. The application
+-- (EvidenceGraphStore) inserts claims one statement at a time and never relies on same-statement
+-- visibility.
 --
 -- Self-supersession (supersedes_id = id) is left to the existing CHECK claims_not_self_superseding,
 -- which reports it cleanly; every other missing predecessor raises here.

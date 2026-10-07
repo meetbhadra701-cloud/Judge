@@ -259,13 +259,21 @@ processes spawned by integration tests. Any non-loopback connection attempt thro
   validated against the authoritative set (existence, entity type, project). A well-formed UUID
   proves nothing. Cross-project references are rejected by the planner and, independently, by
   composite foreign keys.
-- **[M3] A model cannot grant itself verification.** `machine_verified`, `judge_verified` and
-  `live_verified` mean "established by trusted observation", for which M3 has no producer, so the
+- **[M3] Producers cannot grant themselves `machine_verified`, `judge_verified` or `live_verified`.**
+  These levels mean "established by trusted observation", for which M3 has no producer, so the
   write path refuses them on evidence and claims whatever else a batch contains. A span proves where
   text lives in an immutable snapshot, never that the evidence text or a claim is true.
   `repo_corroborated` needs an artifact classified as repository source code; a README,
   documentation, commit/tree metadata or an unrecognized file cannot corroborate, because they are
   team-authored or unclassifiable.
+- **[M3] `repo_corroborated` is producer-asserted and limited.** Trusted code verifies that the
+  cited artifact belongs to the right project's immutable GitHub snapshot, that it is classified as
+  source code, and that a `supports` relation exists for a corroborated claim. The **producer
+  chooses** the semantic evidence text, the claim text and the `supports` relationship, and M3 does
+  not prove those descriptions reflect the code: a valid reference to a code file can support an
+  unrelated claim (a characterization test documents this). `repo_corroborated` is therefore a
+  provenance-bounded label, **not** machine-verified semantic truth, and nothing downstream may treat
+  it as such.
 - **[M3] Per-project writers serialize.** `createGraph` takes `FOR NO KEY UPDATE` on the project row
   first, so concurrent writers cannot all pass the per-project caps from the same totals (verified
   with 12 real concurrent connections at the cap boundary on PostgreSQL 16).
