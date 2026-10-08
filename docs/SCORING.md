@@ -1,8 +1,9 @@
 # Judge Copilot — Scoring Model
 
-> **Status:** Specification only. The scoring engine (`scoring-engine/v1`) is **Milestone 4**.
-> Nothing in M0 computes a score. M0 implements only the `Score10` and `Ratio` primitives in
-> `@judge-copilot/schemas`.
+> **Status:** Specification. The scoring engine (`scoring-engine/v1`) is **Milestone 4**; its policies
+> are recorded in §12 and its formulas in `docs/milestones/M4-design.md` (design approved, formula
+> implementation pending). Nothing in M0–M3 computes a score. M0 implements only the `Score10` and
+> `Ratio` primitives in `@judge-copilot/schemas`.
 
 ---
 
@@ -29,7 +30,10 @@
    tolerance of `1e-6` (`RUBRIC_WEIGHT_SUM_TOLERANCE`). Otherwise the context cannot lock
    (`INVALID_RUBRIC_WEIGHTS`), and the weights are not normalized. An official rubric without
    weights stays unweighted (`weight: null`). M1 never invents equal weights; how an unweighted
-   rubric is aggregated is a scoring-engine decision (M4).
+   rubric is aggregated is a scoring-engine decision (M4), recorded in §12: the engine never
+   creates an official overall score from an unweighted rubric.
+6. **No automatic mixing (M4).** An official rubric is used whole or not at all. The fallback
+   applies only when the locked context has no official `overall` rubric. See §12.
 
 ## 3. Universal fallback rubric
 
@@ -125,6 +129,15 @@ reviewed by a human and never invented at assessment time.
 
 Weights within each criterion sum to 100%. The scoring engine must reject a rubric whose
 weights do not sum correctly.
+
+> **Adaptation for official rubrics (M4).** The paragraph above says official criteria "are mapped to
+> dimensions in the locked Event Context" by a human-reviewed mapping. **No such mapping exists:** M1
+> never stored one, and the engine does not pretend otherwise. In `scoring-engine/v1` each official
+> criterion is **one atomic assessment unit** (a single dimension of weight 1) judged against that
+> criterion's own published description and anchors. The 36-dimension decomposition above applies to
+> the **fallback rubric only**. A human-reviewed sub-dimension mapping for official criteria would be a
+> separate, immutable artifact bound to a locked version's content hash (a future, separately approved
+> change); the locked Event Context is never edited and a mapping is never created at assessment time.
 
 ## 5. Score vs. coverage vs. confidence vs. uncertainty
 
@@ -226,3 +239,39 @@ Judge preferences may re-order or highlight questions. They cannot change the ru
   assessments stay reproducible under their recorded version.
 - Pre → post deltas are computed by diffing two immutable assessment versions. Each changed
   dimension lists the evidence IDs responsible (invariants 11, 12).
+
+## 12. Policies adopted for `scoring-engine/v1` (M4)
+
+These are policy decisions; formulas and parameters are specified in `docs/milestones/M4-design.md`
+and are **transparent V1 heuristics, not calibrated statistical probabilities** (invariant 13).
+
+1. **Unweighted official rubric.** The engine returns per-criterion scores and **no overall number**
+   (`overall.state = not_computed`). An overall is produced only on an explicit request for a visibly
+   unofficial equal-weight **preview**, reported outside `overall` and labeled as an assumption. It is
+   never an official overall score.
+2. **Rubric precedence.** An official `overall` rubric, if the locked context has one, is the only
+   rubric for the overall target. The fallback rubric applies only when there is none. Official and
+   fallback criteria are never mixed. Track rubrics are separate targets and never blended.
+3. **Official criteria are atomic units** (see the adaptation note in §4).
+4. **Insufficient evidence is a state, never a score.** A dimension judged `insufficient_evidence`, or
+   judged with a score but without a usable citation, has no numeric value in the report. Insufficient
+   dimensions are excluded from (not zero-filled into) their criterion, which is renormalized over the
+   assessed dimensions only when enough weight is assessed; otherwise the criterion has no number. The
+   same rule applies from criteria to the overall.
+5. **`not_applicable`** (excluded from numerator and denominator, no penalty) exists only for the
+   Track / Prize Alignment criterion of the **versioned fallback rubric** when the project declared no
+   tracks. A criterion of an official rubric is never removed because no track was declared.
+6. **Official scales** are normalized to 0–10 for aggregation by `10·(x − min)/(max − min)`. This
+   **assumes the published scale is linear** (equal steps are equally valuable); the value on the
+   official scale is reported alongside.
+7. **Evidence trust is re-derived, never read from a label.** A claim's verification level is never
+   proof of semantic truth. `repo_corroborated` is producer-asserted and gets its own, lower factor.
+   `machine_verified`, `judge_verified` and `live_verified` labels cannot increase effective trust in M4:
+   trusted attestations are internal, empty, and not an input of any caller or model.
+8. **Evidence strength of a dimension is the maximum effective strength of its distinct cited evidence**
+   (no independence assumption between items). Coverage, confidence and score are separate quantities.
+9. **Coverage** is measured only against evidence needs that are actually declared (fallback rubric).
+   Where none are declared (every official criterion) the report carries a **citation-presence proxy**,
+   labeled as such, and no coverage breadth.
+10. **Contradictions are uncertainty, never a deduction**, and only those recorded in the graph are
+    counted; the report states that recorded contradictions are not a complete discovery.
