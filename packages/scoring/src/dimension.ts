@@ -1,7 +1,6 @@
 import type {
   ConfidenceBasis,
   DimensionJudgment,
-  EvidenceRecord,
   InsufficientReason,
   ScoringDiagnostic,
 } from '@judge-copilot/schemas';
@@ -70,14 +69,12 @@ export function evaluateDimension(
   const path = `dimensions.${spec.id}`;
 
   const citedEvidenceIds = judgment.citations.map((c) => c.evidenceId).sort(compareText);
-  const cited: { record: EvidenceRecord; directness: string; specificity: string }[] = [];
   const usable: (GroupableItem & { channel: string })[] = [];
   for (const citation of [...judgment.citations].sort((a, b) =>
     compareText(a.evidenceId, b.evidenceId),
   )) {
     const record = graph.evidence.get(citation.evidenceId);
     if (!record) continue; // validated earlier; unreachable for a valid request
-    cited.push({ record, directness: citation.directness, specificity: citation.specificity });
     if (!isUsableKind(record.kind)) continue;
     const { level } = resolveEffectiveTrust(record, known);
     usable.push({
