@@ -301,6 +301,18 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
 
+  packages/scoring:
+    dependencies:
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../context
+      '@judge-copilot/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@judge-copilot/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+
   packages/shared:
     dependencies:
       pino:

@@ -1,0 +1,56 @@
+{
+  "duplicate-citation": [
+    {
+      "code": "CITATION_DUPLICATE",
+      "message": "The same evidence item is cited twice in one judgment",
+      "path": "judgments[0].citations[1].evidenceId"
+    }
+  ],
+  "invented-evidence-id": [
+    {
+      "code": "CITATION_UNKNOWN_EVIDENCE",
+      "message": "The cited evidence is not an evidence item of this project",
+      "path": "judgments[0].citations[0].evidenceId"
+    }
+  ],
+  "invented-fallback-dimension": [
+    {
+      "code": "JUDGMENT_MISSING",
+      "message": "Every dimension of the selected rubric needs exactly one judgment",
+      "path": "dimensions.official.b"
+    },
+    {
+      "code": "UNKNOWN_DIMENSION",
+      "message": "The dimension is not part of the selected rubric",
+      "path": "judgments[1].dimensionId"
+    }
+  ],
+  "malformed-evidence-id": [
+    {
+      "code": "INVALID_INPUT",
+      "message": "Invalid UUID",
+      "path": "judgments.0.citations.0.evidenceId"
+    }
+  ],
+  "out-of-scale": [
+    {
+      "code": "SCORE_OUT_OF_SCALE",
+      "message": "The score must lie within the rubric scale 0 to 10",
+      "path": "judgments[0].outcome.score"
+    }
+  ],
+  "smuggled-attestation": [
+    {
+      "code": "INVALID_INPUT",
+      "message": "Unrecognized key: \"attestations\"",
+      "path": ""
+    }
+  ],
+  "unknown-dimension": [
+    {
+      "code": "UNKNOWN_DIMENSION",
+      "message": "The dimension is not part of the selected rubric",
+      "path": "judgments[2].dimensionId"
+    }
+  ]
+}

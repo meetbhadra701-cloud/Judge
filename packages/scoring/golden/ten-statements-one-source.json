@@ -1,0 +1,809 @@
+{
+  "claimLineages": [],
+  "criteria": [
+    {
+      "assessedWeightShare": 0,
+      "citationPresenceShare": null,
+      "confidence": 0,
+      "coverage": 0,
+      "dimensionIds": [
+        "technical_execution.architecture_integration",
+        "technical_execution.correctness_robustness",
+        "technical_execution.engineering_challenge",
+        "technical_execution.implementation_depth",
+        "technical_execution.technical_ownership"
+      ],
+      "key": "technical_execution",
+      "missingDimensionIds": [
+        "technical_execution.architecture_integration",
+        "technical_execution.correctness_robustness",
+        "technical_execution.engineering_challenge",
+        "technical_execution.implementation_depth",
+        "technical_execution.technical_ownership"
+      ],
+      "name": "Technical Execution & Depth",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "assessedWeightShare": 0,
+      "citationPresenceShare": null,
+      "confidence": 0,
+      "coverage": 0,
+      "dimensionIds": [
+        "completion_functionality.core_user_flow",
+        "completion_functionality.end_to_end_integration",
+        "completion_functionality.failure_edge_handling",
+        "completion_functionality.runtime_live_demonstration",
+        "completion_functionality.stated_vs_implemented_scope"
+      ],
+      "key": "completion_functionality",
+      "missingDimensionIds": [
+        "completion_functionality.core_user_flow",
+        "completion_functionality.end_to_end_integration",
+        "completion_functionality.failure_edge_handling",
+        "completion_functionality.runtime_live_demonstration",
+        "completion_functionality.stated_vs_implemented_scope"
+      ],
+      "name": "Completion & Functionality",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "assessedWeightShare": 0,
+      "citationPresenceShare": null,
+      "confidence": 0,
+      "coverage": 0,
+      "dimensionIds": [
+        "innovation_creativity.differentiation",
+        "innovation_creativity.novelty_of_approach",
+        "innovation_creativity.original_technical_contribution",
+        "innovation_creativity.purposeful_technology_use"
+      ],
+      "key": "innovation_creativity",
+      "missingDimensionIds": [
+        "innovation_creativity.differentiation",
+        "innovation_creativity.novelty_of_approach",
+        "innovation_creativity.original_technical_contribution",
+        "innovation_creativity.purposeful_technology_use"
+      ],
+      "name": "Innovation & Creativity",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "assessedWeightShare": 0.15,
+      "citationPresenceShare": null,
+      "confidence": 0.0525,
+      "coverage": 0.15,
+      "dimensionIds": [
+        "impact_problem_fit.awareness_of_constraints",
+        "impact_problem_fit.importance_frequency",
+        "impact_problem_fit.plausibility_of_benefit",
+        "impact_problem_fit.problem_clarity",
+        "impact_problem_fit.solution_problem_fit",
+        "impact_problem_fit.target_user_specificity"
+      ],
+      "key": "impact_problem_fit",
+      "missingDimensionIds": [
+        "impact_problem_fit.awareness_of_constraints",
+        "impact_problem_fit.importance_frequency",
+        "impact_problem_fit.plausibility_of_benefit",
+        "impact_problem_fit.solution_problem_fit",
+        "impact_problem_fit.target_user_specificity"
+      ],
+      "name": "Impact & Problem Fit",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "assessedWeightShare": 0,
+      "citationPresenceShare": null,
+      "confidence": 0,
+      "coverage": 0,
+      "dimensionIds": [
+        "design_user_experience.accessibility_responsiveness",
+        "design_user_experience.feedback_error_states",
+        "design_user_experience.primary_task_clarity",
+        "design_user_experience.product_specific_intentionality",
+        "design_user_experience.usability_interaction_flow",
+        "design_user_experience.visual_hierarchy_coherence"
+      ],
+      "key": "design_user_experience",
+      "missingDimensionIds": [
+        "design_user_experience.accessibility_responsiveness",
+        "design_user_experience.feedback_error_states",
+        "design_user_experience.primary_task_clarity",
+        "design_user_experience.product_specific_intentionality",
+        "design_user_experience.usability_interaction_flow",
+        "design_user_experience.visual_hierarchy_coherence"
+      ],
+      "name": "Design & User Experience",
+      "state": "insufficient_evidence",
+      "weight": 0.1
+    },
+    {
+      "assessedWeightShare": 0,
+      "citationPresenceShare": null,
+      "confidence": 0,
+      "coverage": 0,
+      "dimensionIds": [
+        "demo_communication.actual_proof_demonstration",
+        "demo_communication.honesty_about_limitations",
+        "demo_communication.problem_solution_clarity",
+        "demo_communication.qa_understanding",
+        "demo_communication.technical_explanation"
+      ],
+      "key": "demo_communication",
+      "missingDimensionIds": [
+        "demo_communication.actual_proof_demonstration",
+        "demo_communication.honesty_about_limitations",
+        "demo_communication.problem_solution_clarity",
+        "demo_communication.qa_understanding",
+        "demo_communication.technical_explanation"
+      ],
+      "name": "Demo & Communication",
+      "state": "insufficient_evidence",
+      "weight": 0.1
+    },
+    {
+      "key": "track_prize_alignment",
+      "name": "Track / Prize Alignment",
+      "reason": "no_declared_tracks",
+      "state": "not_applicable",
+      "weight": 0.1
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "DUPLICATE_PROVENANCE_GROUPED",
+      "entityIds": [
+        "e0a00001-0000-4000-8000-000000000017",
+        "e0a00001-0000-4000-8000-000000000018",
+        "e0a00001-0000-4000-8000-000000000019",
+        "e0a00001-0000-4000-8000-00000000001a",
+        "e0a00001-0000-4000-8000-00000000001b",
+        "e0a00001-0000-4000-8000-00000000001c",
+        "e0a00001-0000-4000-8000-00000000001d",
+        "e0a00001-0000-4000-8000-00000000001e",
+        "e0a00001-0000-4000-8000-00000000001f",
+        "e0a00001-0000-4000-8000-000000000020"
+      ],
+      "message": "Several cited evidence records reference the same passage and count as one source (the lowest of their strengths is used)",
+      "path": "dimensions.impact_problem_fit.problem_clarity"
+    }
+  ],
+  "dimensions": [
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "technical_execution",
+      "id": "technical_execution.implementation_depth",
+      "name": "Implementation depth",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.25
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "technical_execution",
+      "id": "technical_execution.architecture_integration",
+      "name": "Architecture / integration",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "technical_execution",
+      "id": "technical_execution.technical_ownership",
+      "name": "Technical ownership",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "technical_execution",
+      "id": "technical_execution.correctness_robustness",
+      "name": "Correctness / robustness",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "technical_execution",
+      "id": "technical_execution.engineering_challenge",
+      "name": "Engineering challenge",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "completion_functionality",
+      "id": "completion_functionality.core_user_flow",
+      "name": "Core user flow",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.3
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "completion_functionality",
+      "id": "completion_functionality.runtime_live_demonstration",
+      "name": "Runtime / live demonstration",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.25
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "completion_functionality",
+      "id": "completion_functionality.end_to_end_integration",
+      "name": "End-to-end integration",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "completion_functionality",
+      "id": "completion_functionality.stated_vs_implemented_scope",
+      "name": "Stated vs. implemented scope",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "completion_functionality",
+      "id": "completion_functionality.failure_edge_handling",
+      "name": "Failure / edge handling",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.1
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "innovation_creativity",
+      "id": "innovation_creativity.novelty_of_approach",
+      "name": "Novelty of approach",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.3
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "innovation_creativity",
+      "id": "innovation_creativity.differentiation",
+      "name": "Differentiation",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.25
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "innovation_creativity",
+      "id": "innovation_creativity.original_technical_contribution",
+      "name": "Original technical contribution",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.25
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "innovation_creativity",
+      "id": "innovation_creativity.purposeful_technology_use",
+      "name": "Purposeful technology use",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000017",
+        "e0a00001-0000-4000-8000-000000000018",
+        "e0a00001-0000-4000-8000-000000000019",
+        "e0a00001-0000-4000-8000-00000000001a",
+        "e0a00001-0000-4000-8000-00000000001b",
+        "e0a00001-0000-4000-8000-00000000001c",
+        "e0a00001-0000-4000-8000-00000000001d",
+        "e0a00001-0000-4000-8000-00000000001e",
+        "e0a00001-0000-4000-8000-00000000001f",
+        "e0a00001-0000-4000-8000-000000000020"
+      ],
+      "confidence": 0.35,
+      "confidenceBasis": "declared_needs_coverage",
+      "contradictionIds": [],
+      "criterionKey": "impact_problem_fit",
+      "evidenceStrength": 0.35,
+      "id": "impact_problem_fit.problem_clarity",
+      "name": "Problem clarity",
+      "needs": {
+        "coverage": 1,
+        "kind": "declared",
+        "satisfiedGroups": 1,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 1,
+      "score10": 8,
+      "scoreOnScale": 8,
+      "state": "assessed",
+      "strongestEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000017",
+        "e0a00001-0000-4000-8000-000000000018",
+        "e0a00001-0000-4000-8000-000000000019",
+        "e0a00001-0000-4000-8000-00000000001a",
+        "e0a00001-0000-4000-8000-00000000001b",
+        "e0a00001-0000-4000-8000-00000000001c",
+        "e0a00001-0000-4000-8000-00000000001d",
+        "e0a00001-0000-4000-8000-00000000001e",
+        "e0a00001-0000-4000-8000-00000000001f",
+        "e0a00001-0000-4000-8000-000000000020"
+      ],
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "impact_problem_fit",
+      "id": "impact_problem_fit.target_user_specificity",
+      "name": "Target-user specificity",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "impact_problem_fit",
+      "id": "impact_problem_fit.importance_frequency",
+      "name": "Importance / frequency",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "impact_problem_fit",
+      "id": "impact_problem_fit.solution_problem_fit",
+      "name": "Solution / problem fit",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.3
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "impact_problem_fit",
+      "id": "impact_problem_fit.plausibility_of_benefit",
+      "name": "Plausibility of benefit",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "impact_problem_fit",
+      "id": "impact_problem_fit.awareness_of_constraints",
+      "name": "Awareness of constraints",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.1
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "design_user_experience",
+      "id": "design_user_experience.primary_task_clarity",
+      "name": "Primary-task clarity",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.25
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "design_user_experience",
+      "id": "design_user_experience.usability_interaction_flow",
+      "name": "Usability / interaction flow",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.25
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "design_user_experience",
+      "id": "design_user_experience.visual_hierarchy_coherence",
+      "name": "Visual hierarchy / coherence",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "design_user_experience",
+      "id": "design_user_experience.product_specific_intentionality",
+      "name": "Product-specific intentionality",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.15
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "design_user_experience",
+      "id": "design_user_experience.accessibility_responsiveness",
+      "name": "Accessibility / responsiveness",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.1
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "design_user_experience",
+      "id": "design_user_experience.feedback_error_states",
+      "name": "Feedback / error states",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.1
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "demo_communication",
+      "id": "demo_communication.problem_solution_clarity",
+      "name": "Problem → solution clarity",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "demo_communication",
+      "id": "demo_communication.actual_proof_demonstration",
+      "name": "Actual proof / demonstration",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.3
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "demo_communication",
+      "id": "demo_communication.technical_explanation",
+      "name": "Technical explanation",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "demo_communication",
+      "id": "demo_communication.qa_understanding",
+      "name": "Q&A understanding",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 1
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.2
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "demo_communication",
+      "id": "demo_communication.honesty_about_limitations",
+      "name": "Honesty about limitations",
+      "needs": {
+        "coverage": 0,
+        "kind": "declared",
+        "satisfiedGroups": 0,
+        "totalGroups": 2
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 0.1
+    }
+  ],
+  "engineVersion": "scoring-engine/v1",
+  "graphFingerprint": "0e163b9461e696409148e80309620b90cce483da4a0635f59c9da2ac7cc7f769",
+  "inputFingerprint": "70411fd6b5f6f960d3ea2d8695602f985780259250652def19575e7b46b3bc7e",
+  "notices": {
+    "claimLabels": "never_proof_of_truth",
+    "confidenceMeaning": "index_not_probability",
+    "contradictionCoverage": "recorded_only",
+    "parameterStatus": "heuristic_not_calibrated",
+    "semanticRelevance": "not_verified"
+  },
+  "outputHash": "7a95e74b6cba95a737f922e1861f8a7e050e75d25bb4a6d269aceee483a9a614",
+  "overall": {
+    "assessedWeightShare": 0,
+    "citationPresenceShare": null,
+    "confidence": 0.0087,
+    "coverage": 0.025,
+    "missingCriterionKeys": [
+      "completion_functionality",
+      "demo_communication",
+      "design_user_experience",
+      "impact_problem_fit",
+      "innovation_creativity",
+      "technical_execution"
+    ],
+    "reason": "assessed_weight_below_threshold",
+    "state": "insufficient_evidence",
+    "weightBasis": "fallback"
+  },
+  "parametersHash": "e4b028a19abac6bc5ad5034b2c4677506e7402954a5c474c6b16abd289c4d5e4",
+  "rubric": {
+    "contextContentHash": "199465bcf2b9106695d4defe9f65c364819f7ac1662f403ce19a47cab109207b",
+    "contextVersionId": "c0000001-0000-4000-8000-000000000001",
+    "fingerprint": "cb335b33ff7c3be6cbb6e7469488feb0cc58d315ae434384ce955b53059d56cb",
+    "name": "Universal fallback rubric",
+    "needsBasis": "declared",
+    "official": false,
+    "rubricVersion": "fallback-rubric/v1",
+    "scale": {
+      "max": 10,
+      "min": 0
+    },
+    "scope": "overall",
+    "source": "universal_fallback",
+    "trackKey": null,
+    "weightBasis": "fallback"
+  },
+  "unofficialPreview": null
+}

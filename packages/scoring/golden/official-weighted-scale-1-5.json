@@ -1,0 +1,130 @@
+{
+  "claimLineages": [],
+  "criteria": [
+    {
+      "assessedWeightShare": 1,
+      "citationPresenceShare": 1,
+      "confidence": 0.6,
+      "coverage": null,
+      "dimensionIds": [
+        "official.innovation"
+      ],
+      "key": "innovation",
+      "missingDimensionIds": [],
+      "name": "Innovation",
+      "score10": 7.5,
+      "scoreOnScale": 4,
+      "state": "assessed",
+      "weight": 0.6
+    },
+    {
+      "assessedWeightShare": 1,
+      "citationPresenceShare": 1,
+      "confidence": 0.35,
+      "coverage": null,
+      "dimensionIds": [
+        "official.execution"
+      ],
+      "key": "execution",
+      "missingDimensionIds": [],
+      "name": "Execution",
+      "score10": 2.5,
+      "scoreOnScale": 2,
+      "state": "assessed",
+      "weight": 0.4
+    }
+  ],
+  "diagnostics": [],
+  "dimensions": [
+    {
+      "citedEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000001",
+        "e0a00001-0000-4000-8000-000000000002"
+      ],
+      "confidence": 0.6,
+      "confidenceBasis": "citation_presence",
+      "contradictionIds": [],
+      "criterionKey": "innovation",
+      "evidenceStrength": 0.6,
+      "id": "official.innovation",
+      "name": "Innovation",
+      "needs": {
+        "citationPresence": 1,
+        "kind": "unspecified"
+      },
+      "provenanceGroupCount": 2,
+      "score10": 7.5,
+      "scoreOnScale": 4,
+      "state": "assessed",
+      "strongestEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000002"
+      ],
+      "weight": 1
+    },
+    {
+      "citedEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000001"
+      ],
+      "confidence": 0.35,
+      "confidenceBasis": "citation_presence",
+      "contradictionIds": [],
+      "criterionKey": "execution",
+      "evidenceStrength": 0.35,
+      "id": "official.execution",
+      "name": "Execution",
+      "needs": {
+        "citationPresence": 1,
+        "kind": "unspecified"
+      },
+      "provenanceGroupCount": 1,
+      "score10": 2.5,
+      "scoreOnScale": 2,
+      "state": "assessed",
+      "strongestEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000001"
+      ],
+      "weight": 1
+    }
+  ],
+  "engineVersion": "scoring-engine/v1",
+  "graphFingerprint": "c477a8c05b859e5fa98493494913c58da5f1afbba51f0c93deeda7197720d4f2",
+  "inputFingerprint": "ac0a9c5315c9d9c1a103982f11489dbd5d3171cf3425e90df2a9a79c62991b08",
+  "notices": {
+    "claimLabels": "never_proof_of_truth",
+    "confidenceMeaning": "index_not_probability",
+    "contradictionCoverage": "recorded_only",
+    "parameterStatus": "heuristic_not_calibrated",
+    "semanticRelevance": "not_verified"
+  },
+  "outputHash": "293fb094b5019c096a1828ac21dc12b9e5b879ff4d4e39347fb6cd93c46c3a46",
+  "overall": {
+    "assessedWeightShare": 1,
+    "citationPresenceShare": 1,
+    "confidence": 0.5,
+    "coverage": null,
+    "missingCriterionKeys": [],
+    "score10": 5.5,
+    "scoreOnScale": 3.2,
+    "state": "scored",
+    "weightBasis": "official"
+  },
+  "parametersHash": "e4b028a19abac6bc5ad5034b2c4677506e7402954a5c474c6b16abd289c4d5e4",
+  "rubric": {
+    "contextContentHash": "107f228e16862259fd69f2b41ba76a9673ebdebbf2b140a9e7040ee55f070376",
+    "contextVersionId": "c0000001-0000-4000-8000-000000000001",
+    "fingerprint": "5f15dbd3f1c1b92941cc995c6cac91ab0af6f36738e89f3ad98066784d7faafa",
+    "name": "Official judging rubric",
+    "needsBasis": "unspecified",
+    "official": true,
+    "rubricVersion": null,
+    "scale": {
+      "max": 5,
+      "min": 1
+    },
+    "scope": "overall",
+    "source": "official_event_context",
+    "trackKey": null,
+    "weightBasis": "official"
+  },
+  "unofficialPreview": null
+}
