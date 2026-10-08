@@ -17,6 +17,11 @@
 > item to the exact change and test is **§17**. The first draft remains in git history; where Revision 2 _supersedes_
 > a Revision 1 statement, §17.3 says so explicitly.
 
+> **Revision 3 (this commit).** The owner's review of Revision 2 (`93c48f60297deab13e421f5238c34e049a8bb0f6`) accepted the architecture with six corrections, tagged `[Rev3: C1…C6]`:
+> C1 M4 `outputHash` is computed over the report body **excluding** `outputHash` (§8.8–8.9); C2 the call/cost scenarios are bounded planning scenarios, not worst cases, and the wall-clock default is reconciled (§12.3.4);
+> C3 fallback-anchor wording ([anchors draft](./M5-fallback-anchors-draft.md) and its review appendix); C4 an event rule is never project evidence (§4.7, §5.3); C5 replay reproducibility and the exact-request digest (§12.1);
+> C6 an assessment whose every unit failed technically is never persisted (§9.3). **P1 only** is authorized once these are applied; N1–N13 were answered by the owner (§14.3).
+
 ---
 
 ## 0. Verified starting point
@@ -378,6 +383,20 @@ member set (`context_evidence` extraction keyed by project + context version + d
 of the context does not force model re-extraction. Known side-effect: citing one satisfies M4's `event_context` need-group channel
 (a coverage nudge with near-zero strength) — risk U9.
 
+**Hard rule: an event rule is never project evidence `[Rev3: C4]`.** Event Context evidence describes the event's rules; it does **not** show that a project satisfies them. Therefore:
+
+1. **A numerical quality score may never rest on Event-Context reference citations alone.** G6 rejects, and the deterministic post-gate converts to `insufficient_evidence` (`event_reference_only`), any `scored`
+   judgment whose citations are all `event_context`-origin. This holds for every unit, and it is the rule the Track / Prize Alignment criterion depends on.
+2. **Every unit of the fallback `track_prize_alignment` criterion additionally needs both halves:** (a) at least one Event-Context reference item _for a declared track_ in its candidate set — otherwise the
+   unit is `insufficient_evidence` (`no_official_requirement_available`; M5 never invents an eligibility condition or reads one from outside the locked context) — and (b) at least one **project-derived**
+   citation (a `team_statement`, `interpreted_fact` or later-milestone observation). Project-derived evidence may be _only_ clearly labeled team statements; the prompt, the stored disposition and the
+   UI then say "based on team statements; not verified", and nothing in M5 implies that an unverified statement proves eligibility.
+3. The scorer's need-group rules are **unchanged** (M4 still counts an `event_context` citation toward the `X` channel); the rule above is enforced before `scoreProject`, on M5's side only.
+4. A cited reference item is accepted only as `indirect`/`generic` context (strength 0.0135) and the critic's `citation_not_relevant` on one is blocking, as before.
+
+Design tests (T-C4, §13.7): official rule cited and **no** project evidence ⇒ `insufficient_evidence`; official rule **plus** relevant project evidence ⇒ may be assessed, subject to G6 and the critic; no
+official requirement available for the declared track ⇒ `insufficient_evidence` even when team statements exist; an `event_context`-only judgment of a non-Track unit ⇒ `insufficient_evidence`.
+
 ### 4.8 What M5's producer deliberately does not do
 
 - No `absence`/`unknown` evidence from a model (missing evidence is not negative evidence; models are poor at proving a negative).
@@ -453,6 +472,8 @@ than `indirect`/`generic` (§4.7).
 - _Official criteria_ have no declared needs, so M4 reports `citation_presence`. If every cited item is a `team_statement`, the unit is kept but
   flagged `only_team_authored_evidence` (judge-visible, passed to the critic); it is not blocked, because blocking would require M5 to invent a
   need that the official rubric never declared.
+
+**Event-reference rule `[Rev3: C4]`.** A `scored` judgment whose citations are all `event_context` reference items is rejected by G6 and converted to `insufficient_evidence` (`event_reference_only`); every unit of the fallback `track_prize_alignment` criterion additionally requires an official requirement for a declared track in its candidate set (`no_official_requirement_available` otherwise) **and** at least one project-derived citation. Event rules never prove that a project satisfies them (§4.7).
 
 The model's _claimed_ `directness`/`specificity` are inputs to a strength formula, so they are exactly the lever an adversary pulls: the critic
 checks them against the cited text and M4's min/max rules bound the damage.
@@ -550,19 +571,19 @@ is a new row with a higher `version_number` (gapless per project, trigger-assign
 
 ### 8.2 Tables (migrations `0010_m5_assessment_schema`, `0011_m5_assessment_integrity`; generated with `pnpm db:generate`, triggers hand-written as in 0005/0008; no existing migration edited)
 
-| Table                            | Purpose / key columns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `analysis_runs` (existing)       | `run_type = 'pre_interview_assessment'`; new CHECK: event/project/context links required; new **partial unique index** `(project_id) WHERE run_type='pre_interview_assessment' AND state IN ('pending','running')`; failure-category CHECK regenerated from the shared tuple to add `budget_exceeded` (D6, approved)                                                                                                                                                                                                                                                                                                                                                                                               |
-| `assessment_requests`            | **idempotency record**: `id`, `project_id`, `actor_id`, `idempotency_key`, `request_hash`, `mode` (`assess`\|`reassess`), exactly one of `run_id` / `assessment_id` (CHECK), `created_at`; `UNIQUE(actor_id, idempotency_key)`; immutable (§8.6)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `assessment_run_inputs`          | 1:1 with run, **immutable**: project, event, `context_version_id`, `locked_content_hash`, `declared_track_keys`, `target`, `pinned_snapshot_ids uuid[]` with their content hashes, `inputs_fingerprint`, `pipeline_config jsonb`, `pipeline_config_hash`, `requested_by_actor_id`                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `assessment_run_budget`          | **mutable operational state, one row per run**: caps, `settled_*`, `reserved_*`, `unknown_*` token and micro-USD counters, `price_table_id`; updated only under `FOR UPDATE` (§12.4). Final totals are copied into the immutable outcome row                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `assessment_run_calls`           | **append-only call ledger**: run, `seq`, `stage`, `attempt`, `prompt_id`, `prompt_version`, `prompt_template_hash`, `schema_id`, `schema_version`, `request_digest`, `provider`, `model`, `generation_settings`, `reservation` (input bound, output bound, cost bound), `state` (`reserved`→`settled`\|`released`\|`unknown`, one allowed transition), `usage_input_tokens`, `usage_output_tokens`, `usage_basis` (`measured`\|`estimated`\|`unknown_reserved`), `cost_micro_usd`, `response_json` (the model's parsed JSON, bounded), `response_hash`, `outcome_code`, timings. **No prompt text and no secrets**                                                                                                 |
-| `assessment_run_outcomes`        | one row per terminal run: `outcome`, `failure_code`, `stage_reached`, usage totals split by basis, `provider_mode` (`live`\|`replay`\|`scripted`), written in the same tx as the terminal state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `graph_extractions`              | `kind` (`source`\|`context_evidence`), `extraction_key` UNIQUE, project, `snapshot_ids` / `context_version_id`, `config_hash`, `claim_ids`/`evidence_ids`/`relation_ids`/`unknown_ids`/`contradiction_ids` (`uuid[]` **in creation order** — the order defines the handles), `members_hash`, `created_by_run_id`; written in the **same tx** as the graph insert; immutable                                                                                                                                                                                                                                                                                                                                        |
-| `graph_extraction_items`         | per member record: `record_type`, `record_id`, `grounding` (§4.5), `relation_basis` (`source_statement`\|`independent_observation`\|`team_restatement`), review verdict, `downgrade` code; immutable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `pre_interview_assessments`      | `id`, `project_id`, `event_id`, `run_id` UNIQUE, `version_number`, `kind='pre_interview'` (CHECK from `ASSESSMENT_KIND_VALUES`), `assessment_key` UNIQUE, `request_id`, `context_version_id`, `locked_content_hash`, `pinned_snapshot_ids`, `extraction_id`, `context_extraction_id`, `target_kind`, `track_key`, `fallback_anchors_version`, scorer identity (`engine_version`, `parameters_hash`, `rubric_fingerprint`, `rubric_source`, `input_fingerprint`, `graph_fingerprint`, `output_hash`), **`report_canonical text` (authoritative bytes)** and `report jsonb` (queryable mirror), `limitations jsonb`, `pipeline_config_hash`, `provider_mode`, `assessment_hash`, `created_by_actor_id`, `created_at` |
-| `assessment_dimension_judgments` | per unit: `assessment_id`, `dimension_id`, outcome kind, score, `rationale`, `disposition` (`accepted` / `accepted_after_rerun` / `marked_insufficient_by_critic` / `critic_unavailable` / `no_candidate_evidence` / `no_satisfiable_need` / `no_declared_need_satisfied` / `assessor_reported_insufficient`), attempt counts, call ids                                                                                                                                                                                                                                                                                                                                                                            |
-| `assessment_judgment_citations`  | `assessment_id`, `dimension_id`, `evidence_id` (composite FK to `evidence_items(id, project_id)`), `directness`, `specificity`, `note`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Table                            | Purpose / key columns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `analysis_runs` (existing)       | `run_type = 'pre_interview_assessment'`; new CHECK: event/project/context links required; new **partial unique index** `(project_id) WHERE run_type='pre_interview_assessment' AND state IN ('pending','running')`; failure-category CHECK regenerated from the shared tuple to add `budget_exceeded` (D6, approved)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `assessment_requests`            | **idempotency record**: `id`, `project_id`, `actor_id`, `idempotency_key`, `request_hash`, `mode` (`assess`\|`reassess`), exactly one of `run_id` / `assessment_id` (CHECK), `created_at`; `UNIQUE(actor_id, idempotency_key)`; immutable (§8.6)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `assessment_run_inputs`          | 1:1 with run, **immutable**: project, event, `context_version_id`, `locked_content_hash`, `declared_track_keys`, `target`, `pinned_snapshot_ids uuid[]` with their content hashes, `inputs_fingerprint`, `pipeline_config jsonb`, `pipeline_config_hash`, `requested_by_actor_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `assessment_run_budget`          | **mutable operational state, one row per run**: caps, `settled_*`, `reserved_*`, `unknown_*` token and micro-USD counters, `price_table_id`; updated only under `FOR UPDATE` (§12.4). Final totals are copied into the immutable outcome row                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `assessment_run_calls`           | **append-only call ledger**: run, `seq`, `stage`, `attempt`, `prompt_id`, `prompt_version`, `prompt_template_hash`, `schema_id`, `schema_version`, `request_digest`, `provider`, `model`, `generation_settings`, `reservation` (input bound, output bound, cost bound), `state` (`reserved`→`settled`\|`released`\|`unknown`, one allowed transition), `usage_input_tokens`, `usage_output_tokens`, `usage_basis` (`measured`\|`estimated`\|`unknown_reserved`), `cost_micro_usd`, `response_json` (the model's parsed JSON, bounded), `response_hash`, `outcome_code`, timings. **No prompt text and no secrets**                                                                                                                                                                                                                                             |
+| `assessment_run_outcomes`        | one row per terminal run: `outcome`, `failure_code`, `stage_reached`, usage totals split by basis, `provider_mode` (`live`\|`replay`\|`scripted`), written in the same tx as the terminal state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `graph_extractions`              | `kind` (`source`\|`context_evidence`), `extraction_key` UNIQUE, project, `snapshot_ids` / `context_version_id`, `config_hash`, `claim_ids`/`evidence_ids`/`relation_ids`/`unknown_ids`/`contradiction_ids` (`uuid[]` **in creation order** — the order defines the handles), `members_hash`, `created_by_run_id`; written in the **same tx** as the graph insert; immutable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `graph_extraction_items`         | per member record: `record_type`, `record_id`, `grounding` (§4.5), `relation_basis` (`source_statement`\|`independent_observation`\|`team_restatement`), review verdict, `downgrade` code; immutable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `pre_interview_assessments`      | `id`, `project_id`, `event_id`, `run_id` UNIQUE, `version_number`, `kind='pre_interview'` (CHECK from `ASSESSMENT_KIND_VALUES`), `assessment_key` UNIQUE, `request_id`, `context_version_id`, `locked_content_hash`, `pinned_snapshot_ids`, `extraction_id`, `context_extraction_id`, `target_kind`, `track_key`, `fallback_anchors_version`, scorer identity (`engine_version`, `parameters_hash`, `rubric_fingerprint`, `rubric_source`, `input_fingerprint`, `graph_fingerprint`, `output_hash` = the M4 `outputHash` of the report body), **`report_canonical text` (the full report including `outputHash`; authoritative bytes)**, `report_text_sha256` (independent SHA-256 of those bytes) and `report jsonb` (queryable mirror), `limitations jsonb`, `pipeline_config_hash`, `provider_mode`, `assessment_hash`, `created_by_actor_id`, `created_at` |
+| `assessment_dimension_judgments` | per unit: `assessment_id`, `dimension_id`, outcome kind, score, `rationale`, `disposition` (`accepted` / `accepted_after_rerun` / `marked_insufficient_by_critic` / `critic_unavailable` / `no_candidate_evidence` / `no_satisfiable_need` / `no_declared_need_satisfied` / `assessor_reported_insufficient`), attempt counts, call ids                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `assessment_judgment_citations`  | `assessment_id`, `dimension_id`, `evidence_id` (composite FK to `evidence_items(id, project_id)`), `directness`, `specificity`, `note`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Deliberately **no** question, answer, interview, final-score, delta or `post_interview` table. `kind` is a CHECK equal to `pre_interview` in M5.
 
@@ -664,29 +685,53 @@ reference member claims scopes to an integrity-clean graph and yields a byte-ide
 over overlapping snapshots cite only their own evidence. T-R7d: mutation — derive membership from "snapshot ∈ pins" ⇒ T-R7c fails. T-R7e:
 deliberately corrupt one array id (direct SQL as a fixture) ⇒ `GRAPH_MEMBERS_MISMATCH`.
 
-### 8.8 Canonical report round trip `[Rev2: R7]`
+### 8.8 Report bytes, three distinct hashes, and the round trip `[Rev3: C1]`
 
-PostgreSQL `jsonb` does not preserve key order or whitespace and normalizes numeric text; it also rejects `\u0000`. Nothing about its
-serialization is assumed to preserve the engine's canonical representation. Therefore:
+PostgreSQL `jsonb` does not preserve key order or whitespace and normalizes numeric text; it also rejects `\u0000`. Nothing about its serialization
+is assumed to preserve the engine's canonical representation. Separately, three different things must never be conflated (Revision 2 conflated them
+and is corrected here):
 
-- The **authoritative bytes** are `report_canonical text` (the exact canonical JSON whose SHA-256 is `output_hash`); `report jsonb` is a
-  derived, queryable mirror only.
-- `verifyStoredAssessment` (pure; uses the §8.9 export): (1) `ScoreReport.parse(JSON.parse(report_canonical))`; (2) recompute `outputHash` from
-  the parsed body and compare with the stored `output_hash`; (3) compare canonical re-serialization of the parsed text with canonical
-  re-serialization of the `jsonb` mirror — exactly equal; (4) compare `report_canonical` bytes with the bytes produced by the engine before
-  the write.
-- **Round-trip test (T-R7f):** write → read → validate schema → recompute hash → compare, over (a) every golden report, (b) seeded randomized
-  reports covering four-decimal values, `0`, `-0`, scales `0..1`, `-5..5`, `0..100`, `0..1e6`, exponent-form inputs, empty arrays, nested nulls,
-  astral/combining/RTL text in names, and (c) targeted cases for each known `jsonb` normalization (key reorder, trailing zeros, exponent form,
-  NUL rejected by pre-sanitization). Mutation: persist only `jsonb` and recompute from it ⇒ the test must fail on at least the key-order and
-  numeric-text cases, proving why the text column is authoritative.
+| Name                           | What it is                                                                        | How it is computed                                                                                                                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **report body**                | the M4 `ScoreReportBody`: the report **without** `outputHash`                     | —                                                                                                                                                                                        |
+| **M4 `outputHash`**            | the engine's own hash, stored as `output_hash`                                    | `outputHash = hashOf(body)` = `sha256Hex(canonicalJson(body))` — **excludes** `outputHash` itself (engine.ts: `const outputHash = hashOf(body)`, then returns `{ ...body, outputHash }`) |
+| **full report canonical text** | the complete report **including** `outputHash`, stored as `report_canonical text` | `canonicalJson({ ...body, outputHash })`                                                                                                                                                 |
+| **`report_text_sha256`**       | an _independent_ SHA-256 of the stored text bytes (storage integrity only)        | `sha256Hex(report_canonical)`                                                                                                                                                            |
 
-### 8.9 The single additive change to `scoring` (D15, approved narrowly) `[Rev2: D15]`
+**The SHA-256 of the complete serialized report is not the M4 `outputHash`.** It is a different value (`report_text_sha256`), and neither replaces the other. Revision 2's
+sentence that `report_canonical` is "the exact canonical JSON whose SHA-256 is `output_hash`" is withdrawn.
 
-Export `reportOutputHash(body)` (and a thin `verifyScoreReport(report)` built on it) from `@judge-copilot/scoring`. No formula, constant,
-schema, `parametersHash` or behavior changes; a test pins every existing golden `parametersHash`/`outputHash` and the cross-process
-determinism test byte-for-byte before and after, and a source diff test asserts the only changed scoring file is the export list plus the
-new function.
+- The **authoritative bytes** are `report_canonical`; `report jsonb` is a derived, queryable mirror only.
+- `verifyStoredAssessment` (pure; uses the §8.9 export), in this order: (1) `sha256Hex(report_canonical) === report_text_sha256`; (2) `ScoreReport.parse(JSON.parse(report_canonical))`;
+  (3) strip `outputHash` from the parsed report, compute `reportOutputHash(body)` by **M4's rule**, and require it to equal both the parsed `outputHash` and the stored `output_hash`;
+  (4) `canonicalJson(parsed) === report_canonical` (the canonical form is a fixed point); (5) the canonical re-serialization of the `jsonb` mirror equals `report_canonical`;
+  (6) at pipeline time only, the bytes equal what the engine produced before the write.
+- **Round-trip test (T-R7f):** write → read → validate schema → recompute `outputHash` by M4's rule → compare, over (a) **every complete report among the existing M4 golden files and every
+  `goldenScenarios()` scenario** (the test discovers the files, asserts it found the expected count, and fails if it finds none), (b) seeded randomized reports covering four-decimal values,
+  `0`, `-0`, scales `0..1`, `-5..5`, `0..100`, `0..1e6`, exponent-form inputs, empty arrays, nested nulls, astral/combining/RTL text in names, and (c) targeted cases for each known `jsonb`
+  normalization (key reorder, trailing zeros, exponent form, NUL rejected by pre-sanitization). Mutation: persist only `jsonb` and recompute from it ⇒ the test must fail on at least the
+  key-order and numeric-text cases, proving why the text column is authoritative. Mutation: hash the full report (including `outputHash`) ⇒ the golden-report test fails.
+
+### 8.9 The single additive change to `scoring` (D15, approved narrowly) `[Rev2: D15; Rev3: C1]`
+
+It must reproduce M4's existing computation, not introduce a new report-hashing rule. In a new file `packages/scoring/src/report-hash.ts`, exported from the package root:
+
+```ts
+/** Exactly the engine's rule: SHA-256 of the canonical JSON of the report BODY (no outputHash). */
+export function reportOutputHash(body: ScoreReportBody): string; // = hashOf(body)
+export function verifyScoreReportHash(report: ScoreReport): {
+  ok: boolean;
+  expected: string;
+  actual: string;
+};
+//   strips `outputHash`, recomputes with reportOutputHash, compares to report.outputHash
+```
+
+`engine.ts` is **not edited** (not even to call the helper), so the engine version, parameters, formulas and every golden hash are untouched by construction. This lands in **P3** (with
+`verifyStoredAssessment`), not P1. Tests: (a) for every `goldenScenarios()` scenario **and every complete report in `packages/scoring/golden/*.json`**, `verifyScoreReportHash(report).ok` and
+`reportOutputHash(body) === report.outputHash`; (b) the negative control `sha256Hex(canonicalJson(report)) !== report.outputHash` for each, pinning the distinction; (c) tampering with any
+field of the body, or with `outputHash`, fails; (d) `SCORING_ENGINE_VERSION`, `parametersHash` and all existing golden files are byte-identical before and after (a diff guard in the phase
+review), and the cross-process determinism test is unchanged.
 
 ---
 
@@ -756,34 +801,42 @@ budget exhaustion fail a run.
 | 16  | Pinned context superseded before commit                                                        | **run**  | `cancelled` (`context_superseded`), no assessment                                                                                                                                                                                |
 | 17  | Invariant violation (`GRAPH_MEMBERS_MISMATCH`, hash mismatch, impossible state)                | **run**  | `internal_error`                                                                                                                                                                                                                 |
 
-**Aggregate technical-failure rule (provisional product heuristic).** Let `U` = number of scoring units, `T = max(2, ceil(0.25 × U))`. If the number of units that
-ended in a _technical_ disposition (rows 7, 10, 11) is `≥ T`, the run fails — `schema_validation_failed` when most of them were schema failures,
-otherwise `domain_validation_failed` — because the model machinery, not the project, is the likely cause. This is **a product heuristic, not a
-mathematical correctness guarantee**; it replaces Revision 1's ">25% critic-rejected" rule, which wrongly mixed substantive judgments into a failure
-test.
+**Aggregate technical-failure rule (provisional product heuristic) `[Rev3: C6]`.** Let `U` = number of scoring units and `technical` = the number of units that ended in a _technical_ disposition
+(rows 7, 10, 11). The run **fails** — `schema_validation_failed` when most of those failures were schema failures, otherwise `domain_validation_failed` — if **either**:
 
-_Consequences, stated plainly._ Fallback (`U = 36`): `T = 9`. Official rubric with 5 criteria: `T = 2` — two technical unit failures (40%) fail the run even though
-three units could have been scored, while one (20%) does not. **Substantive** critic rejections never fail a run; they reduce the assessable weight, and M4 then
-reports `scored_partial` or `insufficient_evidence` by its own thresholds (≥ 0.5 of a criterion's weight, ≥ 0.6 of the overall's). Example (5 criteria, weights
-0.3/0.2/0.2/0.2/0.1): losing the 0.3 criterion leaves 0.7 ≥ 0.6 ⇒ `scored_partial`; losing 0.3 and 0.2 leaves 0.5 < 0.6 ⇒ overall `insufficient_evidence`, a valid
-outcome. When more than half the units end insufficient for substantive reasons the assessment records `mostly_unassessable` so the judge knows the result is thin.
+1. `technical ≥ T`, where `T = max(2, ceil(0.25 × U))`; **or**
+2. **every** scoring unit ended technical (`technical = U`, with `U ≥ 1`).
+
+Rule 2 exists because rule 1's threshold is unreachable when `U = 1` (`T = 2 > U`): without it a run whose only unit failed technically would persist an assessment of nothing. In that case the run fails
+and **no `pre_interview` assessment is persisted**. Neither rule ever counts a _valid_ outcome: units that are `insufficient_evidence` through the assessor (row 6), the deterministic pre-gates (row 8) or a
+_substantive_ critic rejection (row 9) are not technical. A unit that is partly technical and partly valid is counted once, by its final disposition. This is **a product heuristic, not a mathematical
+correctness guarantee**; it replaces Revision 1's ">25% critic-rejected" rule, which wrongly mixed substantive judgments into a failure test.
+
+_Consequences, stated plainly._ Fallback (`U = 36`): `T = 9`. Official rubric with 5 criteria: `T = 2` — two technical unit failures (40%) fail the run even though three units could have been scored, while
+one (20%) does not. `U = 1`: one technical failure fails the run (rule 2); a valid `insufficient_evidence` yields a persisted assessment whose overall is `insufficient_evidence`. **Substantive** critic rejections
+never fail a run; they reduce the assessable weight, and M4 then reports `scored_partial` or `insufficient_evidence` by its own thresholds (≥ 0.5 of a criterion's weight, ≥ 0.6 of the overall's). Example (5 criteria,
+weights 0.3/0.2/0.2/0.2/0.1): losing the 0.3 criterion leaves 0.7 ≥ 0.6 ⇒ `scored_partial`; losing 0.3 and 0.2 leaves 0.5 < 0.6 ⇒ overall `insufficient_evidence`, a valid outcome. When more than half the units
+end insufficient for substantive reasons the assessment records `mostly_unassessable` so the judge knows the result is thin. The critic's substantive rejection stays separate from provider/system failure at every `U`.
 
 ### 9.4 Bounded retries (all configurable, hard-capped)
 
-| Failure                                      | Retries        | Notes                                                                                                 |
-| -------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
-| Transient provider (429/5xx/network/timeout) | 2 (3 attempts) | exp backoff 2 s → 30 s with jitter; honors `Retry-After` ≤ 60 s; each attempt reserves budget (§12.4) |
-| Zod-invalid output                           | 1              | re-ask with Zod issue **paths and codes** only                                                        |
-| Domain-invalid output                        | 1              | re-ask naming offending handles                                                                       |
-| Refusal / `max_tokens` truncation            | 0              | refusal per rows 11/5; truncation ⇒ schema failure; no automatic fallback model                       |
-| Any stage after its budget                   | —              | `budget_exceeded`, no score                                                                           |
+| Failure                                      | Retries        | Notes                                                                                                                                                                                                   |
+| -------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transient provider (429/5xx/network/timeout) | 2 (3 attempts) | exp backoff 2 s → 30 s with jitter; honors `Retry-After` ≤ 60 s; each attempt is a separate reservation counted against the call guard; an exhausted guard ends retries and the run (`budget_exceeded`) |
+| Zod-invalid output                           | 1              | re-ask with Zod issue **paths and codes** only                                                                                                                                                          |
+| Domain-invalid output                        | 1              | re-ask naming offending handles                                                                                                                                                                         |
+| Refusal / `max_tokens` truncation            | 0              | refusal per rows 11/5; truncation ⇒ schema failure; no automatic fallback model                                                                                                                         |
+| Any stage after its budget                   | —              | `budget_exceeded`, no score                                                                                                                                                                             |
 
 ### 9.5 Tests required by R8
 
 - **Critic false positives:** a scripted critic returns blocking findings on well-supported units. (a) all units ⇒ every unit `insufficient_evidence` /
   `marked_insufficient_by_critic`, run `succeeded`, overall `insufficient_evidence`, `failure_code` null, no technical counter incremented; (b) 20% of units ⇒ exactly
   those units insufficient, overall `scored_partial`, assessable weight matches M4's arithmetic; (c) official 5-criterion rubric boundary cases (0.3 vs 0.3+0.2).
-- **Threshold boundary:** `U=5`: one technical failure passes, two fail; `U=36`: eight pass, nine fail; `U=1`: `T=2` is unreachable, so no aggregate failure.
+- **Threshold boundary `[Rev3: C6]`:** `U=1` with a technical failure ⇒ the **run fails, no assessment persisted** (rule 2); `U=1` with a valid `insufficient_evidence` (assessor-reported, pre-gate, or substantive critic
+  rejection) ⇒ the run **succeeds** and persists an assessment with overall `insufficient_evidence`; `U=2`: one technical failure passes, two fail; `U=5`: one technical failure passes, two fail (`T=2`); `U=36`: eight
+  pass, nine fail (`T=9`); for every `U`, "all units technical" fails the run, and "all units valid-insufficient" never does. Mutations: remove rule 2 ⇒ the `U=1` test fails; count a valid insufficiency as technical ⇒ the
+  `U=1` valid-insufficiency test fails.
 - **Valid insufficiency is not failure:** a run in which the assessor reports insufficient everywhere succeeds with zero technical counters; mutation — count
   `assessor_reported_insufficient` as technical ⇒ the test fails.
 - **Event matrix:** one test per row 1–17 asserting scope (item/unit/run), failure category (or none), assessment-row presence/absence and limitation text.
@@ -867,7 +920,7 @@ score is separate and authoritative". Replay assessments are badged **REPLAY DEM
 
 ## 12. (A, J) Provider abstraction, first provider, reproducibility, sizing and spending guard `[Rev2: D1, D11, D13, D16, R2, R4, R5]`
 
-### 12.1 `packages/llm` interface and reproducible requests `[Rev2: R4]`
+### 12.1 `packages/llm` interface and reproducible requests `[Rev2: R4; Rev3: C5]`
 
 ```ts
 interface StructuredRequest {
@@ -877,14 +930,15 @@ interface StructuredRequest {
   promptTemplateHash: string;
   schemaId: string;
   schemaVersion: string;
-  jsonSchema: JsonSchemaObject; // generated from the stage Zod schema
   provider: string;
   model: string;
+  system: string; // instructions only, exactly as sent
+  user: readonly string[]; // EVERY user-role content block, in order, exactly as sent
+  jsonSchema: JsonSchemaObject; // exactly as sent (generated from the stage Zod schema)
   generation: { effort?: 'low' | 'medium' | 'high'; maxOutputTokens: number; timeoutMs: number };
-  system: string; // instructions only
-  data: { boundary: string; text: string }; // untrusted data, delimited
-  requestDigest: string; // sha256 over everything semantic — see below
 }
+// The digest is DERIVED by llm from the request; no caller can supply one.
+function computeRequestDigest(request: StructuredRequest): string;
 type StructuredResult =
   | {
       ok: true;
@@ -917,43 +971,54 @@ interface LlmProvider {
 }
 ```
 
-Provider-neutral: nothing above names a vendor; the Anthropic adapter is one implementation (D13: an Ollama/OpenAI-compatible adapter later needs no interface
-change). Composition (decorators, all unit-tested with a fake clock/RNG): `withTimeout` → `withRetry` → `withBudget(reserve/settle)` → `withLedgerSink`.
-`ReplayProvider` and `ScriptedProvider` are refused when `NODE_ENV=production`.
+Provider-neutral: nothing above names a vendor; the Anthropic adapter is one implementation (D13: an Ollama/OpenAI-compatible adapter later needs no interface change). Composition
+(decorators, all unit-tested with a fake clock/RNG): `withTimeout` → `withRetry` → `withBudget(reserve/settle)` → `withLedgerSink`. `ReplayProvider` and `ScriptedProvider` are refused when
+`NODE_ENV=production`.
 
 **Boundary: deterministic and collision-safe (chosen over a stored nonce).** The data block is framed by
-`boundary = "DATA-" + hex(sha256(canonical(system‖promptId‖promptVersion‖data text)))[0..32]` plus a counter, incremented until the boundary string occurs nowhere in
-the data text (a pure function of the inputs, so the exact request is reconstructible and replayable). An attacker cannot embed the boundary: it is a hash of a text
-that would have to contain it. No random nonce is used or stored.
+`boundary = "DATA-" + hex(sha256(canonical(system‖promptId‖promptVersion‖data text)))[0..32]` plus a counter, incremented until the boundary string occurs nowhere in the data text (a pure
+function of the inputs, so the exact request is reconstructible and replayable). An attacker cannot embed the boundary: it is a hash of a text that would have to contain it. No random nonce is
+used or stored. (The boundary lives inside a `user` string, so it is covered by the digest.)
 
-**`requestDigest` commits to every semantic input:**
+**`requestDigest` is the hash of the exact effective serialized request `[Rev3: C5]`:**
 
 ```
-sha256(canonicalJson({
-  v: 'request-digest/v1', stage, promptId, promptVersion, promptTemplateHash, schemaId, schemaVersion, schemaHash,
-  provider, model, generation,                                    // incl. effort, maxOutputTokens, thinking mode
-  systemHash: sha256(system), boundary,
-  data: [ { handle, kind, contentSha256, snapshotId, snapshotContentHash, artifactId, span }, ... ],   // every passage / evidence / claim / pair
-  candidates: [ { handle, kind, label, authorship, textSha256, excerptSha256 } ],                      // closed candidate sets, with CONTENT
-  rubric: { source, rubricFingerprint, criterionDescriptionSha256, anchorsSha256 | anchorsNonePublished,
-            fallbackAnchorsVersion, fallbackAnchorsSha256 },
-  extraction: { extractionKey }, contextVersionId, lockedContentHash
+requestDigest = sha256(canonicalJson({
+  v: 'request-digest/v2',
+  stage, promptId, promptVersion, promptTemplateHash, schemaId, schemaVersion,
+  provider, model,
+  system,                                   // the full text
+  user: [ ...every user-role block, full text, in order... ],
+  jsonSchema,                               // the full schema object as sent
+  generation: { effort, maxOutputTokens }   // every setting that can change the output; `timeoutMs` is excluded (it changes aborting, not content)
 }))
 ```
 
-Consequences, each a test: changing one character of an evidence text, a passage, an official anchor or a fallback-anchor line changes the digest even when
-every handle is unchanged (T-R4a); bumping a prompt version or editing a template without a bump changes the digest or fails the frozen-template golden (T-R4b);
-the digest contains **no UUID that `createGraph` allocates** — handles replace them — so two runs that allocate different UUIDs produce identical digests and
-replay stays stable (T-R4c); an old replay recording is never served for a changed rubric or changed evidence text (`replay_miss`, T-R4d).
+It is computed over the final request object handed to the adapter, **not** over upstream components. Everything that reaches the model — every passage, evidence text, closed candidate set with its
+content, official rubric description and anchors or the fallback-anchor lines, the boundary — is inside `system`/`user`, so it is committed automatically and a change to any of it changes the
+digest even when every handle is unchanged. The stage code also stores _component_ hashes (rubric fingerprint, anchors, candidate lists, snapshot content hashes) in the ledger as audit metadata;
+they are not the digest's basis. The Anthropic adapter (P6) builds its HTTP body from the same `StructuredRequest` through one `toWireRequest()` function; the P6 contract test captures the body
+passed to the injected `fetch` and asserts that every `user` string, `system`, schema, model, `max_tokens` and effort in the wire body equals what the digest covered, so no model-visible byte can
+exist outside the digest.
 
-**Replay.** The key is the full `requestDigest` (superseding Revision 1's weaker `inputDigest` of IDs only). Fixtures are hand-authored synthetic JSON for a
-synthetic project (`tests/fixtures/assessment/`), labeled as not produced by any model, and regenerated by hand when a digest legitimately changes.
+Digest tests (P1 where the code is, P6 for the wire body): each field flips the digest (every `user` block's characters, `system`, `jsonSchema` keys, `model`, `effort`, `maxOutputTokens`,
+`promptVersion`, `schemaVersion`); `timeoutMs` and object key order do not; block boundaries matter (`["ab","c"]` ≠ `["a","bc"]`); a caller cannot supply a mismatching digest (no such field).
 
-**What is reproducible.** _Offline replay:_ the entire pipeline — handles, boundaries, prompts, digests, gates, graph batch, scoring, persisted bytes — is
-byte-for-byte reproducible from the recorded responses. _Live nondeterministic call:_ the **request** is exactly reconstructible from the pins, the immutable stored
-text and the frozen prompt/schema versions (checked by recomputing `requestDigest` against the ledger), and the **response** is preserved verbatim in
-`assessment_run_calls.response_json` with its hash; re-issuing the call is _not_ guaranteed to return the same text. Replaying a live run's recorded responses
-reproduces its outputs, not the model's behaviour.
+**Replay.** The key is the full `requestDigest`. Fixtures are hand-authored synthetic JSON for a synthetic project (`tests/fixtures/assessment/`), labeled as not produced by any model, and
+regenerated by hand when a digest legitimately changes.
+
+**What is and is not reproducible `[Rev3: C5]`.** Four situations must not be confused:
+
+| Situation                                                                                    | Identical                                                                      | NOT promised                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identical model requests                                                                     | the same `requestDigest` ⇒ the same replay key                                 | identical live responses (a live model is nondeterministic)                                                                                                                                                                                                                                                                                                                                          |
+| Deterministic offline replay of recorded outputs                                             | handles, prompts, digests, gate decisions and the _content_ of the graph batch | fresh UUIDs, unless the ID allocator is controlled                                                                                                                                                                                                                                                                                                                                                   |
+| Repeated scoring over the **same persisted extraction** (same immutable IDs, same judgments) | byte-identical `ScoreReport` and `outputHash` (M4 determinism)                 | —                                                                                                                                                                                                                                                                                                                                                                                                    |
+| A **fresh extraction** with newly allocated UUIDs                                            | identical requests and digests; under replay identical _semantic_ content      | **byte-identical `ScoreReport`s or `outputHash` values.** Evidence/claim IDs appear in the report (`citedEvidenceIds`, `strongestEvidenceIds`, `claimLineages`, diagnostics) and in `graphFingerprint`/`inputFingerprint`, so two fresh extractions differ. Byte-identity is promised only where the immutable IDs and scoring inputs are the same, or a test supplies a deterministic `IdAllocator` |
+
+A live call's _request_ is reconstructible from the pins, the immutable stored text and the frozen prompt/schema versions (recompute the digest and compare with the ledger); its _response_ is preserved verbatim in
+`assessment_run_calls.response_json` with its hash. Replaying a live run's recorded responses reproduces its outputs, not the model's behaviour. Tests: T-R4a–e (§13.7), including that two fresh
+extractions under different random allocators give identical digests but **different** report hashes (asserted, so no accidental promise exists), and that a seeded allocator gives byte-identical reports.
 
 ### 12.2 First real provider `[Rev2: D1, D11, D13]`
 
@@ -1013,42 +1078,56 @@ first model call_. If it exceeds any cap: (i) lower the source-code budget 240K 
 floor; each step is recorded as a truncation notice. If the floor still does not fit ⇒ run fails `budget_exceeded` having spent nothing. The 150-call cap is **not** raised to
 fit a plan.
 
-#### 12.3.4 Sizing (computed from the parameters above; ESTIMATES — unmeasured)
+#### 12.3.4 Sizing (computed from the parameters above; ESTIMATES — unmeasured) `[Rev2: R2; Rev3: C2]`
 
 Assumptions: average passage fill 1,000 code points (83% of the 1,200 maximum); ≈ 330 tokens per passage; claim paraphrase share 40% (so 60% need no review call);
 ≈ 1.5 candidate relations per claim; 31 fallback units when no track is declared (36 with tracks); re-run allowance ≤ 8 assessor + 8 critic calls (fallback) and ≤ 10% of nominal
-calls for repair retries. `calls = ⌈passages/40⌉ (S2) + ⌈passages/40⌉ (S3) + ⌈(paraphrased claims + evidence)/10⌉ (S3b) + ⌈claims/20⌉ (S4) + ⌈relations/8⌉ (S4b) + 2 (S5, S6) + 2·units`.
+calls for repair re-asks. `calls = ⌈passages/40⌉ (S2) + ⌈passages/40⌉ (S3) + ⌈(paraphrased claims + evidence)/10⌉ (S3b) + ⌈claims/20⌉ (S4) + ⌈relations/8⌉ (S4b) + 2 (S5, S6) + 2·units`.
 
-|                                                            |                Small |               Typical |      Large (near caps) | Typical, official 5-criterion rubric |
-| ---------------------------------------------------------- | -------------------: | --------------------: | ---------------------: | -----------------------------------: |
-| Captured content selected (cp)                             | 18K prose + 45K repo | 66K prose + 165K repo | 120K prose + 270K repo |                      same as Typical |
-| Passages (statement / repository)                          |              18 / 45 |              66 / 165 |              120 / 270 |                             66 / 165 |
-| Claims / model evidence / candidate relations              |         12 / 25 / 18 |          45 / 70 / 68 |         80 / 100 / 100 |                         45 / 70 / 68 |
-| S2 claim-extraction calls                                  |                    1 |                     2 |                      3 |                                    2 |
-| S3 evidence-extraction calls                               |                    2 |                     5 |                      7 |                                    5 |
-| S3b fidelity calls (items)                                 |               3 (30) |                9 (88) |               14 (132) |                                    9 |
-| S4 relation-matching calls                                 |                    1 |                     3 |                      4 |                                    3 |
-| S4b relation-verification calls (one verdict per relation) |                    3 |                     9 |                     13 |                                    9 |
-| S5 + S6                                                    |                    2 |                     2 |                      2 |                                    2 |
-| **Extraction subtotal**                                    |               **12** |                **30** |                 **43** |                               **30** |
-| S10 assessment + S11 critic calls (units)                  |              62 (31) |               72 (36) |                72 (36) |                               10 (5) |
-| **Nominal calls**                                          |               **74** |               **102** |                **115** |                               **40** |
-| Re-run allowance (assessor + critic)                       |                    8 |                    16 |                     16 |                                    4 |
-| Repair-retry allowance (≤ 10% of nominal)                  |                    8 |                    11 |                     12 |                                    4 |
-| **Worst-case calls (cap 150)**                             |               **90** |               **129** |                **143** |                               **48** |
-| Input tokens, nominal / worst-case                         |        ≈ 320K / 385K |         ≈ 580K / 720K |          ≈ 800K / 990K |                        ≈ 300K / 370K |
-| Output tokens, nominal / worst-case                        |          ≈ 34K / 41K |           ≈ 53K / 66K |            ≈ 63K / 78K |                          ≈ 23K / 28K |
-| Computed cost, nominal / worst-case (see assumptions)      |        ≈ $0.8 / $1.0 |         ≈ $1.2 / $1.6 |          ≈ $1.4 / $1.9 |                        ≈ $0.4 / $0.5 |
+**These are bounded planning scenarios, not worst cases.** They include the re-run and repair-re-ask allowances. They do **not** include _transient-retry attempts_ (§9.4 permits up to two
+retries of any failed provider call), which are unplanned. The 150-call guard counts **attempts** — every reservation is one attempt — so unplanned retries draw on whatever headroom the plan leaves.
+**No plan is guaranteed to complete within 150 attempts.**
 
-Reading the table honestly: a normal (small/typical) run uses 49–68% of the 150-call cap nominally and ≤ 86% in the worst case, so it does not routinely exhaust it. A _large_
-project near every structural cap lands at 143 worst-case calls (95%) by construction — that is exactly the situation the preflight plan, the reduction ladder and the sampling
-notices exist for; it is not hidden by raising the cap. The per-relation verification count is accounted for in full (13 calls for 100 relations at 8 per call), as is the
-fidelity count (14 calls for 132 items at 10 per call). The official-rubric column assumes the same extraction; an official rubric with more criteria scales the last two rows.
+|                                                                           |                Small |               Typical |      Large (near caps) | Typical, official 5-criterion rubric |
+| ------------------------------------------------------------------------- | -------------------: | --------------------: | ---------------------: | -----------------------------------: |
+| Captured content selected (cp)                                            | 18K prose + 45K repo | 66K prose + 165K repo | 120K prose + 270K repo |                      same as Typical |
+| Passages (statement / repository)                                         |              18 / 45 |              66 / 165 |              120 / 270 |                             66 / 165 |
+| Claims / model evidence / candidate relations                             |         12 / 25 / 18 |          45 / 70 / 68 |         80 / 100 / 100 |                         45 / 70 / 68 |
+| S2 claim-extraction calls                                                 |                    1 |                     2 |                      3 |                                    2 |
+| S3 evidence-extraction calls                                              |                    2 |                     5 |                      7 |                                    5 |
+| S3b fidelity calls (items)                                                |               3 (30) |                9 (88) |               14 (132) |                                    9 |
+| S4 relation-matching calls                                                |                    1 |                     3 |                      4 |                                    3 |
+| S4b relation-verification calls (one verdict per relation)                |                    3 |                     9 |                     13 |                                    9 |
+| S5 + S6                                                                   |                    2 |                     2 |                      2 |                                    2 |
+| **Extraction subtotal**                                                   |               **12** |                **30** |                 **43** |                               **30** |
+| S10 assessment + S11 critic calls (units)                                 |              62 (31) |               72 (36) |                72 (36) |                               10 (5) |
+| **Nominal calls**                                                         |               **74** |               **102** |                **115** |                               **40** |
+| Re-run allowance (assessor + critic)                                      |                    8 |                    16 |                     16 |                                    4 |
+| Repair re-ask allowance (≤ 10% of nominal)                                |                    8 |                    11 |                     12 |                                    4 |
+| **Planned calls (nominal + allowances; no transient retries)**            |               **90** |               **129** |                **143** |                               **48** |
+| Headroom to the 150-attempt guard, for unplanned transient-retry attempts |                   60 |                    21 |                      7 |                                  102 |
+| Attempts if every planned call needed exactly one transient retry         |                  180 |                   258 |                    286 |                                   96 |
+| Planned sequential time at a 30 s mean latency per attempt                |             ≈ 45 min |              ≈ 65 min |               ≈ 72 min |                             ≈ 24 min |
+| Input tokens, nominal / planned                                           |        ≈ 320K / 385K |         ≈ 580K / 720K |          ≈ 800K / 990K |                        ≈ 300K / 370K |
+| Output tokens, nominal / planned                                          |          ≈ 34K / 41K |           ≈ 53K / 66K |            ≈ 63K / 78K |                          ≈ 23K / 28K |
+| Computed cost, nominal / planned (see assumptions)                        |        ≈ $0.8 / $1.0 |         ≈ $1.2 / $1.6 |          ≈ $1.4 / $1.9 |                        ≈ $0.4 / $0.5 |
 
-Cost assumptions: prices cached 2026-10-06 (Haiku-tier $0.10 in / $0.50 out per MTok for prompts ≤ 100K tokens; Sonnet-tier $2 / $10), extraction-tier stages on the Haiku
-tier and S10/S11 on the Sonnet tier, **no prompt caching credited**, **hidden thinking tokens not included** (they bill as output and could multiply the output rows 2–5×).
-All figures are unmeasured estimates, not quotes, and the first measurement requires a separately authorized live run (D16: **deferred; no billable call, not even a $0.50
-calibration run, is authorized**).
+Reading the table honestly: small and typical _plans_ use 60% and 86% of the 150-attempt guard, so a healthy provider does not exhaust it, but a typical run has only 21 attempts of retry
+headroom and a large run 7. A provider that fails systematically (the "every call needs one retry" row) **will** exhaust the guard in the small, typical and large scenarios (180, 258 and 286 attempts against a cap of 150): the guard then
+refuses further attempts, the run ends `budget_exceeded`, and **no assessment exists** (§12.4; test T-R5b). That is the intended behaviour, not a defect, and the cap is **not** raised to hide
+it. A _large_ project near every structural cap is exactly the case the preflight plan, the reduction ladder and the sampling notices (§12.3.2–12.3.3) exist for. Per-relation verification (13 calls
+for 100 relations at 8 per call) and fidelity (14 calls for 132 items at 10 per call) are accounted for in full. The official-rubric column assumes the same extraction; an official rubric with more
+criteria scales the unit rows.
+
+**Wall-clock reconciliation.** The per-call timeouts (120 s / 180 s) are _ceilings_, not expected latencies. Planned attempts are strictly sequential, so even the typical plan at the ceiling would take
+129 × 150 s ≈ 5.4 hours. Revision 2's 25-minute default therefore could not accommodate the plans above (it implied ≈ 11 s per attempt). The default run wall-clock is now **120 minutes** (maximum 240),
+which fits the typical plan at a 30 s mean latency (≈ 65 min) with margin; a slow provider that would exceed it ends the run `timeout` with no assessment. The wall-clock limit is a guard that stops a run,
+never a promise that a run completes. It is checked before every reservation and by an abort timer on each in-flight call.
+
+Cost assumptions: prices cached 2026-10-06 (Haiku-tier $0.10 in / $0.50 out per MTok for prompts ≤ 100K tokens; Sonnet-tier $2 / $10), extraction-tier stages on the Haiku tier and S10/S11 on the
+Sonnet tier, **no prompt caching credited**, **hidden thinking tokens not included** (they bill as output and could multiply the output rows 2–5×), and **unplanned retries not included** (a retry that
+returns a response is measured and counted by the guard; one that times out after sending stays counted at its full reservation). All figures are unmeasured estimates, not quotes, and the first
+measurement requires a separately authorized live run (D16: **deferred; no billable call, not even a $0.50 calibration run, is authorized**).
 
 ### 12.4 Budget accounting and the **configured local spending guard** `[Rev2: R5]`
 
@@ -1078,6 +1157,8 @@ byte", **not** a provider guarantee; `reserveOutput = generation.maxOutputTokens
    sequential; across projects `ASSESSMENT_CONCURRENCY ≤ 2` and each run has its own cap; an optional global daily cap (default off) uses the same protocol on a singleton row,
    always locked _before_ the run row.
 
+**Attempts, retries and exhaustion `[Rev3: C2]`.** Every provider attempt — including each transient retry — is its own reserve → call → settle cycle and counts against the call cap, the token caps and the cost cap. When any cap would be crossed, **no further call is made**: the retry loop stops, the run ends `budget_exceeded`, in-flight `unknown` spend stays counted, and no assessment or score is produced. Unplanned retries therefore consume the plan's headroom first and can never cause a call beyond the cap.
+
 **Token counting.** The provider's token-counting endpoint could tighten the input estimate, but whether it is free and what its limits are could **not** be confirmed from the
 reference material available to the design session, and it is itself an external request. It is therefore **disabled by default**, would be a separately authorized option, and — if ever
 enabled — would be recorded as a ledger call. Until then the byte-based reservation (over-conservative by a factor of ≈ 3–4 for English) applies _only to the in-flight call_, so
@@ -1085,7 +1166,7 @@ over-reservation can refuse the last call before the cap, never inflate settled 
 
 **Defaults** (env-overridable down or up to the code maxima; defaults are guards, not forecasts): calls per run 150 (max 300); input tokens 1,500,000 (3,000,000); output tokens 250,000
 (500,000); computed cost $3.00 ($10.00); max input per call 40K tokens (also keeps Haiku-tier prompts inside the ≤ 100K price tier); per-call timeout 120 s / 180 s (max 300 s); run
-wall-clock 25 min (60 min).
+wall-clock 120 min (max 240; reconciled with the sequential plans in §12.3.4).
 
 ### 12.5 No-credential behavior and demonstrations
 
@@ -1103,15 +1184,15 @@ wall-clock 25 min (60 min).
 Each phase ends with its tests green (`pnpm check` for the slice), a short phase note, and no work from the next phase. **No phase starts without the owner's explicit
 implementation authorization.**
 
-| Phase | Deliverable                                                                                                                                                                                                                                                                                                                                                                                                                   | Key tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| P1    | `schemas/assessment.ts` (vocabularies, stage output schemas, config/limits, API shapes); `packages/llm` (port, timeout/retry, **reserve/settle budget**, ledger sink, replay keyed by `requestDigest`, scripted, error mapping, versioned price table); guards updated                                                                                                                                                        | schema accept/reject tables, smuggled-key rejection; retry/backoff with fake clock; reservation arithmetic and concurrency (two racing reservations cannot both pass); `sent_unknown` stays counted; abort/cancel; replay hit/miss and content-sensitivity (T-R4); no-key behavior; secret-redaction grep                                                                                                                                                                                                                                                    |
-| P2    | `packages/prompts` (templates for all stages, deterministic boundary framing, template hashes, **frozen versions**)                                                                                                                                                                                                                                                                                                           | golden rendered prompts; boundary collision test (data containing the boundary ⇒ counter increments); handles-not-UUIDs; allow-listed fields only; secret grep; prompt-id/version/hash stability; mutation: drop the "untrusted" framing ⇒ golden fails                                                                                                                                                                                                                                                                                                      |
-| P3    | `packages/assessment` pure core: source routing + selection + windowing + preflight plan, quote locator, G1–G7, statement-evidence builder, fidelity classifier, label policy, event-context evidence builder, graph-batch planner (dry-run `planEvidenceGraphBatch`), member scoping, judgments builder → `AssessorJudgmentsInput`, pre-gates, critic policy, failure matrix, limitations, hashing, `verifyStoredAssessment` | per-gate violating inputs + **mutation proofs**; seeded property tests: scoped graph passes `validateGraphIntegrity`; windowing covers text exactly; quote locator vs an independent reference; critic-policy and failure-matrix truth tables exhaustively; T-R1, F-1…F-8, T-R3, T-R4, T-R7a–d, T-R8                                                                                                                                                                                                                                                         |
-| P4    | Migrations 0010–0011; `AssessmentInputReader` (+ read-only `LockedContextReader`), `AssessmentStore`, `createGraphInTransaction`, budget store, request/idempotency store                                                                                                                                                                                                                                                     | **PostgreSQL 16** + PGlite: immutability triggers (UPDATE/DELETE/TRUNCATE/CASCADE), deferred completeness triggers (incl. the `xmin` feasibility decision), version sequencing, one-active-run index, **idempotency matrix (§8.6)**, concurrent lock/supersede vs persist (deadlock + cancel path), recapture mid-run, graph-cap exhaustion, `createGraph` ↔ `createGraphInTransaction` parity incl. lock order, parity vs API locked-context loader, **canonical report round trip (T-R7f)**, migration upgrade test from M4 head, `pnpm db:generate` clean |
-| P5    | Worker pipeline orchestrator (S0–S14), lease/heartbeat, failure matrix, budget protocol                                                                                                                                                                                                                                                                                                                                       | end-to-end with `ScriptedProvider`: every row of §9.3 behaves as specified; provider outage mid-critic; budget exhaustion preflight and mid-run; crash between S7 and S14 (§8.6); shutdown cancels; **no transaction open during any provider call** (instrumented `db` + fake provider assert `tx` count == 0 during `generate`)                                                                                                                                                                                                                            |
-| P6    | API routes, permissions, minimal web page; Anthropic adapter (contract-tested against an injected fake `fetch`/recorded HTTP fixtures — **no live call**; SDK dependency added here, with owner authorization); replay demo world; docs (`AI_PIPELINE`, `ARCHITECTURE` §14, `SECURITY` §16, `SCORING` pointer, `V1_CONTRACT` refinements, package READMEs)                                                                    | route authz matrix; 405s; cross-project 404; idempotency over HTTP; UI renders failure/insufficient honestly (component tests); adapter error mapping table; end-to-end replay demonstration script                                                                                                                                                                                                                                                                                                                                                          |
-| P7    | Hostile self-review, injection suite, golden assessment, `M5-report.md`                                                                                                                                                                                                                                                                                                                                                       | full suite on PGlite **and** PostgreSQL 16; `pnpm check` exact output reported                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Phase | Deliverable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Key tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| P1    | `schemas/assessment.ts` (vocabularies, stage output schemas, run/limit config); `packages/llm` (provider-neutral port, request digest, timeout/cancel, bounded retry, **reserve/settle budget**, ledger sink, replay keyed by `requestDigest`, scripted provider, failure normalization, versioned price table); guard updates. **No** Anthropic SDK, API key, migration, prompt or pipeline                                                                                                               | schema accept/reject tables, smuggled-key rejection; retry/backoff with a fake clock; reservation arithmetic and concurrency (racing reservations cannot both pass); `sent_unknown` stays counted; **retry storm stops exactly at the guard (T-R5b)**; abort/cancel; replay hit/miss and exact-request digest sensitivity (T-R4); malformed-output adversarial suite; no-key behavior; secret-redaction scan                                                                                                                                                 |
+| P2    | `packages/prompts` (templates for all stages, deterministic boundary framing, template hashes, **frozen versions**)                                                                                                                                                                                                                                                                                                                                                                                        | golden rendered prompts; boundary collision test (data containing the boundary ⇒ counter increments); handles-not-UUIDs; allow-listed fields only; secret grep; prompt-id/version/hash stability; mutation: drop the "untrusted" framing ⇒ golden fails                                                                                                                                                                                                                                                                                                      |
+| P3    | `packages/assessment` pure core: source routing + selection + windowing + preflight plan, quote locator, G1–G7, statement-evidence builder, fidelity classifier, label policy, event-context evidence builder, graph-batch planner (dry-run `planEvidenceGraphBatch`), member scoping, judgments builder → `AssessorJudgmentsInput`, pre-gates, critic policy, failure matrix, limitations, hashing, additive `scoring` export `reportOutputHash`/`verifyScoreReportHash` (§8.9), `verifyStoredAssessment` | per-gate violating inputs + **mutation proofs**; seeded property tests: scoped graph passes `validateGraphIntegrity`; windowing covers text exactly; quote locator vs an independent reference; critic-policy and failure-matrix truth tables exhaustively; T-R1, F-1…F-8, T-R3, T-R4, T-R7a–d, T-R8                                                                                                                                                                                                                                                         |
+| P4    | Migrations 0010–0011; `AssessmentInputReader` (+ read-only `LockedContextReader`), `AssessmentStore`, `createGraphInTransaction`, budget store, request/idempotency store                                                                                                                                                                                                                                                                                                                                  | **PostgreSQL 16** + PGlite: immutability triggers (UPDATE/DELETE/TRUNCATE/CASCADE), deferred completeness triggers (incl. the `xmin` feasibility decision), version sequencing, one-active-run index, **idempotency matrix (§8.6)**, concurrent lock/supersede vs persist (deadlock + cancel path), recapture mid-run, graph-cap exhaustion, `createGraph` ↔ `createGraphInTransaction` parity incl. lock order, parity vs API locked-context loader, **canonical report round trip (T-R7f)**, migration upgrade test from M4 head, `pnpm db:generate` clean |
+| P5    | Worker pipeline orchestrator (S0–S14), lease/heartbeat, failure matrix, budget protocol                                                                                                                                                                                                                                                                                                                                                                                                                    | end-to-end with `ScriptedProvider`: every row of §9.3 behaves as specified; provider outage mid-critic; budget exhaustion preflight and mid-run; crash between S7 and S14 (§8.6); shutdown cancels; **no transaction open during any provider call** (instrumented `db` + fake provider assert `tx` count == 0 during `generate`)                                                                                                                                                                                                                            |
+| P6    | API routes, permissions, minimal web page; Anthropic adapter (contract-tested against an injected fake `fetch`/recorded HTTP fixtures — **no live call**; SDK dependency added here, with owner authorization); replay demo world; docs (`AI_PIPELINE`, `ARCHITECTURE` §14, `SECURITY` §16, `SCORING` pointer, `V1_CONTRACT` refinements, package READMEs)                                                                                                                                                 | route authz matrix; 405s; cross-project 404; idempotency over HTTP; UI renders failure/insufficient honestly (component tests); adapter error mapping table; end-to-end replay demonstration script                                                                                                                                                                                                                                                                                                                                                          |
+| P7    | Hostile self-review, injection suite, golden assessment, `M5-report.md`                                                                                                                                                                                                                                                                                                                                                                                                                                    | full suite on PGlite **and** PostgreSQL 16; `pnpm check` exact output reported                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### 13.1 Offline fixtures and golden results
 
@@ -1137,7 +1218,7 @@ call as free; make the idempotency key optional; persist only `jsonb`; count val
 
 Two simultaneous POSTs (same and different keys); POST during an active run; retries during/after success/after failure (§8.6); two workers claiming one run; worker death before/after S7;
 recapture during S2; lock-new-context during S10; superseded context at S14; duplicate `reassess`; extraction reuse after a prompt change (must _not_ reuse: config hash differs); graph cap
-reached; racing budget reservations; abort mid-call (`sent_unknown`).
+reached; racing budget reservations; abort mid-call (`sent_unknown`); **retry storm** (every attempt fails transiently) ⇒ calls stop exactly at the guard, `budget_exceeded`, no assessment; wall-clock exhaustion ⇒ `timeout`, no assessment.
 
 ### 13.5 Adversarial model-output tests (scripted provider)
 
@@ -1175,11 +1256,7 @@ they corroborated code:
    still holds.
 7. The run **succeeds** with an honest, limited assessment; mutation — build the statement item from the model's text, or assign `team_claim` to a fact — fails the test.
 
-**T-R3 (fidelity):** F-1…F-8 of §4.5. **T-R4a–d (replay):** a one-character change to an evidence text / anchor line / passage ⇒ `replay_miss`; two runs with different allocated UUIDs ⇒ identical
-digests and a replay hit; prompt edit without a version bump ⇒ frozen-template golden fails. **T-R5 (budget):** racing reservations, `sent_unknown` counted, release only on `not_sent`, guard wording
-in the API/UI, no path to exceed the computed cap by more than one in-flight call's reservation. **T-R6 (idempotency):** every row of §8.6. **T-R7a–f:** §8.7–§8.8. **T-R8:** §9.5.
-
----
+## **T-R3 (fidelity):** F-1…F-8 of §4.5. **T-R4a–e (replay and digest, `[Rev3: C5]`):** a one-character change to an evidence text / anchor line / passage / any `user` block / the JSON schema / `maxOutputTokens` / `model` ⇒ different digest and `replay_miss`; `timeoutMs` and key order change nothing; prompt edit without a version bump ⇒ frozen-template golden fails; two fresh extractions under **different** random ID allocators ⇒ identical request digests and replay hits but **different** `graphFingerprint`/`outputHash` (asserted, so no byte-identity promise exists), while a seeded allocator ⇒ byte-identical reports, and re-scoring the same persisted extraction twice ⇒ byte-identical reports. **T-R5 (budget):** racing reservations, `sent_unknown` counted, release only on `not_sent`, guard wording in the API/UI, no path to exceed the computed cap by more than one in-flight call's reservation. **T-R5b (retry storm, `[Rev3: C2]`):** a scripted provider that fails transiently on every attempt ⇒ the inner provider is called exactly `cap` times (never `cap + 1`), the run ends `budget_exceeded`, ambiguous attempts stay counted, no assessment row exists and no score is fabricated (P1 at the `llm` level; P5 at run level). **T-R6 (idempotency):** every row of §8.6. **T-R7a–f:** §8.7–§8.8, including the M4-golden-report hash round trip. **T-R8:** §9.5. **T-C4 (event rules, `[Rev3: C4]`):** official rule cited with no project evidence ⇒ `insufficient_evidence`; official rule plus relevant project evidence ⇒ may be assessed subject to G6 and the critic; no official requirement for a requirement-dependent unit ⇒ `insufficient_evidence`; a mutation that lets event citations alone score fails the test. **T-C6 (all-technical, `[Rev3: C6]`):** `U=1` technical ⇒ run fails, no assessment; `U=1` valid insufficiency ⇒ assessment persisted; `U=5` and `U=36` thresholds (§9.5).
 
 ## 14. Owner decisions and decisions still required `[Rev2]`
 
@@ -1221,6 +1298,18 @@ in the API/UI, no path to exceed the computed cap by more than one in-flight cal
 | N11 | Accept the **Option B consequence**: interpreted code facts (`unverified`, 0.15) are weaker than team statements (`team_claim`, 0.35) in M4's ordering (U1)                                                                | accept or choose a different policy    |
 | N12 | The fallback rubric path is **disabled in code** (`FALLBACK_ANCHORS_NOT_APPROVED`) until you approve the anchor text; official criteria without anchors are flagged, never back-filled                                     | approve                                |
 | N13 | A structurally invalid **extraction** call after its retry **fails the run** (no partial extraction), and money already spent is not reused by another run                                                                 | approve, or ask for ledger memoization |
+
+### 14.3 Owner responses to N1–N13 (review of Revision 2) `[Rev3]`
+
+| #                                | Response                                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N1, N2, N3, N4, N5, N8, N10, N13 | **Approved**                                                                                                                                                                                                                                |
+| N6                               | **Approved, subject to correction C1** (the stored full-report text is not the M4 `outputHash` basis; §8.8–8.9)                                                                                                                             |
+| N7                               | **Approved, subject to correction C6** (all-technical-unit rule; §9.3)                                                                                                                                                                      |
+| N9                               | **Approved, subject to correction C4** (event rules are never project evidence; §4.7)                                                                                                                                                       |
+| N11                              | **Accepted provisionally**: code-derived facts are currently weaker in evidence-strength ordering than team statements; a known conservative limitation. M4's constants are not changed and `repo_corroborated` promotion is not authorized |
+| N12                              | **Approved**: the fallback rubric stays disabled until the owner approves the exact anchor text                                                                                                                                             |
+| —                                | No live model calls or purchases are authorized. **P1 only** is authorized after the six corrections                                                                                                                                        |
 
 ---
 
@@ -1302,3 +1391,14 @@ D5 adds the lock-order and parity tests (§8.5); D8 adds the `indirect`/`generic
 ### 17.4 Unresolved risks, assumptions and new decisions
 
 Risks and assumptions: §15 (U1–U20). New owner decisions: §14.2 (N1–N13). **This revision is a design, not an implementation, and not an authorization to begin P1.**
+
+### 17.5 Revision 3 — the six corrections
+
+| #   | Correction                                                                                                                                                                                             | Where                                           | Tests                                                                                        |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| C1  | `outputHash` = `hashOf(body)` **excluding** itself; full-report text hash is a separate `report_text_sha256`; the additive scoring export reproduces M4's rule exactly and leaves `engine.ts` unedited | §8.2, §8.8, §8.9                                | M4-golden-report round trip, negative control, tamper tests, mutation (hash the full report) |
+| C2  | 90/129/143 are bounded planning scenarios (allowances in, transient retries out), the guard counts attempts, headroom and retry-storm rows added, wall-clock default reconciled to 120 min             | §12.3.4, §12.4, §9.4                            | T-R5b (retry storm stops exactly at the cap, `budget_exceeded`, no assessment)               |
+| C3  | Anchor wording revised and an anchor-review appendix added; draft status kept                                                                                                                          | [anchors draft](./M5-fallback-anchors-draft.md) | owner review                                                                                 |
+| C4  | Event rules never score a project alone; Track units need an official requirement **and** project-derived evidence                                                                                     | §4.7, §5.3                                      | T-C4 (three cases + mutation)                                                                |
+| C5  | Digest = hash of the exact effective serialized request (all user blocks, schema, generation); four-way reproducibility table; fresh extractions are **not** promised byte-identical                   | §12.1                                           | T-R4a–e                                                                                      |
+| C6  | Every unit technical ⇒ run fails, nothing persisted; never applies to valid insufficiency                                                                                                              | §9.3, §9.5                                      | T-C6 (`U=1`, `U=5`, `U=36`)                                                                  |
