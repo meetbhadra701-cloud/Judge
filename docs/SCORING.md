@@ -1,8 +1,10 @@
 # Judge Copilot — Scoring Model
 
-> **Status:** Specification only. The scoring engine (`scoring-engine/v1`) is **Milestone 4**.
-> Nothing in M0 computes a score. M0 implements only the `Score10` and `Ratio` primitives in
-> `@judge-copilot/schemas`.
+> **Status:** Specification and implementation. The scoring engine (`scoring-engine/v1`) is
+> **Milestone 4** and is implemented in `packages/scoring`. Its adopted policies are in §12, its
+> formulas and constants in §13, and its design rationale and worked examples in
+> `docs/milestones/M4-design.md`. Nothing computes a score for a real project yet: assessments, the
+> dimension judgments that feed the engine, and any API or UI arrive in later milestones.
 
 ---
 
@@ -29,7 +31,10 @@
    tolerance of `1e-6` (`RUBRIC_WEIGHT_SUM_TOLERANCE`). Otherwise the context cannot lock
    (`INVALID_RUBRIC_WEIGHTS`), and the weights are not normalized. An official rubric without
    weights stays unweighted (`weight: null`). M1 never invents equal weights; how an unweighted
-   rubric is aggregated is a scoring-engine decision (M4).
+   rubric is aggregated is a scoring-engine decision (M4), recorded in §12: the engine never
+   creates an official overall score from an unweighted rubric.
+6. **No automatic mixing (M4).** An official rubric is used whole or not at all. The fallback
+   applies only when the locked context has no official `overall` rubric. See §12.
 
 ## 3. Universal fallback rubric
 
@@ -47,10 +52,11 @@ This is **only a fallback**. Official event rubrics override it.
 
 ## 4. Dimensions
 
-Each criterion is decomposed into dimensions. The LLM judges **dimensions** against scoring
-anchors. Code aggregates dimensions into criteria with these weights. When an official rubric
-is used, its criteria are mapped to dimensions in the locked Event Context. The mapping is
-reviewed by a human and never invented at assessment time.
+The **fallback** rubric's criteria are decomposed into dimensions. The LLM judges **dimensions**
+against scoring anchors. Code aggregates dimensions into criteria with these weights. An
+**official** rubric is different: no human-reviewed mapping of its criteria to dimensions exists in
+the Event Context, and none is created at assessment time. Each official criterion is itself one
+atomic assessment unit (see the adaptation note at the end of this section and §12).
 
 **Technical Execution & Depth**
 
@@ -126,6 +132,16 @@ reviewed by a human and never invented at assessment time.
 Weights within each criterion sum to 100%. The scoring engine must reject a rubric whose
 weights do not sum correctly.
 
+> **Adaptation for official rubrics (M4).** No human-reviewed mapping of official criteria to
+> dimensions exists: the Event Context (M1) never stored one, and the engine does not pretend
+> otherwise. In `scoring-engine/v1` each official criterion is **one atomic assessment unit** (a
+> single dimension of weight 1), judged against that criterion's own published description and
+> anchors, on the rubric's own published scale. The 36-dimension decomposition above applies to the
+> **fallback rubric only**. A human-reviewed sub-dimension mapping for official criteria would be a
+> separate, immutable artifact bound to a locked version's content hash (a future, separately
+> approved change); the locked Event Context is never edited and a mapping is never created at
+> assessment time.
+
 ## 5. Score vs. coverage vs. confidence vs. uncertainty
 
 These are four different things and must never be conflated.
@@ -146,7 +162,7 @@ Consequences:
 - The system must be able to return **"insufficient evidence"** for a dimension instead of a
   number (invariant 14). How insufficient dimensions affect criterion and overall aggregation
   (for example re-normalization plus a confidence penalty, versus blocking an overall score) is
-  decided and documented in M4. It must never be modeled as a low score.
+  decided in M4 and recorded in §12 and §13. It must never be modeled as a low score.
 
 ## 6. Missing evidence ≠ negative evidence
 
@@ -190,7 +206,11 @@ Each evidence item relevant to a dimension is characterized by:
   `judge_observation`.
 
 Evidence strength is a **deterministic formula** over these attributes, defined and versioned in
-M4. The LLM classifies attributes from defined options. It does not output strength numbers.
+M4 (§13). The LLM classifies attributes from defined options. It does not output strength numbers.
+
+A verification **label stored on a row is never trusted**: `repo_corroborated` is producer-asserted
+and limited, and `machine_verified`, `judge_verified` and `live_verified` cannot raise trust in M4
+(§12.7, §13).
 
 ## 9. Determinism of the overall score
 
@@ -226,3 +246,118 @@ Judge preferences may re-order or highlight questions. They cannot change the ru
   assessments stay reproducible under their recorded version.
 - Pre → post deltas are computed by diffing two immutable assessment versions. Each changed
   dimension lists the evidence IDs responsible (invariants 11, 12).
+
+## 12. Policies adopted for `scoring-engine/v1` (M4)
+
+These are policy decisions; formulas and parameters are specified in `docs/milestones/M4-design.md`
+and are **transparent V1 heuristics, not calibrated statistical probabilities** (invariant 13).
+
+1. **Unweighted official rubric.** The engine returns per-criterion scores and **no overall number**
+   (`overall.state = not_computed`). An overall is produced only on an explicit request for a visibly
+   unofficial equal-weight **preview**, reported outside `overall` and labeled as an assumption. It is
+   never an official overall score.
+2. **Rubric precedence.** An official `overall` rubric, if the locked context has one, is the only
+   rubric for the overall target. The fallback rubric applies only when there is none. Official and
+   fallback criteria are never mixed. Track rubrics are separate targets and never blended.
+3. **Official criteria are atomic units** (see the adaptation note in §4).
+4. **Insufficient evidence is a state, never a score.** A dimension judged `insufficient_evidence`, or
+   judged with a score but without a usable citation, has no numeric value in the report. Insufficient
+   dimensions are excluded from (not zero-filled into) their criterion, which is renormalized over the
+   assessed dimensions only when enough weight is assessed; otherwise the criterion has no number. The
+   same rule applies from criteria to the overall.
+5. **`not_applicable`** (excluded from numerator and denominator, no penalty) exists only for the
+   Track / Prize Alignment criterion of the **versioned fallback rubric** when the project declared no
+   tracks. A criterion of an official rubric is never removed because no track was declared.
+6. **Official scales** are normalized to 0–10 for aggregation by `10·(x − min)/(max − min)`. This
+   **assumes the published scale is linear** (equal steps are equally valuable); the value on the
+   official scale is reported alongside.
+7. **Evidence trust is re-derived, never read from a label.** A claim's verification level is never
+   proof of semantic truth. `repo_corroborated` is producer-asserted and gets its own, lower factor.
+   `machine_verified`, `judge_verified` and `live_verified` labels cannot increase effective trust in M4:
+   trusted attestations are internal, empty, and not an input of any caller or model.
+8. **Evidence strength of a dimension is the maximum effective strength of its distinct cited evidence**
+   (no independence assumption between items). Coverage, confidence and score are separate quantities.
+9. **Coverage** is measured only against evidence needs that are actually declared (fallback rubric).
+   Where none are declared (every official criterion) the report carries a **citation-presence proxy**,
+   labeled as such, and no coverage breadth.
+10. **Contradictions are uncertainty, never a deduction**, and only those recorded in the graph are
+    counted; the report states that recorded contradictions are not a complete discovery.
+
+## 13. `scoring-engine/v1`: formulas and constants
+
+Implemented in `packages/scoring`. **Every constant is a transparent V1 heuristic, not a calibrated
+statistical probability.** Order is the claim (producer-asserted repository corroboration is stronger
+than a team statement, which is stronger than an unlabeled item; direct beats adjacent beats indirect);
+the spacing is a judgment that has not been fitted to judge outcomes. Changing any value is a new
+engine version. All constants and the fallback rubric definition (weights and evidence needs) are
+hashed into every report as `parametersHash`.
+
+**Effective level of an evidence item** (never read from a label): `unverified`, `team_claim`, or
+`repo_corroborated` only for a GitHub `fact` anchored to repository source code in a captured or
+partial snapshot of the same project; privileged labels and unsupported corroboration resolve to
+`unverified` with a neutral diagnostic.
+
+```
+strength(e)        = V(effectiveLevel) × L(directness) × L(specificity)       e of kind fact | claim, else 0
+V                  : unverified 0.15 · team_claim 0.35 · repo_corroborated 0.60
+L (both)           : direct | exact 1.0 · adjacent | partial 0.6 · indirect | generic 0.3
+group strength     = MIN strength of the records of one provenance group
+evidenceStrength   = MAX group strength among the distinct cited, usable evidence      (0 if none)
+coverage           = satisfied need-groups / need-groups        (fallback rubric only; declared needs)
+citationPresence   = 1 if ≥ 1 usable item is cited, else 0       (official criteria; a flag, NOT coverage)
+confidence         = (coverage | citationPresence) × evidenceStrength × F(k)
+F(k)               : k = 0, 1, 2, ≥ 3 distinct recorded contradictions → 1, 0.7, 0.49, 0.343
+```
+
+**Provenance group.** Records in the same scope (event-context version; or snapshot + artifact, where a
+snapshot-level reference is its own scope) whose passages overlap (spans intersect; no span covers the
+whole artifact), taken as connected components. Repetition can never add strength, and inconsistent
+classifications of the same passage resolve to the lowest.
+
+**Aggregation.** A dimension is `assessed` only with a judged score and at least one usable citation,
+else `insufficient_evidence`. Criterion: `Σ w·s / Σ w` over assessed dimensions when at least 0.5 of
+the weight is assessed, else `insufficient_evidence`; published weights are used as they are, without
+division, when every dimension is assessed. Overall: the same over scored criteria at 0.6; `not_applicable`
+criteria leave numerator and denominator. Coverage, citation presence and confidence are weighted means
+over all applicable children (insufficient ones contribute their own, possibly zero, values).
+
+**Exact arithmetic.** Every computed quantity is an exact rational number (BigInt numerator and
+denominator): each published weight, judged score and constant is read as the decimal its shortest
+representation spells (0.7 is 7/10, not a binary approximation), and sums, products, quotients,
+normalization to 0-10 and back, thresholds (0.5 criterion, 0.6 overall) and rounding are all exact. No
+floating-point tolerance or epsilon exists anywhere: a value exactly at a threshold satisfies it, and a
+value one part in 10^300 below does not. (An earlier draft used `1e-9`; it was removed.)
+
+**Output.** Computation is unrounded; each reported number is rounded once, **exactly half-up**, to
+four decimals (a value whose exact expansion ends in a 5 at the fifth place rounds up; one infinitesimally
+below it rounds down), and rounded values are never inputs to another step. This includes the
+dimension's `scoreOnScale`, `score10`, `evidenceStrength`, `coverage` and `confidence`, and
+the criterion and overall `scoreOnScale`, which is denormalized from the exact value, not from the rounded
+0-10 number. Binary floating point is only the representation of the final, already-rounded number. Reports are canonical JSON with a SHA-256
+`outputHash`; `inputFingerprint`, `graphFingerprint`, the rubric fingerprint and `parametersHash`
+identify what was computed from what.
+
+**Official scale policy.** An official rubric's own scale is accepted only if both endpoints are finite
+numbers within ±1,000,000, `min < max`, and the exact range `max − min` is at least 0.01. Rationale: the
+engine normalizes judged values to 0-10, aggregates and maps back, and the reported four-decimal values
+must be exactly representable (1e6 at four decimals is 1e10, far below 2^53) and distinguish at least 100
+steps of the scale. A range that overflows (`-1e308..1e308`), whose endpoints are astronomically large
+(`0..1e308`) or whose spacing is subnormal (`0..1e-320`) is rejected with a typed `RUBRIC_INVALID` before any
+normalization or scoring, and never silently clamped, widened or replaced by the fallback. Ordinary scales
+(0-10, 1-5, 0-100, −5..5, 0-1) are unchanged. The fallback scale is fixed at 0-10.
+
+**Conservative overlap (intentional).** Cited records of the same passage form one provenance group whose
+strength is the MINIMUM of its members (rule above), and the dimension takes the maximum over groups.
+Consequently, **adding a weaker citation that overlaps a stronger one can lower** the dimension's
+evidence strength and confidence (a 0.60 passage plus an overlapping 0.15 record of it gives 0.15), and a
+`DUPLICATE_PROVENANCE_GROUPED` / `INCONSISTENT_CLASSIFICATION_RESOLVED` diagnostic says so. This is the
+approved design: repeating or re-describing one passage must never raise strength, and a disagreement
+about how strong that single passage is resolves conservatively. It affects only the evidence-quality
+indices, never the judged score. A weaker record of a different passage does not lower anything.
+Changing this would be a new engine version.
+
+**What a report never establishes** (fixed notices in every report): contradiction coverage is
+`recorded_only` (only contradictions recorded in the graph are counted); `semanticRelevance` is
+`not_verified` (the engine validates IDs, project, kind and structure, not whether a cited item is
+relevant to its dimension); claim labels are `never_proof_of_truth`; parameters are
+`heuristic_not_calibrated`; confidence is an `index_not_probability`.

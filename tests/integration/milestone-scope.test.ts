@@ -1,10 +1,9 @@
 /*
- * Guards the M3 scope (docs/V1_CONTRACT.md). M3 adds the evidence graph on top of M2's projects
- * and immutable source snapshots: Claim, EvidenceItem, EvidenceRelation, Unknown and
- * Contradiction (persistence, graph queries, verification levels, ID-integrity validation), the
- * `packages/evidence` domain package and read-only inspection routes. Everything from M4 on must
- * stay unimplemented: no scoring engine, no assessments, no uncertainty or question engine, no
- * interview mode, no model providers, prompts or embeddings. The guard inspects implementation
+ * Guards the M4 scope (docs/V1_CONTRACT.md). M3 added the evidence graph; M4 adds the pure,
+ * deterministic scoring engine (`packages/scoring`, `scoring-engine/v1`): rubric selection, evidence
+ * strength, coverage, the confidence index and aggregation, with NO persistence, NO route and NO
+ * model. Everything from M5 on must stay unimplemented: no assessments (persisted or served), no
+ * uncertainty or question engine, no interview mode, no model providers, prompts or embeddings. The guard inspects implementation
  * surfaces (code, manifests, migrations, routes), not the binding documentation, which discusses
  * those concepts by design. If a later milestone legitimately adds one of these, update this
  * test in that milestone together with its milestone report.
@@ -17,7 +16,6 @@ const ROOT = resolve(import.meta.dirname, '../..');
 
 /** Packages that must remain README-only placeholders until their milestone. */
 const NOT_YET_IMPLEMENTED = [
-  'scoring', // M4
   'uncertainty', // M6
   'questions', // M6
   'browser', // headless/sandboxed browser inspection (deferred; M2 uses plain HTTP observation)
@@ -35,6 +33,7 @@ const IMPLEMENTED_PACKAGES = [
   'video',
   'auth', // M2
   'evidence', // M3
+  'scoring', // M4
 ];
 
 const MODEL_SDKS = [
@@ -108,8 +107,8 @@ function sourceFiles(dir: string, { includeTests = false } = {}): string[] {
 
 const applicationSource = ['apps', 'packages'].flatMap((group) => sourceFiles(join(ROOT, group)));
 
-describe('M3 milestone scope', () => {
-  it('keeps M4+ packages as README-only placeholders', () => {
+describe('M4 milestone scope', () => {
+  it('keeps M5+ packages as README-only placeholders', () => {
     for (const name of NOT_YET_IMPLEMENTED) {
       const dir = join(ROOT, 'packages', name);
       expect(statSync(dir).isDirectory(), `${name} placeholder exists`).toBe(true);
@@ -120,7 +119,7 @@ describe('M3 milestone scope', () => {
     }
   });
 
-  it('implements the M2 ingestion packages and the M3 evidence package as workspace packages', () => {
+  it('implements the M2 ingestion packages, the M3 evidence package and the M4 scoring package as workspace packages', () => {
     for (const name of IMPLEMENTED_PACKAGES) {
       expect(existsSync(join(ROOT, 'packages', name, 'package.json')), name).toBe(true);
     }
@@ -196,9 +195,9 @@ describe('M3 milestone scope', () => {
   });
 
   it('has no later-milestone concepts in implementation code', () => {
-    // Identifiers only (comments may describe future work). These belong to M4-M9.
+    // Identifiers only (comments may describe future work). These belong to M5-M9.
     const laterConcepts =
-      /\b(AssessmentVersion|CriterionAssessment|DimensionAssessment|JudgeQuestion|TeamAnswer|JudgeFinalScore|ScoreChange|EvidenceGraphVersion|ExtractionVersion|AnalysisVersion|scoring-engine|computeOverallScore|aggregateScores|informationGain|selectTopQuestions|LlmClient|ModelProvider|PromptTemplate|createEmbedding)\b/;
+      /\b(AssessmentVersion|CriterionAssessment|DimensionAssessment|JudgeQuestion|TeamAnswer|JudgeFinalScore|ScoreChange|EvidenceGraphVersion|ExtractionVersion|AnalysisVersion|informationGain|selectTopQuestions|LlmClient|ModelProvider|PromptTemplate|createEmbedding)\b/;
     const offenders = applicationSource.filter((file) => {
       const code = readFileSync(file, 'utf8')
         .split('\n')
@@ -231,6 +230,64 @@ describe('M3 milestone scope', () => {
         builtins.filter((name) => name !== 'node:crypto'),
         relative(ROOT, file),
       ).toEqual([]);
+    }
+  });
+
+  it('adds no migration in M4: the scoring engine persists nothing', () => {
+    const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
+      .filter((name) => name.endsWith('.sql'))
+      .sort();
+    expect(migrations).toEqual([
+      '0000_m0_foundation.sql',
+      '0001_audit_events_append_only.sql',
+      '0002_m1_event_context.sql',
+      '0003_m1_event_context_immutability.sql',
+      '0004_m2_source_ingestion.sql',
+      '0005_m2_source_ingestion_immutability.sql',
+      '0006_m2_partial_reason_html_structure_limit.sql',
+      '0007_m3_evidence_graph.sql',
+      '0008_m3_evidence_graph_integrity.sql',
+      '0009_m3_supersession_guard_hardening.sql',
+    ]);
+  });
+
+  it('keeps the scoring engine out of every app and every adapter: no API, worker, web or database use', () => {
+    const importers = applicationSource.filter(
+      (file) =>
+        !file.startsWith(join(ROOT, 'packages/scoring')) &&
+        /@judge-copilot\/scoring/.test(readFileSync(file, 'utf8')),
+    );
+    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    for (const { dir, manifest } of workspaceManifests()) {
+      if (dir === join(ROOT, 'packages/scoring')) continue;
+      const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
+      expect(deps.includes('@judge-copilot/scoring'), dir).toBe(false);
+    }
+  });
+
+  it('keeps packages/scoring pure: no I/O, process, network, database, environment, clock or randomness', () => {
+    const forbidden = [
+      /from ['"](node:)?(fs|fs\/promises|net|tls|http|https|dgram|child_process|vm|os|worker_threads|dns)['"]/,
+      /from ['"](drizzle-orm|postgres|fastify|next|react)(\/[^'"]*)?['"]/,
+      /process\.env/,
+      /\bfetch\(/,
+      /\bDate\.now\(|new Date\(\)/,
+      /Math\.random\(/,
+    ];
+    const files = sourceFiles(join(ROOT, 'packages/scoring/src')).filter(
+      (file) => !file.includes(join('src', 'testing')),
+    );
+    expect(files.length).toBeGreaterThan(10);
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((line) => !/^\s*(\*|\/\/)/.test(line))
+        .join('\n');
+      for (const pattern of forbidden) {
+        expect(pattern.test(text), `${relative(ROOT, file)} ${pattern.source}`).toBe(false);
+      }
+      const builtins = [...text.matchAll(/from ['"](node:[a-z/_]+)['"]/g)].map((m) => m[1]);
+      expect(builtins, relative(ROOT, file)).toEqual([]);
     }
   });
 

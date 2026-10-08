@@ -145,6 +145,21 @@ describe('package dependency rules', () => {
     }
   });
 
+  it('the scoring engine can never reach a model, prompt or adapter package, even transitively', () => {
+    const seen = new Set<string>();
+    const visit = (name: string): void => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      for (const dep of byName.get(name)?.declared ?? []) visit(dep);
+    };
+    visit('scoring');
+    seen.delete('scoring');
+    expect([...seen].sort()).toEqual(['context', 'domain', 'evidence', 'schemas']);
+    for (const forbidden of ['llm', 'prompts', 'database', 'browser', 'api', 'worker', 'web']) {
+      expect(seen.has(forbidden), `scoring must not reach ${forbidden}`).toBe(false);
+    }
+  });
+
   it('the workspace dependency graph is acyclic', () => {
     const visiting = new Set<string>();
     const done = new Set<string>();

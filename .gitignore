@@ -19,3 +19,6 @@ coverage/
 # logs and OS noise
 *.log
 .DS_Store
+
+# Vitest reporter output
+.vitest/

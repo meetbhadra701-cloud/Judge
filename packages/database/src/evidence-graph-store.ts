@@ -89,6 +89,15 @@ export interface LoadedProjectGraph {
 
 type Executor = JudgeDatabase;
 
+/**
+ * The transaction `loadGraph` runs in: one snapshot for every read, and no write possible. Writers
+ * (`createGraph`) do NOT use this; they stay at the default READ COMMITTED (see `loadGraph`).
+ */
+export const GRAPH_READ_TRANSACTION = {
+  isolationLevel: 'repeatable read',
+  accessMode: 'read only',
+} as const;
+
 const iso = (value: Date): string => value.toISOString();
 const uniq = <T>(values: readonly T[]): T[] => [...new Set(values)];
 
@@ -653,42 +662,63 @@ export class EvidenceGraphStore {
 
   // -- Read path -------------------------------------------------------------------------------
 
-  /** Loads a project's whole graph plus the source facts its provenance points at. */
+  /**
+   * Loads a project's whole graph plus the source facts its provenance points at, from ONE
+   * consistent PostgreSQL snapshot.
+   *
+   * The graph is written by one `createGraph` transaction but read here with several statements.
+   * At READ COMMITTED every statement takes its own snapshot, so a writer that commits between two
+   * of them is seen by the later statements only: relations whose claims were not read, a
+   * contradiction without its sides, a snapshot row missing for loaded evidence. That produced
+   * false DANGLING_REFERENCE findings and, worse, silently incomplete graphs. A read-only
+   * REPEATABLE READ transaction fixes one snapshot at its first statement, so the project lookup,
+   * the five graph tables and every dependent provenance lookup see exactly the same committed
+   * state: each committed batch is either entirely visible or entirely absent.
+   *
+   * Only this READ path uses the stronger isolation. `createGraph` deliberately stays at READ
+   * COMMITTED: its `FOR NO KEY UPDATE` project lock relies on re-reading the previous writer's
+   * committed rows after waiting for the lock, which a REPEATABLE READ snapshot taken before the
+   * wait would not show (the M3 cap race). A read-only transaction takes no row locks, so it never
+   * blocks or is blocked by writers, and it cannot fail with a serialization error. The
+   * transaction is released by `db.transaction` on both success and failure.
+   */
   async loadGraph(projectId: string): Promise<LoadedProjectGraph | null> {
-    const [project] = await this.db
+    return this.db.transaction((tx) => this.readGraph(tx, projectId), GRAPH_READ_TRANSACTION);
+  }
+
+  /** The statements of `loadGraph`; `tx` must be the snapshot transaction. Sequential on purpose. */
+  private async readGraph(tx: Executor, projectId: string): Promise<LoadedProjectGraph | null> {
+    const [project] = await tx
       .select({ id: projects.id, eventId: projects.eventId })
       .from(projects)
       .where(eq(projects.id, projectId));
     if (!project) return null;
 
-    const [claimRows, evidenceRows, relationRows, unknownRows, contradictionRows] =
-      await Promise.all([
-        this.db
-          .select()
-          .from(claims)
-          .where(eq(claims.projectId, projectId))
-          .orderBy(asc(claims.seq)),
-        this.db
-          .select()
-          .from(evidenceItems)
-          .where(eq(evidenceItems.projectId, projectId))
-          .orderBy(asc(evidenceItems.seq)),
-        this.db
-          .select()
-          .from(evidenceRelations)
-          .where(eq(evidenceRelations.projectId, projectId))
-          .orderBy(asc(evidenceRelations.seq)),
-        this.db
-          .select()
-          .from(unknowns)
-          .where(eq(unknowns.projectId, projectId))
-          .orderBy(asc(unknowns.seq)),
-        this.db
-          .select()
-          .from(contradictions)
-          .where(eq(contradictions.projectId, projectId))
-          .orderBy(asc(contradictions.seq)),
-      ]);
+    const claimRows = await tx
+      .select()
+      .from(claims)
+      .where(eq(claims.projectId, projectId))
+      .orderBy(asc(claims.seq));
+    const evidenceRows = await tx
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.projectId, projectId))
+      .orderBy(asc(evidenceItems.seq));
+    const relationRows = await tx
+      .select()
+      .from(evidenceRelations)
+      .where(eq(evidenceRelations.projectId, projectId))
+      .orderBy(asc(evidenceRelations.seq));
+    const unknownRows = await tx
+      .select()
+      .from(unknowns)
+      .where(eq(unknowns.projectId, projectId))
+      .orderBy(asc(unknowns.seq));
+    const contradictionRows = await tx
+      .select()
+      .from(contradictions)
+      .where(eq(contradictions.projectId, projectId))
+      .orderBy(asc(contradictions.seq));
     const evidence = evidenceRows.map(toEvidenceRecord);
     const graph = buildEvidenceGraph({
       claims: claimRows.map(toClaimRecord),
@@ -711,10 +741,10 @@ export class EvidenceGraphStore {
     );
 
     const snapshotRows = snapshotIds.length
-      ? await this.db.select().from(sourceSnapshots).where(inArray(sourceSnapshots.id, snapshotIds))
+      ? await tx.select().from(sourceSnapshots).where(inArray(sourceSnapshots.id, snapshotIds))
       : [];
     const artifactRows = artifactIds.length
-      ? await this.db
+      ? await tx
           .select({
             id: sourceSnapshotArtifacts.id,
             snapshotId: sourceSnapshotArtifacts.snapshotId,
@@ -730,7 +760,7 @@ export class EvidenceGraphStore {
           .where(inArray(sourceSnapshotArtifacts.id, artifactIds))
       : [];
     const versionRows = versionIds.length
-      ? await this.db
+      ? await tx
           .select({
             id: eventContextVersions.id,
             eventId: eventContextVersions.eventId,

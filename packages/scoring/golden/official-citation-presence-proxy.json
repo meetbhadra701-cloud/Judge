@@ -1,0 +1,129 @@
+{
+  "claimLineages": [],
+  "criteria": [
+    {
+      "assessedWeightShare": 1,
+      "citationPresenceShare": 1,
+      "confidence": 0.6,
+      "coverage": null,
+      "dimensionIds": [
+        "official.a"
+      ],
+      "key": "a",
+      "missingDimensionIds": [],
+      "name": "a",
+      "score10": 7,
+      "scoreOnScale": 7,
+      "state": "assessed",
+      "weight": 0.5
+    },
+    {
+      "assessedWeightShare": 1,
+      "citationPresenceShare": 1,
+      "confidence": 0.126,
+      "coverage": null,
+      "dimensionIds": [
+        "official.b"
+      ],
+      "key": "b",
+      "missingDimensionIds": [],
+      "name": "b",
+      "score10": 5,
+      "scoreOnScale": 5,
+      "state": "assessed",
+      "weight": 0.5
+    }
+  ],
+  "diagnostics": [],
+  "dimensions": [
+    {
+      "citedEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000021"
+      ],
+      "confidence": 0.6,
+      "confidenceBasis": "citation_presence",
+      "contradictionIds": [],
+      "criterionKey": "a",
+      "evidenceStrength": 0.6,
+      "id": "official.a",
+      "name": "a",
+      "needs": {
+        "citationPresence": 1,
+        "kind": "unspecified"
+      },
+      "provenanceGroupCount": 1,
+      "score10": 7,
+      "scoreOnScale": 7,
+      "state": "assessed",
+      "strongestEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000021"
+      ],
+      "weight": 1
+    },
+    {
+      "citedEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000022"
+      ],
+      "confidence": 0.126,
+      "confidenceBasis": "citation_presence",
+      "contradictionIds": [],
+      "criterionKey": "b",
+      "evidenceStrength": 0.126,
+      "id": "official.b",
+      "name": "b",
+      "needs": {
+        "citationPresence": 1,
+        "kind": "unspecified"
+      },
+      "provenanceGroupCount": 1,
+      "score10": 5,
+      "scoreOnScale": 5,
+      "state": "assessed",
+      "strongestEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000022"
+      ],
+      "weight": 1
+    }
+  ],
+  "engineVersion": "scoring-engine/v1",
+  "graphFingerprint": "e18774a60666f599f6580969a744141b612f8380d3ffaff6b121f7459313939b",
+  "inputFingerprint": "71147d1d865f3d81ab069310498d7f50a91df476afefdd5f72c24e3550f17127",
+  "notices": {
+    "claimLabels": "never_proof_of_truth",
+    "confidenceMeaning": "index_not_probability",
+    "contradictionCoverage": "recorded_only",
+    "parameterStatus": "heuristic_not_calibrated",
+    "semanticRelevance": "not_verified"
+  },
+  "outputHash": "ffe3988ba696c65e8a6cdb1c34623e4d6acfd38d3cb78e6648bf4453147766da",
+  "overall": {
+    "assessedWeightShare": 1,
+    "citationPresenceShare": 1,
+    "confidence": 0.363,
+    "coverage": null,
+    "missingCriterionKeys": [],
+    "score10": 6,
+    "scoreOnScale": 6,
+    "state": "scored",
+    "weightBasis": "official"
+  },
+  "parametersHash": "d2bea4fd35f059a05e76564d3c6af75dfdf8a41519463cb54eff9ddd8a49b226",
+  "rubric": {
+    "contextContentHash": "e508a7e3a2e786cf78392af4c68dd31f1fe16ebbe8eb8774c3459adf3adea95e",
+    "contextVersionId": "c0000001-0000-4000-8000-000000000001",
+    "fingerprint": "73e8668d5ec38ab67e1927034993df195b021cd5a87c9a1df377321c7441c364",
+    "name": "Official rubric",
+    "needsBasis": "unspecified",
+    "official": true,
+    "rubricVersion": null,
+    "scale": {
+      "max": 10,
+      "min": 0
+    },
+    "scope": "overall",
+    "source": "official_event_context",
+    "trackKey": null,
+    "weightBasis": "official"
+  },
+  "unofficialPreview": null
+}

@@ -1,0 +1,155 @@
+{
+  "claimLineages": [],
+  "criteria": [
+    {
+      "assessedWeightShare": 1,
+      "citationPresenceShare": 1,
+      "confidence": 0.35,
+      "coverage": null,
+      "dimensionIds": [
+        "official.innovation"
+      ],
+      "key": "innovation",
+      "missingDimensionIds": [],
+      "name": "innovation",
+      "score10": 8,
+      "scoreOnScale": 8,
+      "state": "assessed",
+      "weight": null
+    },
+    {
+      "assessedWeightShare": 1,
+      "citationPresenceShare": 1,
+      "confidence": 0.35,
+      "coverage": null,
+      "dimensionIds": [
+        "official.execution"
+      ],
+      "key": "execution",
+      "missingDimensionIds": [],
+      "name": "execution",
+      "score10": 6,
+      "scoreOnScale": 6,
+      "state": "assessed",
+      "weight": null
+    },
+    {
+      "assessedWeightShare": 0,
+      "citationPresenceShare": 0,
+      "confidence": 0,
+      "coverage": null,
+      "dimensionIds": [
+        "official.presentation"
+      ],
+      "key": "presentation",
+      "missingDimensionIds": [
+        "official.presentation"
+      ],
+      "name": "presentation",
+      "state": "insufficient_evidence",
+      "weight": null
+    }
+  ],
+  "diagnostics": [],
+  "dimensions": [
+    {
+      "citedEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000003"
+      ],
+      "confidence": 0.35,
+      "confidenceBasis": "citation_presence",
+      "contradictionIds": [],
+      "criterionKey": "innovation",
+      "evidenceStrength": 0.35,
+      "id": "official.innovation",
+      "name": "innovation",
+      "needs": {
+        "citationPresence": 1,
+        "kind": "unspecified"
+      },
+      "provenanceGroupCount": 1,
+      "score10": 8,
+      "scoreOnScale": 8,
+      "state": "assessed",
+      "strongestEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000003"
+      ],
+      "weight": 1
+    },
+    {
+      "citedEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000003"
+      ],
+      "confidence": 0.35,
+      "confidenceBasis": "citation_presence",
+      "contradictionIds": [],
+      "criterionKey": "execution",
+      "evidenceStrength": 0.35,
+      "id": "official.execution",
+      "name": "execution",
+      "needs": {
+        "citationPresence": 1,
+        "kind": "unspecified"
+      },
+      "provenanceGroupCount": 1,
+      "score10": 6,
+      "scoreOnScale": 6,
+      "state": "assessed",
+      "strongestEvidenceIds": [
+        "e0a00001-0000-4000-8000-000000000003"
+      ],
+      "weight": 1
+    },
+    {
+      "citedEvidenceIds": [],
+      "confidence": 0,
+      "contradictionIds": [],
+      "criterionKey": "presentation",
+      "id": "official.presentation",
+      "name": "presentation",
+      "needs": {
+        "citationPresence": 0,
+        "kind": "unspecified"
+      },
+      "provenanceGroupCount": 0,
+      "reason": "assessor_reported_insufficient",
+      "state": "insufficient_evidence",
+      "weight": 1
+    }
+  ],
+  "engineVersion": "scoring-engine/v1",
+  "graphFingerprint": "adbe95f4a04c0665ef60cd839e669027c02d0525ff1590020dbe5e3ede9c75d6",
+  "inputFingerprint": "b1680cb7a862d76e6e98071abfcc0429abdb2e6ceafe9ba7eab72f0882d6aec3",
+  "notices": {
+    "claimLabels": "never_proof_of_truth",
+    "confidenceMeaning": "index_not_probability",
+    "contradictionCoverage": "recorded_only",
+    "parameterStatus": "heuristic_not_calibrated",
+    "semanticRelevance": "not_verified"
+  },
+  "outputHash": "14470bf3f8a6f77c540e2e5b40aa5cfe57f086fbc1600f96382f4de5a4f1c82f",
+  "overall": {
+    "reason": "unweighted_official_rubric",
+    "state": "not_computed",
+    "weightBasis": "unweighted_official"
+  },
+  "parametersHash": "d2bea4fd35f059a05e76564d3c6af75dfdf8a41519463cb54eff9ddd8a49b226",
+  "rubric": {
+    "contextContentHash": "d28778ba5a5a83a39bcb93e5c77403d3683faeb7ece528e1aab14ebb0bf7518f",
+    "contextVersionId": "c0000001-0000-4000-8000-000000000001",
+    "fingerprint": "1970c3d1eadf70a1d72cbf9e427cfcc7da99dd4d68b20553431016ed499aa885",
+    "name": "Official rubric",
+    "needsBasis": "unspecified",
+    "official": true,
+    "rubricVersion": null,
+    "scale": {
+      "max": 10,
+      "min": 0
+    },
+    "scope": "overall",
+    "source": "official_event_context",
+    "trackKey": null,
+    "weightBasis": "unweighted_official"
+  },
+  "unofficialPreview": null
+}
