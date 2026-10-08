@@ -1,9 +1,13 @@
 # Milestone 4 — Deterministic Scoring Engine: Design (revision 2, for approval)
 
-**Status:** DESIGN. No scoring formula, rubric table or scoring code is implemented. Revision 2
-incorporates the owner's review of revision 1: **prerequisite A approved and kept**, and decisions
-D1–D11 approved with the revisions recorded in §0. The remaining tradeoffs that still need a yes/no
-are in §11.
+**Status:** APPROVED DESIGN, IMPLEMENTED in M4 (see [M4-report.md](./M4-report.md), which lists every
+deviation from this document and the decisions that still need review). Revision 2 incorporated the
+owner's review of revision 1: prerequisite A approved and kept, and decisions D1–D11 approved with the
+revisions recorded in §0. The approval also added guards that this text predates and the report records:
+declared tracks are a **trusted in-process context, not a request field** (so `ScoringRequest` in §8 is
+split into the untrusted `AssessorJudgmentsInput`, the caller `ScoringOptions` and the trusted
+`TrustedScoringContext`); the weight-validation property is the **total**, not each weight; provenance
+grouping is specified deterministically; output safety and reproducibility hashing are explicit.
 
 **Baseline:** `main` at `69a904b73977b6842baef3c397d5835e527598bc` (M3 merged via PR #4).
 **Branch:** `claude/m4-scoring-engine`. Nothing is merged.

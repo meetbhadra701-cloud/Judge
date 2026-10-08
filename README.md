@@ -10,8 +10,10 @@ the **final score to the human judge**.
 > captured read-only through an SSRF-safe client (M2); and an immutable evidence graph — claims,
 > evidence with exact snapshot/span provenance, relations, unknowns and contradictions, with
 > deterministic verification rules, ID-integrity validation and read-only graph queries (M3),
-> behind organizer/judge authentication. There is no claim _extraction_, scoring, assessment,
-> question generation or model use yet: M3 is the deterministic substrate they will consume.
+> behind organizer/judge authentication; and a pure, deterministic scoring engine library
+> (`scoring-engine/v1`, M4) that nothing calls yet. There is no claim _extraction_, assessment,
+> question generation or model use yet, and no score is computed or shown for any real project:
+> M3 and M4 are the deterministic substrate that later milestones will consume.
 
 ## Read first
 

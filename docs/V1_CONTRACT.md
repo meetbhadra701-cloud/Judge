@@ -73,6 +73,23 @@ local-only: the API binds to `127.0.0.1` by default.
   No M2 trigger or constraint was modified.
 - `evidence.read` is a new permission held by both roles; there is no evidence write permission.
 
+### Refinements recorded in M4
+
+- The scoring engine is a **pure library**. It adds no table, migration, route, job or UI, and persists
+  nothing: an assessment version (with the engine version, rubric identity, fingerprints and cited IDs
+  the report already carries) is M5's artifact.
+- M4 makes exactly one runtime change outside `packages/scoring` and `packages/schemas`: graph reads are
+  now consistent (`loadGraph` runs in one read-only `REPEATABLE READ` transaction). `createGraph` is
+  unchanged, and no migration, trigger or constraint was added or edited.
+- An **official criterion is one atomic assessment unit**: no human-reviewed sub-dimension mapping
+  exists, so none is pretended. The 36-dimension decomposition is the fallback rubric's.
+- An unweighted official rubric never yields an official overall number; an equal-weight preview
+  exists only on explicit request and is always labeled unofficial.
+- Trusted attestations are internal and empty. A trusted attestation architecture is the business of
+  the milestone that introduces a trusted producer (M7), under its own approval.
+- Dimension judgments, their classification of cited evidence, the database-backed adapter that builds the
+  trusted context, and any API or UI are M5 or later.
+
 ## Definition of done (every milestone)
 
 - dependencies install cleanly from the lockfile;
@@ -91,3 +108,4 @@ local-only: the API binds to `127.0.0.1` by default.
 - [M1 — Event Context Pack](./milestones/M1-report.md)
 - [M2 — Immutable Project-Source Ingestion](./milestones/M2-report.md)
 - [M3 — Evidence Graph](./milestones/M3-report.md)
+- [M4 — Deterministic Scoring Engine](./milestones/M4-report.md) (design: [M4-design](./milestones/M4-design.md))

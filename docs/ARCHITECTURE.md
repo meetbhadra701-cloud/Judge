@@ -1,9 +1,9 @@
 # Judge Copilot — Architecture
 
-> **Status:** Milestone 3 (evidence graph) on top of M0, M1 (Event Context Pack) and M2 (immutable
-> project-source ingestion). Everything after the evidence graph (scoring, model-backed extraction
-> and assessment, uncertainty, questions, interview, reassessment) is intentionally **not
-> implemented yet**. This document specifies the target architecture so that every
+> **Status:** Milestone 4 (deterministic scoring engine) on top of M0, M1 (Event Context Pack), M2
+> (immutable project-source ingestion) and M3 (evidence graph). Everything after the scoring engine
+> (model-backed extraction and assessment, uncertainty, questions, interview, reassessment) is
+> intentionally **not implemented yet**. This document specifies the target architecture so that every
 > milestone builds toward it. It is binding on human and AI contributors.
 
 ---
@@ -252,6 +252,13 @@ deterministic code consumes. See [AI_PIPELINE.md](./AI_PIPELINE.md) and
 | 17 (exact snapshots)       | M3: evidence cites an exact captured/partial snapshot of its own project, an artifact of that snapshot and a verified code-point span; no "latest" pointer exists                                                                                                 |
 | 25 (no accusations)        | M3: a Contradiction is two structural sides plus a neutral note, with no accusation, penalty or score field; creating one changes nothing                                                                                                                         |
 | 8, 23 (untrusted content)  | M3: evidence text is stored and returned as inert data (tests with prompt-injection, script and tool-call text); there is no model and nothing is executed                                                                                                        |
+| 1, 16 (official rubric)    | M4: an official overall rubric is used whole or not at all; the fallback applies only when none exists; invalid official weights are rejected, never repaired; no official/fallback mixing                                                                        |
+| 3, 14 (missing ≠ negative) | M4: insufficient evidence is a state with no numeric field; excluded units are never zero-filled; a score with no usable citation is not used                                                                                                                     |
+| 4, 20 (no invented trust)  | M4: trust is re-derived from structure; privileged labels resolve to `unverified`; trusted attestations are internal and empty; a trusted context cannot be built from model output                                                                               |
+| 5, 6 (no raw signals)      | M4: no function accepts commit counts, LOC, stars, keywords, dependency counts or AI-tool use                                                                                                                                                                     |
+| 9, 13, 24 (determinism)    | M4: byte-identical reports and hashes; confidence is an index independent of the score; more evidence can raise confidence without changing a score                                                                                                               |
+| 22 (no fabricated score)   | M4: nothing is scored on any validation issue; a model failure produces no judgments and so no number                                                                                                                                                             |
+| 25 (no accusations)        | M4: contradictions and label diagnostics are neutral data; a contradiction lowers confidence, never a score                                                                                                                                                       |
 
 ---
 
@@ -272,7 +279,7 @@ judge-copilot/
 │   ├── context/    Event Context domain rules + extraction port                [implemented, M1]
 │   ├── capture/    capture ports, URL/path rules, hashing, HTML extraction     [implemented, M2]
 │   ├── evidence/   evidence graph rules, ID integrity, graph queries           [implemented, M3]
-│   ├── scoring/    deterministic score engine                                  [M4, README only]
+│   ├── scoring/    deterministic score engine (scoring-engine/v1)              [implemented, M4]
 │   ├── uncertainty/ coverage, confidence, uncertainty analysis                 [M6, README only]
 │   ├── questions/  question validation + information-gain ranking              [M6, README only]
 │   ├── safe-http/  SSRF-safe HTTP client (DNS pinning, redirect policy)        [implemented, M2]
@@ -359,6 +366,7 @@ audit      → schemas
 context    → schemas
 capture    → domain, schemas
 evidence   → domain, schemas
+scoring    → context, evidence, schemas
 database   → audit, domain, evidence, schemas
 auth       → domain, schemas
 safe-http  → capture, schemas
@@ -821,3 +829,35 @@ database locale or hash-map order. Results contain no score, ranking or confiden
 POST/PUT/PATCH/DELETE on these paths answer `405 GRAPH_READ_ONLY`. A claim or evidence ID of another
 project is answered exactly like a nonexistent one (`404`). There is no score, assess, analyze,
 question, rank or winner route and no endpoint that triggers a model.
+
+---
+
+## 13. Scoring engine (M4)
+
+```
+locked Event Context ─► selectRubric ─► RubricSpec      ┐   TRUSTED, in-process, frozen
+loaded graph (one snapshot) + source facts + tracks     ├─► createTrustedScoringContext
+assessor judgments (strict schema, UNTRUSTED)  ─────────┴─► scoreProject ─► ScoreReport (canonical, hashed)
+```
+
+`packages/scoring` is a pure Layer-2 package (`context`, `evidence`, `schemas`). It persists nothing,
+serves nothing and has no migration, table, route or UI. Persisting an assessment version, with the
+engine version, rubric identity, fingerprints and cited IDs the report carries, is M5. The full policy
+is in [SCORING.md](./SCORING.md) §12–13 and the rationale in
+[milestones/M4-design.md](./milestones/M4-design.md).
+
+- **Three inputs, three trust levels.** The trusted context (rubric, graph, declared tracks) is built by
+  a validating factory and branded; the assessor payload is a strict schema with no field for
+  attestations, verification levels, weights, rubric content or tracks; the caller options only know
+  the explicit preview request.
+- **Fail closed.** A graph of mixed projects, a structurally broken graph, a rubric whose published
+  weights are invalid, a locked snapshot that no longer matches its hash, an invented or foreign
+  evidence ID, a duplicate citation, a score outside the published scale: nothing is scored.
+- **Consistent reads.** Scoring reads the graph through `EvidenceGraphStore.loadGraph`, which since M4
+  runs in one read-only `REPEATABLE READ` transaction, so a batch committed mid-read is never half
+  visible. `createGraph` stays `READ COMMITTED` (its project row lock depends on it).
+- **Verification boundary.** The database still stores any verification label that its CHECK allows, and
+  the M3 integrity validator cannot tell a privileged chain written around the validated path from a
+  legitimate one. The engine therefore never reads a label as trust (SECURITY §15).
+- **Limits.** Structure is validated, semantic relevance is not (an M5 prerequisite); only recorded
+  contradictions are counted; constants are heuristics.
