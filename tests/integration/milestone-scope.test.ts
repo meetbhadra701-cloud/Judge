@@ -1,9 +1,10 @@
 /*
- * Guards the M4 scope (docs/V1_CONTRACT.md). M3 added the evidence graph; M4 adds the pure,
- * deterministic scoring engine (`packages/scoring`, `scoring-engine/v1`): rubric selection, evidence
- * strength, coverage, the confidence index and aggregation, with NO persistence, NO route and NO
- * model. Everything from M5 on must stay unimplemented: no assessments (persisted or served), no
- * uncertainty or question engine, no interview mode, no model providers, prompts or embeddings. The guard inspects implementation
+ * Guards the M5 scope while M5 is built phase by phase (docs/V1_CONTRACT.md, docs/milestones/M5-design.md).
+ * M3 added the evidence graph; M4 the pure scoring engine. M5 PHASE P1 adds only the shared assessment
+ * vocabularies/schemas and the provider-neutral `packages/llm` interface (digest, timeout, retry, local
+ * spending guard, replay and scripted providers): NO vendor SDK or endpoint, NO prompt, NO assessment
+ * pipeline, NO migration, table, route, worker job or UI. Everything from M6 on, and the later M5 phases,
+ * must stay unimplemented. Each M5 phase updates this guard together with its own work. The guard inspects implementation
  * surfaces (code, manifests, migrations, routes), not the binding documentation, which discusses
  * those concepts by design. If a later milestone legitimately adds one of these, update this
  * test in that milestone together with its milestone report.
@@ -19,8 +20,7 @@ const NOT_YET_IMPLEMENTED = [
   'uncertainty', // M6
   'questions', // M6
   'browser', // headless/sandboxed browser inspection (deferred; M2 uses plain HTTP observation)
-  'llm', // model provider abstraction (first used no earlier than M5)
-  'prompts',
+  'prompts', // M5 P2
 ];
 
 /** Packages M2 and M3 implement. */
@@ -34,6 +34,7 @@ const IMPLEMENTED_PACKAGES = [
   'auth', // M2
   'evidence', // M3
   'scoring', // M4
+  'llm', // M5 P1: provider-neutral interface only; no vendor adapter yet
 ];
 
 const MODEL_SDKS = [
@@ -107,8 +108,8 @@ function sourceFiles(dir: string, { includeTests = false } = {}): string[] {
 
 const applicationSource = ['apps', 'packages'].flatMap((group) => sourceFiles(join(ROOT, group)));
 
-describe('M4 milestone scope', () => {
-  it('keeps M5+ packages as README-only placeholders', () => {
+describe('M5 milestone scope (phase P1)', () => {
+  it('keeps the later packages as README-only placeholders', () => {
     for (const name of NOT_YET_IMPLEMENTED) {
       const dir = join(ROOT, 'packages', name);
       expect(statSync(dir).isDirectory(), `${name} placeholder exists`).toBe(true);
@@ -195,9 +196,10 @@ describe('M4 milestone scope', () => {
   });
 
   it('has no later-milestone concepts in implementation code', () => {
-    // Identifiers only (comments may describe future work). These belong to M5-M9.
+    // Identifiers only (comments may describe future work). These belong to M6-M9 (and the
+    // still-unimplemented M5 phases: the persisted assessment version arrives with P4).
     const laterConcepts =
-      /\b(AssessmentVersion|CriterionAssessment|DimensionAssessment|JudgeQuestion|TeamAnswer|JudgeFinalScore|ScoreChange|EvidenceGraphVersion|ExtractionVersion|AnalysisVersion|informationGain|selectTopQuestions|LlmClient|ModelProvider|PromptTemplate|createEmbedding)\b/;
+      /\b(AssessmentVersion|CriterionAssessment|JudgeQuestion|TeamAnswer|JudgeFinalScore|ScoreChange|EvidenceGraphVersion|ExtractionVersion|AnalysisVersion|informationGain|selectTopQuestions|PromptTemplate|createEmbedding)\b/;
     const offenders = applicationSource.filter((file) => {
       const code = readFileSync(file, 'utf8')
         .split('\n')
@@ -233,7 +235,7 @@ describe('M4 milestone scope', () => {
     }
   });
 
-  it('adds no migration in M4: the scoring engine persists nothing', () => {
+  it('adds no migration yet: the M5 migrations arrive in phase P4', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -288,6 +290,55 @@ describe('M4 milestone scope', () => {
       }
       const builtins = [...text.matchAll(/from ['"](node:[a-z/_]+)['"]/g)].map((m) => m[1]);
       expect(builtins, relative(ROOT, file)).toEqual([]);
+    }
+  });
+
+  it('keeps packages/llm provider-neutral: no vendor SDK, no dependency beyond context, schemas and zod', () => {
+    const manifest = JSON.parse(readFileSync(join(ROOT, 'packages/llm/package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
+      '@judge-copilot/context',
+      '@judge-copilot/schemas',
+      'zod',
+    ]);
+    expect(manifest.devDependencies ?? {}).toEqual({});
+  });
+
+  it('has no importer of @judge-copilot/llm yet: no pipeline, route, worker job or UI uses a provider in P1', () => {
+    const importers = applicationSource.filter(
+      (file) =>
+        !file.startsWith(join(ROOT, 'packages/llm')) &&
+        /@judge-copilot\/llm/.test(readFileSync(file, 'utf8')),
+    );
+    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    for (const { dir, manifest } of workspaceManifests()) {
+      if (dir === join(ROOT, 'packages/llm')) continue;
+      const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
+      expect(deps.includes('@judge-copilot/llm'), dir).toBe(false);
+    }
+  });
+
+  it('adds no assessment table, route, job type or prompt in P1', () => {
+    const migrations = join(ROOT, 'packages/database/drizzle');
+    const sql = readdirSync(migrations)
+      .filter((name) => name.endsWith('.sql'))
+      .map((name) => readFileSync(join(migrations, name), 'utf8'))
+      .join('\n');
+    expect(
+      /CREATE TABLE "[a-z_]*(assessment|pre_interview|graph_extraction|budget)[a-z_]*"/i.test(sql),
+    ).toBe(false);
+    expect(existsSync(join(ROOT, 'packages/prompts/package.json'))).toBe(false);
+    const workerAndApi = [
+      ...sourceFiles(join(ROOT, 'apps/api/src')),
+      ...sourceFiles(join(ROOT, 'apps/worker/src')),
+    ];
+    for (const file of workerAndApi) {
+      expect(
+        /pre_interview_assessment|assessment_run/i.test(readFileSync(file, 'utf8')),
+        relative(ROOT, file),
+      ).toBe(false);
     }
   });
 

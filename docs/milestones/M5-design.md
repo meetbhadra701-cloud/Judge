@@ -975,6 +975,8 @@ Provider-neutral: nothing above names a vendor; the Anthropic adapter is one imp
 (decorators, all unit-tested with a fake clock/RNG): `withTimeout` → `withRetry` → `withBudget(reserve/settle)` → `withLedgerSink`. `ReplayProvider` and `ScriptedProvider` are refused when
 `NODE_ENV=production`.
 
+**P1 implementation notes (deviations from the sketch above, all recorded in [M5-P1-note](./M5-P1-note.md)).** The result type is `LlmResult` (`LlmSuccess | LlmFailure`); a `max_tokens` truncation is a `truncated` _failure_ (with measured usage when the provider reports it), so `stopReason` is not a success field; costs are exact integers in **nano-USD** (persisted as micro-USD with a ceiling in P4); a failure may carry `usage` and, for the spending guard, a `denial` reason; the ledger port is `RunBudget` (`reserve`/`settle`/`snapshot`/`entries`/`reapInFlight`). The prompt boundary is a P2 deliverable and is not in P1.
+
 **Boundary: deterministic and collision-safe (chosen over a stored nonce).** The data block is framed by
 `boundary = "DATA-" + hex(sha256(canonical(system‖promptId‖promptVersion‖data text)))[0..32]` plus a counter, incremented until the boundary string occurs nowhere in the data text (a pure
 function of the inputs, so the exact request is reconstructible and replayable). An attacker cannot embed the boundary: it is a hash of a text that would have to contain it. No random nonce is
@@ -1165,7 +1167,7 @@ enabled — would be recorded as a ledger call. Until then the byte-based reserv
 over-reservation can refuse the last call before the cap, never inflate settled totals.
 
 **Defaults** (env-overridable down or up to the code maxima; defaults are guards, not forecasts): calls per run 150 (max 300); input tokens 1,500,000 (3,000,000); output tokens 250,000
-(500,000); computed cost $3.00 ($10.00); max input per call 40K tokens (also keeps Haiku-tier prompts inside the ≤ 100K price tier); per-call timeout 120 s / 180 s (max 300 s); run
+(500,000); computed cost $3.00 ($10.00); per-attempt reserved-input bound 100,000 tokens (`maxReservedInputTokensPerCall`; implemented in P1 as a bound on the byte-based reservation, not on real tokens — a 40K cap would refuse ordinary ≈ 14K-token prompts whose byte bound is ≈ 3–4× larger; it still keeps Haiku-tier prompts inside the ≤ 100K price tier); per-call timeout 120 s / 180 s (max 300 s); run
 wall-clock 120 min (max 240; reconciled with the sequential plans in §12.3.4).
 
 ### 12.5 No-credential behavior and demonstrations

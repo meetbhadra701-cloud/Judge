@@ -289,7 +289,7 @@ judge-copilot/
 │   ├── video/      video metadata adapter                                      [implemented, M2]
 │   ├── auth/       AuthVerifier adapters (JWT/JWKS, dev-only)                  [implemented, M2]
 │   ├── browser/    sandboxed headless-browser inspection                       [deferred, README only]
-│   ├── llm/        model/provider abstraction                                  [M5, README only]
+│   ├── llm/        provider-neutral interface, request digest, retry, spending guard, replay [M5 P1; no vendor adapter yet]
 │   └── prompts/    versioned prompt templates                                  [M5, README only]
 ├── tests/
 │   ├── support/    test-only helpers (network guard)
@@ -367,6 +367,7 @@ context    → schemas
 capture    → domain, schemas
 evidence   → domain, schemas
 scoring    → context, evidence, schemas
+llm        → context, schemas   (M5 P1; nothing imports it yet)
 database   → audit, domain, evidence, schemas
 auth       → domain, schemas
 safe-http  → capture, schemas

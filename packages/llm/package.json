@@ -1,0 +1,26 @@
+{
+  "name": "@judge-copilot/llm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Provider-neutral structured-output interface for the M5 assessment pipeline: request digest, timeout, bounded retry, local spending guard (reserve/settle), offline replay and scripted providers. Layer 3 (adapter): no vendor SDK, no network, no filesystem in P1.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/context": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

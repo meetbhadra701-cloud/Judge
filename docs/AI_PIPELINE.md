@@ -1,8 +1,9 @@
 # Judge Copilot — AI Pipeline
 
 > **Status:** No model or provider calls exist (M0–M3; M2 source capture and the M3 evidence graph
-> are deterministic). The `llm` and `prompts` packages are
-> README-only placeholders. M3 implemented the deterministic half of stages 3–5 — trusted ID
+> are deterministic). `packages/llm` (M5 phase P1) now holds the provider-neutral interface, request digest,
+> retry/timeout, the local spending guard and the offline replay/scripted providers, with **no vendor adapter, no
+> API key handling and no pipeline**; `prompts` is a README-only placeholder. M3 implemented the deterministic half of stages 3–5 — trusted ID
 > assignment, ID-integrity validation, provenance to snapshot spans, relation and verification
 > rules, never an accusation — behind a validated write path (`EvidenceGraphStore.createGraph`);
 > the model-backed producer that feeds it arrives in M5. M1 implemented stage 1's **port** (`EventContextExtractor`) and its

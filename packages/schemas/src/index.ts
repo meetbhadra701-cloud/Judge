@@ -7,3 +7,4 @@ export * from './source-ingestion-api.js';
 export * from './evidence-graph.js';
 export * from './evidence-graph-api.js';
 export * from './scoring.js';
+export * from './assessment.js';
