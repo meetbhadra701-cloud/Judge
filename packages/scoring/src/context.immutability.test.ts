@@ -315,3 +315,133 @@ describe('E. scoring under an unchanged input fingerprint is repeatable', () => 
     if (again.ok) expect(report(again.context).outputHash).toBe(report(forward.context).outputHash);
   });
 });
+
+describe('G. every value the context exposes is deeply frozen, graphDiagnostics included', () => {
+  const PRIVILEGED_EVIDENCE = uid(7, 'e7000001');
+
+  /** A world whose graph carries a privileged label, so the context holds a real diagnostic. */
+  function diagnosedSetup() {
+    const g = world();
+    g.addEvidence({
+      id: PRIVILEGED_EVIDENCE,
+      origin: 'github',
+      kind: 'fact',
+      label: 'machine_verified',
+      snapshotId: IDS.github,
+      artifactId: IDS.code,
+      span: [200, 210],
+    });
+    const input = g.build();
+    const context = makeContext(input, lockedSnapshot({ rubrics: [RUBRIC] }));
+    return { input, context };
+  }
+
+  const judgmentsWithPrivileged = payload(
+    scored('official.a', 7, cite(README_EVIDENCE), cite(PRIVILEGED_EVIDENCE)),
+    scored('official.b', 8, cite(CODE_EVIDENCE)),
+  );
+  const runDiagnosed = (context: ReturnType<typeof makeContext>): ScoreReport => {
+    const result = scoreProject(context, judgmentsWithPrivileged);
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    return result.report;
+  };
+
+  /** Every object and array reachable from `value` must be frozen. Returns the first offender. */
+  function firstUnfrozen(value: unknown, path: string): string | null {
+    if (value === null || typeof value !== 'object') return null;
+    if (!Object.isFrozen(value)) return path;
+    for (const [key, entry] of Object.entries(value)) {
+      const found = firstUnfrozen(entry, `${path}.${key}`);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+
+  it('the fixture really holds a diagnostic with entity IDs', () => {
+    const { context } = diagnosedSetup();
+    expect(context.graphDiagnostics.length).toBeGreaterThan(0);
+    expect(context.graphDiagnostics[0]?.entityIds.length).toBeGreaterThan(0);
+  });
+
+  it('graphDiagnostics, each diagnostic and each entityIds array are frozen', () => {
+    const { context } = diagnosedSetup();
+    expect(Object.isFrozen(context.graphDiagnostics)).toBe(true);
+    for (const diagnostic of context.graphDiagnostics) {
+      expect(Object.isFrozen(diagnostic)).toBe(true);
+      expect(Object.isFrozen(diagnostic.entityIds)).toBe(true);
+    }
+  });
+
+  it('mutating message, code or entityIds fails or has no effect, and scoring is unchanged', () => {
+    const { context } = diagnosedSetup();
+    const before = runDiagnosed(context);
+    const diagnostic = context.graphDiagnostics[0];
+    expect(diagnostic).toBeDefined();
+    if (!diagnostic) return;
+
+    set(diagnostic, 'message', 'TAMPERED');
+    set(diagnostic, 'code', 'NOT_A_CODE');
+    set(diagnostic, 'path', 'tampered');
+    set(diagnostic, 'entityIds', ['x']);
+    expect(() => {
+      diagnostic.entityIds.push('x');
+    }).toThrow();
+    expect(() => {
+      diagnostic.entityIds[0] = 'x';
+    }).toThrow();
+    expect(() => {
+      (context.graphDiagnostics as unknown[]).push(diagnostic);
+    }).toThrow();
+    expect(() => {
+      (context.graphDiagnostics as unknown[]).length = 0;
+    }).toThrow();
+    set(context.graphDiagnostics, '0', { code: 'NOT_A_CODE' });
+
+    // An invalid diagnostic code can neither be injected nor make scoring throw.
+    const after = runDiagnosed(context);
+    expect(after).toEqual(before);
+    expect(after.inputFingerprint).toBe(before.inputFingerprint);
+    expect(after.outputHash).toBe(before.outputHash);
+    expect(JSON.stringify(after)).not.toContain('TAMPERED');
+    expect(JSON.stringify(after)).not.toContain('NOT_A_CODE');
+  });
+
+  it('a returned report shares no mutable object with the context', () => {
+    const { context } = diagnosedSetup();
+    const first = runDiagnosed(context);
+    const hash = first.outputHash;
+    for (const diagnostic of first.diagnostics) {
+      set(diagnostic, 'message', 'MUTATED REPORT');
+      diagnostic.entityIds.push('y');
+    }
+    expect(runDiagnosed(context).outputHash).toBe(hash);
+  });
+
+  it('no property of an official-rubric context contains an unfrozen object or array', () => {
+    const { context } = diagnosedSetup();
+    for (const key of Object.keys(context)) {
+      expect(firstUnfrozen((context as unknown as Record<string, unknown>)[key], key)).toBeNull();
+    }
+  });
+
+  it('nor does a fallback-rubric context with declared tracks', () => {
+    const g = baseWorld();
+    const context = makeContext(
+      g.build(),
+      lockedSnapshot({ trackKeys: ['ai_track', 'web_track'] }),
+      {
+        declaredTrackKeys: ['web_track', 'ai_track'],
+      },
+    );
+    expect(context.declaredTrackKeys).toEqual(['ai_track', 'web_track']);
+    for (const key of Object.keys(context)) {
+      expect(firstUnfrozen((context as unknown as Record<string, unknown>)[key], key)).toBeNull();
+    }
+    expect(() => {
+      (context.declaredTrackKeys as string[]).push('x');
+    }).toThrow();
+    expect(() => {
+      (context.rubric.criteria as unknown[]).pop();
+    }).toThrow();
+  });
+});

@@ -64,6 +64,18 @@ now record `LOCKED_CONTEXT_INVALID` (the schema refuses them before rubric rules
 | `packages/scoring` alone                                      | 16 files, **390 tests** (was 305): golden + cross-process determinism included |
 | `git diff --check`; secrets scan                              | clean; no matches                                                              |
 
+**R1 recheck (one P1 found by the independent re-review of `f8ada42`).** `graphDiagnostics` on the context
+was frozen shallowly, so a holder of the context could rewrite a diagnostic's message, code or `entityIds`
+and change a later report under an unchanged `inputFingerprint` (an invalid code even made `scoreProject`
+throw). Fixed by `deepFreeze` on the diagnostics (and on `declaredTrackKeys`, for uniformity). Audit of
+every other exposed value: `projectId`, `eventId` and `graphFingerprint` are strings, `rubric` was already
+deep-frozen; reports are schema-parsed copies and share nothing with the context. Six new tests in
+`context.immutability.test.ts` (group G): frozen array/objects/`entityIds`, mutation attempts of message,
+code, path and `entityIds`, array mutators, identical report and `outputHash` afterwards, no invalid
+code injectable, a recursive "nothing unfrozen" walk of every context property (official and fallback with
+declared tracks), and a report that shares no mutable object with the context. Removing the fix makes
+3 of them fail. No formula, constant, version or architecture change.
+
 **Remaining limitations after R1.** The engine still trusts whoever calls the context factory: a
 self-consistent forged locked snapshot or a forged `known`/graph passes structural checks (the graph is
 integrity-validated, but cannot be proven to be what the database holds). The M5 database adapter must be

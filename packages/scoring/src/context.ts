@@ -178,9 +178,12 @@ export function createTrustedScoringContext(
   }
 
   const rubric = deepFreeze(selected.rubric);
-  const declaredTrackKeys = Object.freeze([...selected.declaredTrackKeys]);
+  const declaredTrackKeys = deepFreeze([...selected.declaredTrackKeys]);
   const graphFingerprint = graphFingerprintOf(input.projectId, input.eventId, graph, known);
-  const graphDiagnostics = Object.freeze(
+  // Deep, not shallow: the diagnostics are copied into every report, so their objects and `entityIds`
+  // arrays must be as immutable as the rubric (a shallow freeze would let a holder of the context
+  // rewrite report content under an unchanged inputFingerprint).
+  const graphDiagnostics = deepFreeze(
     graphLevelDiagnostics(
       graph,
       known,
