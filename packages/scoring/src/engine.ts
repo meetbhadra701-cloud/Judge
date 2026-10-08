@@ -13,10 +13,11 @@ import {
 } from '@judge-copilot/schemas';
 import { aggregate } from './aggregate.js';
 import { clampRatio, compareText, hashOf, roundReported } from './canonical.js';
-import { isTrustedScoringContext, sortIssues, type TrustedScoringContext } from './context.js';
+import { sortIssues, stateOf, type ScoringState, type TrustedScoringContext } from './context.js';
 import { evaluateDimension, type DimensionResult } from './dimension.js';
 import { lineageOf } from './lineage.js';
 import { parametersHash } from './parameters-hash.js';
+import { clamp, fromInt, ZERO, type Rational } from './rational.js';
 import type { DimensionSpec } from './rubric/spec.js';
 
 /*
@@ -42,7 +43,10 @@ export function scoreProject(
   rawJudgments: unknown,
   rawOptions: unknown = {},
 ): ScoreResult {
-  if (!isTrustedScoringContext(context)) {
+  // The authoritative graph lives in private state keyed by the factory-created context object; an
+  // object that did not come from the factory (or a copy of one) has none and is refused.
+  const state = stateOf(context);
+  if (!state) {
     return {
       ok: false,
       issues: [
@@ -91,7 +95,7 @@ export function scoreProject(
     return { ok: false, issues: sortIssues(issues) };
   }
 
-  const { rubric } = context;
+  const { rubric } = state;
   const wantsPreview = options.data.unweightedPreview === 'equal_weight';
   if (wantsPreview && rubric.weightBasis !== 'unweighted_official') {
     return {
@@ -172,7 +176,7 @@ export function scoreProject(
       }
       seen.add(citation.evidenceId);
       // Invented IDs and evidence of any other project are indistinguishable here, and both fail.
-      if (!context.graph.evidence.has(citation.evidenceId)) {
+      if (!state.graph.evidence.has(citation.evidenceId)) {
         issues.push({
           code: 'CITATION_UNKNOWN_EVIDENCE',
           path: cpath,
@@ -198,12 +202,12 @@ export function scoreProject(
     const entry = dimensions.get(id);
     const judgment = byDimension.get(id);
     if (!entry || !judgment) throw new Error('internal: dimension bookkeeping');
-    results.set(id, evaluateDimension(context, entry.criterionKey, entry.spec, judgment));
+    results.set(id, evaluateDimension(state, entry.criterionKey, entry.spec, judgment));
   }
 
   const aggregated = aggregate(rubric, results, wantsPreview);
-  const claimLineages = lineages(context, results);
-  const diagnostics = collectDiagnostics(context, results, claimLineages);
+  const claimLineages = lineages(state, results);
+  const diagnostics = collectDiagnostics(state, results, claimLineages);
 
   const identity: Omit<RubricIdentity, 'fingerprint'> = {
     source: rubric.source,
@@ -224,8 +228,8 @@ export function scoreProject(
     engineVersion: SCORING_ENGINE_VERSION,
     parametersHash,
     rubric: rubricFingerprint,
-    graph: context.graphFingerprint,
-    declaredTrackKeys: context.declaredTrackKeys,
+    graph: state.graphFingerprint,
+    declaredTrackKeys: state.declaredTrackKeys,
     preview: wantsPreview,
     judgments: [...parsed.data.judgments]
       .sort((a, b) => compareText(a.dimensionId, b.dimensionId))
@@ -240,7 +244,7 @@ export function scoreProject(
     engineVersion: SCORING_ENGINE_VERSION,
     parametersHash,
     inputFingerprint,
-    graphFingerprint: context.graphFingerprint,
+    graphFingerprint: state.graphFingerprint,
     rubric: { ...identity, fingerprint: rubricFingerprint },
     dimensions: rubric.criteria
       .filter((criterion) => criterion.applicable)
@@ -270,7 +274,7 @@ export function scoreProject(
 
 // -- Report assembly ---------------------------------------------------------------------------
 
-const ratio = (value: number) => roundReported(clampRatio(value));
+const ratio = (value: Rational) => roundReported(clampRatio(value));
 
 function dimensionReport(result: DimensionResult | undefined): DimensionReport {
   if (!result) throw new Error('internal: missing dimension result');
@@ -296,8 +300,8 @@ function dimensionReport(result: DimensionResult | undefined): DimensionReport {
     return {
       ...common,
       state: 'assessed',
-      scoreOnScale: result.scoreOnScale,
-      score10: roundReported(Math.min(10, Math.max(0, result.score10))),
+      scoreOnScale: roundReported(result.scoreOnScale),
+      score10: roundReported(clamp(result.score10, ZERO, fromInt(10))),
       evidenceStrength: ratio(result.strength),
       strongestEvidenceIds: [...result.strongestEvidenceIds],
       confidenceBasis: result.confidenceBasis,
@@ -313,7 +317,7 @@ function dimensionReport(result: DimensionResult | undefined): DimensionReport {
 }
 
 function collectDiagnostics(
-  context: TrustedScoringContext,
+  context: ScoringState,
   results: ReadonlyMap<string, DimensionResult>,
   claimLineages: readonly ClaimLineage[],
 ): ScoringDiagnostic[] {
@@ -379,7 +383,7 @@ function collectDiagnostics(
 }
 
 function lineages(
-  context: TrustedScoringContext,
+  context: ScoringState,
   results: ReadonlyMap<string, DimensionResult>,
 ): ClaimLineage[] {
   const heads = new Map<string, ClaimLineage>();

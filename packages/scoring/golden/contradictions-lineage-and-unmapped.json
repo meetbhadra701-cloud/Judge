@@ -775,7 +775,7 @@
   ],
   "engineVersion": "scoring-engine/v1",
   "graphFingerprint": "f289ea2deb91f4bdc34531364cd1e25f9112d25876514c7c674b398903bc822a",
-  "inputFingerprint": "e24d5dd7262bbb80102bec69e99f7741517471f68dea3f8f76b2fab651d745dc",
+  "inputFingerprint": "cf5a9e64af9244f623b6e20fc51ee18313eff7d77ca1a45671804eccde5616f0",
   "notices": {
     "claimLabels": "never_proof_of_truth",
     "confidenceMeaning": "index_not_probability",
@@ -783,7 +783,7 @@
     "parameterStatus": "heuristic_not_calibrated",
     "semanticRelevance": "not_verified"
   },
-  "outputHash": "705816aa2578af2feca5f30d647830e5b05e291560533047e1c7c10dff8c2449",
+  "outputHash": "ab8b755f53bb64ef3950e4c30465b184958af6e46f3a06881abd292e9de714db",
   "overall": {
     "assessedWeightShare": 0,
     "citationPresenceShare": null,
@@ -801,7 +801,7 @@
     "state": "insufficient_evidence",
     "weightBasis": "fallback"
   },
-  "parametersHash": "e4b028a19abac6bc5ad5034b2c4677506e7402954a5c474c6b16abd289c4d5e4",
+  "parametersHash": "d2bea4fd35f059a05e76564d3c6af75dfdf8a41519463cb54eff9ddd8a49b226",
   "rubric": {
     "contextContentHash": "199465bcf2b9106695d4defe9f65c364819f7ac1662f403ce19a47cab109207b",
     "contextVersionId": "c0000001-0000-4000-8000-000000000001",

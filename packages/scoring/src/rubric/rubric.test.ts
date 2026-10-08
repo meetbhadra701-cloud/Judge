@@ -226,19 +226,6 @@ describe('invalid official rubrics are rejected, never repaired and never replac
     ],
     ['a weight above one', rubricDefinition({ criteria: [{ key: 'a', weight: 1.5 }] })],
     [
-      'a NaN weight',
-      rubricDefinition({
-        criteria: [
-          { key: 'a', weight: Number.NaN },
-          { key: 'b', weight: 1 },
-        ],
-      }),
-    ],
-    [
-      'an infinite weight',
-      rubricDefinition({ criteria: [{ key: 'a', weight: Number.POSITIVE_INFINITY }] }),
-    ],
-    [
       'duplicate criterion keys',
       rubricDefinition({
         criteria: [
@@ -256,14 +243,6 @@ describe('invalid official rubrics are rejected, never repaired and never replac
       'an inverted scale',
       rubricDefinition({ scaleMin: 10, scaleMax: 0, criteria: [{ key: 'a', weight: 1 }] }),
     ],
-    [
-      'a non-finite scale',
-      rubricDefinition({
-        scaleMin: 0,
-        scaleMax: Number.POSITIVE_INFINITY,
-        criteria: [{ key: 'a', weight: 1 }],
-      }),
-    ],
   ];
 
   it.each(invalid)('rejects %s as RUBRIC_INVALID', (_name, rubric) => {
@@ -272,6 +251,23 @@ describe('invalid official rubrics are rejected, never repaired and never replac
     if (result.ok) return;
     expect(result.issues.every((issue) => issue.code === 'RUBRIC_INVALID')).toBe(true);
     expect(result.issues.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['a NaN weight', rubricDefinition({ criteria: [{ key: 'a', weight: Number.NaN }] })],
+    [
+      'an infinite weight',
+      rubricDefinition({ criteria: [{ key: 'a', weight: Number.POSITIVE_INFINITY }] }),
+    ],
+    [
+      'a non-finite scale',
+      rubricDefinition({ scaleMax: Number.POSITIVE_INFINITY, criteria: [{ key: 'a', weight: 1 }] }),
+    ],
+  ])('rejects %s already at the locked-snapshot schema, as a typed issue', (_name, rubric) => {
+    const result = select(lockedSnapshot({ rubrics: [rubric] }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.map((issue) => issue.code)).toContain('LOCKED_CONTEXT_INVALID');
   });
 
   it('rejects a duplicated overall rubric as ambiguous', () => {

@@ -1,4 +1,5 @@
 import { compareText } from './canonical.js';
+import { eq, min, type Rational } from './rational.js';
 
 /*
  * Provenance grouping: evidence records that cite the same passage are ONE source, however many
@@ -28,7 +29,7 @@ import { compareText } from './canonical.js';
 
 export interface GroupableItem {
   readonly id: string;
-  readonly strength: number;
+  readonly strength: Rational;
   readonly snapshotId: string | null;
   readonly artifactId: string | null;
   readonly span: { readonly start: number; readonly end: number } | null;
@@ -39,7 +40,7 @@ export interface ProvenanceGroup {
   /** Sorted evidence IDs. */
   readonly memberIds: readonly string[];
   /** The minimum member strength. */
-  readonly strength: number;
+  readonly strength: Rational;
   readonly inconsistent: boolean;
 }
 
@@ -89,12 +90,13 @@ export function groupByProvenance(items: readonly GroupableItem[]): ProvenanceGr
   return [...byRoot.entries()]
     .sort(([a], [b]) => a - b)
     .map(([, members]) => {
-      const strengths = members.map((member) => member.strength);
-      const strength = strengths.reduce((lowest, value) => Math.min(lowest, value), Infinity);
+      const [first, ...rest] = members.map((member) => member.strength);
+      if (!first) throw new Error('internal: empty provenance group');
+      const strength = rest.reduce((lowest, value) => min(lowest, value), first);
       return {
         memberIds: members.map((member) => member.id),
         strength,
-        inconsistent: strengths.some((value) => value !== strength),
+        inconsistent: [first, ...rest].some((value) => !eq(value, strength)),
       };
     });
 }

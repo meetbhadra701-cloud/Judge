@@ -119,7 +119,7 @@
   ],
   "engineVersion": "scoring-engine/v1",
   "graphFingerprint": "8a6958568cbf6c1b5c9a9ac3d998397621d37bd29242b0978b065face54ab3ea",
-  "inputFingerprint": "d90bf22aa57ac5eebae18d117aad4a0a995e3eb2b66b1c5c4e0a8dfa8cbf19cf",
+  "inputFingerprint": "6e03bc81c11228893e75172681c342af9948b8c17d2ec0ea990d87bc9dd23383",
   "notices": {
     "claimLabels": "never_proof_of_truth",
     "confidenceMeaning": "index_not_probability",
@@ -127,13 +127,13 @@
     "parameterStatus": "heuristic_not_calibrated",
     "semanticRelevance": "not_verified"
   },
-  "outputHash": "8595cf370b60b41efdaa0bc98f638fe4a563958e393789a09f12404894746a8e",
+  "outputHash": "4b93eda25e6e4b3396c2221e70e501494fcb887318c4a6531a7aec05ee7d1ee2",
   "overall": {
     "reason": "unweighted_official_rubric",
     "state": "not_computed",
     "weightBasis": "unweighted_official"
   },
-  "parametersHash": "e4b028a19abac6bc5ad5034b2c4677506e7402954a5c474c6b16abd289c4d5e4",
+  "parametersHash": "d2bea4fd35f059a05e76564d3c6af75dfdf8a41519463cb54eff9ddd8a49b226",
   "rubric": {
     "contextContentHash": "d28778ba5a5a83a39bcb93e5c77403d3683faeb7ece528e1aab14ebb0bf7518f",
     "contextVersionId": "c0000001-0000-4000-8000-000000000001",

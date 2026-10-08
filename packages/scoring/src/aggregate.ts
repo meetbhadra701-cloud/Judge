@@ -3,6 +3,7 @@ import { UNOFFICIAL_PREVIEW_NOTICE } from '@judge-copilot/schemas';
 import { clampRatio, compareText, roundReported } from './canonical.js';
 import { denormalizeScore, type DimensionResult } from './dimension.js';
 import { SCORING_PARAMETERS } from './parameters.js';
+import { add, clamp, div, fromInt, fromNumber, gte, mul, ZERO, type Rational } from './rational.js';
 import type { CriterionSpec, RubricSpec } from './rubric/spec.js';
 
 /*
@@ -15,21 +16,23 @@ import type { CriterionSpec, RubricSpec } from './rubric/spec.js';
  *    official weight set that sums to 1 within 1e-6 is never renormalized). Only when children are
  *    missing is the mean taken over the assessed weight, explicitly, and reported as partial.
  *  - A number is reported only if enough weight is assessed: criterion >= 0.5, overall >= 0.6.
+ *    The comparison is EXACT (rational arithmetic on the decimal values): there is no tolerance, so
+ *    a share just below a threshold is below it, and exactly 0.60 meets 0.6.
  *  - Coverage, citation presence and confidence are weighted means over ALL applicable children
- *    (insufficient children contribute their own, possibly zero, value), so gaps lower confidence
+ *    (insufficient children contribute their own, possibly zero, values), so gaps lower confidence
  *    while leaving the score untouched.
- *  - Folds run in ascending ID/key order so floating-point sums do not depend on any input order.
- *  - Everything is unrounded here; rounding happens once, when the report is built.
+ *  - Everything is an exact rational until the report is built; rounding happens once, there, and a
+ *    rounded value is never an input to another step.
  */
 
 interface CriterionResult {
   readonly spec: CriterionSpec;
   readonly state: CriterionReport['state'];
-  readonly score10: number | null;
-  readonly coverage: number | null;
-  readonly presence: number | null;
-  readonly confidence: number;
-  readonly assessedShare: number;
+  readonly score10: Rational | null;
+  readonly coverage: Rational | null;
+  readonly presence: Rational | null;
+  readonly confidence: Rational;
+  readonly assessedShare: Rational;
   readonly dimensionIds: readonly string[];
   readonly missingDimensionIds: readonly string[];
 }
@@ -40,11 +43,12 @@ export interface AggregateOutput {
   readonly unofficialPreview: UnofficialPreview | null;
 }
 
-const { minAssessedShare, shareEpsilon } = SCORING_PARAMETERS;
-const meets = (share: number, threshold: number) => share + shareEpsilon >= threshold;
+const CRITERION_THRESHOLD = fromNumber(SCORING_PARAMETERS.minAssessedShare.criterion);
+const OVERALL_THRESHOLD = fromNumber(SCORING_PARAMETERS.minAssessedShare.overall);
+const TEN = fromInt(10);
 
-const ratio = (value: number) => roundReported(clampRatio(value));
-const score = (value: number) => roundReported(Math.min(10, Math.max(0, value)));
+const ratio = (value: Rational) => roundReported(clampRatio(value));
+const score = (value: Rational) => roundReported(clamp(value, ZERO, TEN));
 
 export function aggregate(
   rubric: RubricSpec,
@@ -93,8 +97,8 @@ function criterionResult(
       score10: null,
       coverage: null,
       presence: null,
-      confidence: 0,
-      assessedShare: 0,
+      confidence: ZERO,
+      assessedShare: ZERO,
       dimensionIds: [],
       missingDimensionIds: [],
     };
@@ -104,33 +108,33 @@ function criterionResult(
     .map((dimension) => {
       const result = results.get(dimension.id);
       if (!result) throw new Error('internal: missing dimension result');
-      return { weight: dimension.weight, result };
+      return { weight: fromNumber(dimension.weight), result };
     });
 
-  let totalWeight = 0;
-  let assessedWeight = 0;
-  let weightedScore = 0;
-  let coverage = 0;
-  let presence = 0;
-  let confidence = 0;
+  let totalWeight = ZERO;
+  let assessedWeight = ZERO;
+  let weightedScore = ZERO;
+  let coverage = ZERO;
+  let presence = ZERO;
+  let confidence = ZERO;
   for (const { weight, result } of dims) {
-    totalWeight += weight;
-    coverage += weight * (result.coverage ?? 0);
-    presence += weight * (result.citationPresence ?? 0);
-    confidence += weight * result.confidence;
+    totalWeight = add(totalWeight, weight);
+    coverage = add(coverage, mul(weight, result.coverage ?? ZERO));
+    presence = add(presence, mul(weight, fromInt(result.citationPresence ?? 0)));
+    confidence = add(confidence, mul(weight, result.confidence));
     if (result.state === 'assessed' && result.score10 !== null) {
-      assessedWeight += weight;
-      weightedScore += weight * result.score10;
+      assessedWeight = add(assessedWeight, weight);
+      weightedScore = add(weightedScore, mul(weight, result.score10));
     }
   }
   const assessedCount = dims.filter(({ result }) => result.state === 'assessed').length;
   const allAssessed = assessedCount === dims.length;
-  const share = assessedWeight / totalWeight;
+  const share = div(assessedWeight, totalWeight);
   const declared = spec.dimensions.every((dimension) => dimension.needGroups !== null);
 
   let state: CriterionReport['state'];
   if (allAssessed) state = 'assessed';
-  else if (assessedCount > 0 && meets(share, minAssessedShare.criterion)) state = 'partial';
+  else if (assessedCount > 0 && gte(share, CRITERION_THRESHOLD)) state = 'partial';
   else state = 'insufficient_evidence';
 
   return {
@@ -141,10 +145,10 @@ function criterionResult(
         ? null
         : allAssessed
           ? weightedScore
-          : weightedScore / assessedWeight,
-    coverage: declared ? coverage / totalWeight : null,
-    presence: declared ? null : presence / totalWeight,
-    confidence: confidence / totalWeight,
+          : div(weightedScore, assessedWeight),
+    coverage: declared ? div(coverage, totalWeight) : null,
+    presence: declared ? null : div(presence, totalWeight),
+    confidence: div(confidence, totalWeight),
     assessedShare: share,
     dimensionIds: dims.map(({ result }) => result.spec.id),
     missingDimensionIds: dims
@@ -190,9 +194,10 @@ function criterionReport(
   };
 }
 
-function onScale(rubric: RubricSpec, score10: number): number {
-  const value = denormalizeScore(Math.min(10, Math.max(0, score10)), rubric.scale);
-  return roundReported(Math.min(rubric.scale.max, Math.max(rubric.scale.min, value)));
+/** The value on the rubric's own scale, exact, clamped into the scale, rounded once. */
+function onScale(rubric: RubricSpec, score10: Rational): number {
+  const value = denormalizeScore(clamp(score10, ZERO, TEN), rubric.scale);
+  return roundReported(clamp(value, fromNumber(rubric.scale.min), fromNumber(rubric.scale.max)));
 }
 
 // -- Overall -----------------------------------------------------------------------------------
@@ -202,40 +207,40 @@ function weightedOverall(
   applicable: readonly CriterionResult[],
 ): OverallReport {
   const weightBasis = rubric.weightBasis === 'official' ? 'official' : 'fallback';
-  let total = 0;
-  let scoredWeight = 0;
-  let weightedScore = 0;
-  let coverage = 0;
-  let presence = 0;
-  let confidence = 0;
+  let total = ZERO;
+  let scoredWeight = ZERO;
+  let weightedScore = ZERO;
+  let coverage = ZERO;
+  let presence = ZERO;
+  let confidence = ZERO;
   for (const entry of applicable) {
-    const weight = entry.spec.weight ?? 0;
-    total += weight;
-    coverage += weight * (entry.coverage ?? 0);
-    presence += weight * (entry.presence ?? 0);
-    confidence += weight * entry.confidence;
+    const weight = fromNumber(entry.spec.weight ?? 0);
+    total = add(total, weight);
+    coverage = add(coverage, mul(weight, entry.coverage ?? ZERO));
+    presence = add(presence, mul(weight, entry.presence ?? ZERO));
+    confidence = add(confidence, mul(weight, entry.confidence));
     if (entry.score10 !== null) {
-      scoredWeight += weight;
-      weightedScore += weight * entry.score10;
+      scoredWeight = add(scoredWeight, weight);
+      weightedScore = add(weightedScore, mul(weight, entry.score10));
     }
   }
   const scored = applicable.filter((entry) => entry.score10 !== null);
   const allScored = scored.length === applicable.length;
   const everyAssessed = applicable.every((entry) => entry.state === 'assessed');
-  const share = scoredWeight / total;
+  const share = div(scoredWeight, total);
   const declared = rubric.needsBasis === 'declared';
   const missingCriterionKeys = applicable
     .filter((entry) => entry.score10 === null)
     .map((entry) => entry.spec.key);
   const common = {
     assessedWeightShare: ratio(share),
-    coverage: declared ? ratio(coverage / total) : null,
-    citationPresenceShare: declared ? null : ratio(presence / total),
-    confidence: ratio(confidence / total),
+    coverage: declared ? ratio(div(coverage, total)) : null,
+    citationPresenceShare: declared ? null : ratio(div(presence, total)),
+    confidence: ratio(div(confidence, total)),
     missingCriterionKeys,
   };
 
-  if (scored.length === 0 || !meets(share, minAssessedShare.overall)) {
+  if (scored.length === 0 || !gte(share, OVERALL_THRESHOLD)) {
     return {
       state: 'insufficient_evidence',
       weightBasis,
@@ -246,7 +251,7 @@ function weightedOverall(
   // Published weights are used as they are only when EVERY criterion of the rubric is scored; a
   // not_applicable or unscored criterion means the mean is taken over the scored weight, explicitly.
   const asPublished = allScored && applicable.length === rubric.criteria.length;
-  const value = asPublished ? weightedScore : weightedScore / scoredWeight;
+  const value = asPublished ? weightedScore : div(weightedScore, scoredWeight);
   return {
     state: everyAssessed ? 'scored' : 'scored_partial',
     weightBasis,
@@ -259,16 +264,16 @@ function weightedOverall(
 // -- Explicit, unofficial equal-weight preview -------------------------------------------------
 
 function preview(rubric: RubricSpec, applicable: readonly CriterionResult[]): UnofficialPreview {
-  const count = applicable.length;
+  const count = fromInt(applicable.length);
   const scored = applicable.filter((entry) => entry.score10 !== null);
-  const share = scored.length / count;
-  let scoreSum = 0;
-  let presence = 0;
-  let confidence = 0;
+  const share = div(fromInt(scored.length), count);
+  let scoreSum = ZERO;
+  let presence = ZERO;
+  let confidence = ZERO;
   for (const entry of applicable) {
-    presence += entry.presence ?? 0;
-    confidence += entry.confidence;
-    scoreSum += entry.score10 ?? 0;
+    presence = add(presence, entry.presence ?? ZERO);
+    confidence = add(confidence, entry.confidence);
+    scoreSum = add(scoreSum, entry.score10 ?? ZERO);
   }
   const missingCriterionKeys = applicable
     .filter((entry) => entry.score10 === null)
@@ -280,19 +285,19 @@ function preview(rubric: RubricSpec, applicable: readonly CriterionResult[]): Un
     notice: UNOFFICIAL_PREVIEW_NOTICE,
     assessedWeightShare: ratio(share),
     coverage: null,
-    citationPresenceShare: ratio(presence / count),
-    confidence: ratio(confidence / count),
+    citationPresenceShare: ratio(div(presence, count)),
+    confidence: ratio(div(confidence, count)),
     missingCriterionKeys,
   } as const;
 
-  if (scored.length === 0 || !meets(share, minAssessedShare.overall)) {
+  if (scored.length === 0 || !gte(share, OVERALL_THRESHOLD)) {
     return { ...head, state: 'insufficient_evidence' };
   }
-  const mean = scoreSum / scored.length;
+  const mean = div(scoreSum, fromInt(scored.length));
   return {
     ...head,
     state:
-      scored.length === count && applicable.every((entry) => entry.state === 'assessed')
+      scored.length === applicable.length && applicable.every((entry) => entry.state === 'assessed')
         ? 'scored'
         : 'scored_partial',
     score10: score(mean),

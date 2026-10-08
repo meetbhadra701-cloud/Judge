@@ -92,10 +92,8 @@ describe('the public API has exactly the intended entry points', () => {
       [
         'declaredTrackKeys',
         'eventId',
-        'graph',
         'graphDiagnostics',
         'graphFingerprint',
-        'known',
         'projectId',
         'rubric',
       ].sort(),

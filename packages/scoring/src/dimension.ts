@@ -5,18 +5,32 @@ import type {
   ScoringDiagnostic,
 } from '@judge-copilot/schemas';
 import { compareText } from './canonical.js';
+import type { ScoringState } from './context.js';
 import { groupByProvenance, type GroupableItem } from './groups.js';
 import { mapCitedEvidence } from './lineage.js';
 import { contradictionFactor } from './parameters.js';
+import {
+  add,
+  div,
+  eq,
+  fromInt,
+  fromNumber,
+  gt,
+  max,
+  mul,
+  sub,
+  ZERO,
+  type Rational,
+} from './rational.js';
 import type { DimensionSpec, RubricSpec } from './rubric/spec.js';
 import { evidenceItemStrength } from './strength.js';
 import { channelOf, isUsableKind, resolveEffectiveTrust } from './trust.js';
-import type { TrustedScoringContext } from './context.js';
 
 /*
- * Evaluation of ONE dimension (docs/milestones/M4-design.md §5). Pure; every number here is
- * UNROUNDED. The judged score never depends on evidence quality: strength, coverage and confidence
- * are computed beside it and never feed back into it.
+ * Evaluation of ONE dimension (docs/milestones/M4-design.md §5). Pure; every number here is an EXACT
+ * rational (see rational.ts) and is rounded only when the report is built. The judged score never
+ * depends on evidence quality: strength, coverage and confidence are computed beside it and never
+ * feed back into it.
  */
 
 export interface DimensionResult {
@@ -25,19 +39,19 @@ export interface DimensionResult {
   readonly state: 'assessed' | 'insufficient_evidence';
   readonly reason: InsufficientReason | null;
   /** On the rubric's scale, exactly as judged. Null unless assessed. */
-  readonly scoreOnScale: number | null;
+  readonly scoreOnScale: Rational | null;
   /** Normalized to 0-10. Null unless assessed. */
-  readonly score10: number | null;
-  readonly strength: number;
+  readonly score10: Rational | null;
+  readonly strength: Rational;
   readonly strongestEvidenceIds: readonly string[];
   /** Declared needs only. */
   readonly satisfiedGroups: number | null;
   readonly totalGroups: number | null;
-  readonly coverage: number | null;
+  readonly coverage: Rational | null;
   /** Unspecified needs only: a flag, not breadth. */
   readonly citationPresence: 0 | 1 | null;
   readonly confidenceBasis: ConfidenceBasis;
-  readonly confidence: number;
+  readonly confidence: Rational;
   readonly contradictionIds: readonly string[];
   readonly mappedClaimIds: ReadonlySet<string>;
   readonly mappedUnknownIds: readonly string[];
@@ -46,25 +60,30 @@ export interface DimensionResult {
   readonly diagnostics: readonly ScoringDiagnostic[];
 }
 
-/** 10 · (x − min) / (max − min); the identity for the 0-10 scale. Assumes the published scale is linear. */
-export function normalizeScore(x: number, scale: RubricSpec['scale']): number {
-  if (scale.min === 0 && scale.max === 10) return x;
-  return (10 * (x - scale.min)) / (scale.max - scale.min);
+const TEN = fromInt(10);
+
+/**
+ * 10 · (x − min) / (max − min), exactly. ASSUMES the published scale is linear (equal steps are
+ * equally valuable). The scale itself has been checked for safety by `validateOfficialScale`.
+ */
+export function normalizeScore(x: Rational, scale: RubricSpec['scale']): Rational {
+  const low = fromNumber(scale.min);
+  return div(mul(TEN, sub(x, low)), sub(fromNumber(scale.max), low));
 }
 
-/** The inverse of {@link normalizeScore}. */
-export function denormalizeScore(score10: number, scale: RubricSpec['scale']): number {
-  if (scale.min === 0 && scale.max === 10) return score10;
-  return scale.min + (score10 / 10) * (scale.max - scale.min);
+/** The inverse of {@link normalizeScore}, exactly. */
+export function denormalizeScore(score10: Rational, scale: RubricSpec['scale']): Rational {
+  const low = fromNumber(scale.min);
+  return add(low, mul(div(score10, TEN), sub(fromNumber(scale.max), low)));
 }
 
 export function evaluateDimension(
-  context: TrustedScoringContext,
+  state: ScoringState,
   criterionKey: string,
   spec: DimensionSpec,
   judgment: DimensionJudgment,
 ): DimensionResult {
-  const { graph, known, rubric } = context;
+  const { graph, known, rubric } = state;
   const diagnostics: ScoringDiagnostic[] = [];
   const path = `dimensions.${spec.id}`;
 
@@ -91,11 +110,12 @@ export function evaluateDimension(
   }
 
   // Strength: the best provenance group, where a group is as strong as its most conservative member.
+  // (A weaker record that overlaps a stronger one LOWERS the group: intentional, see SCORING.md §13.)
   const groups = groupByProvenance(usable);
-  let strength = 0;
-  for (const group of groups) strength = Math.max(strength, group.strength);
+  let strength = ZERO;
+  for (const group of groups) strength = max(strength, group.strength);
   const strongestEvidenceIds = groups
-    .filter((group) => group.strength === strength && strength > 0)
+    .filter((group) => gt(group.strength, ZERO) && eq(group.strength, strength))
     .flatMap((group) => group.memberIds)
     .sort(compareText);
   for (const group of groups) {
@@ -121,7 +141,7 @@ export function evaluateDimension(
   // Coverage against DECLARED needs, or the citation-presence flag where none are declared.
   let satisfiedGroups: number | null = null;
   let totalGroups: number | null = null;
-  let coverage: number | null = null;
+  let coverage: Rational | null = null;
   let citationPresence: 0 | 1 | null = null;
   if (spec.needGroups !== null) {
     const channels = new Set(usable.map((item) => item.channel));
@@ -129,7 +149,7 @@ export function evaluateDimension(
     satisfiedGroups = spec.needGroups.filter((group) =>
       group.some((channel) => channels.has(channel)),
     ).length;
-    coverage = satisfiedGroups / totalGroups;
+    coverage = div(fromInt(satisfiedGroups), fromInt(totalGroups));
   } else {
     citationPresence = usable.length > 0 ? 1 : 0;
   }
@@ -164,7 +184,7 @@ export function evaluateDimension(
       reason: 'assessor_reported_insufficient',
       scoreOnScale: null,
       score10: null,
-      confidence: 0,
+      confidence: ZERO,
       diagnostics,
     };
   }
@@ -182,19 +202,23 @@ export function evaluateDimension(
       reason: 'no_usable_citation',
       scoreOnScale: null,
       score10: null,
-      confidence: 0,
+      confidence: ZERO,
       diagnostics,
     };
   }
 
-  const basisFactor = coverage ?? citationPresence ?? 0;
-  const confidence = basisFactor * strength * contradictionFactor(mapping.contradictionIds.length);
+  const basisFactor = coverage ?? fromInt(citationPresence ?? 0);
+  const confidence = mul(
+    mul(basisFactor, strength),
+    contradictionFactor(mapping.contradictionIds.length),
+  );
+  const judged = fromNumber(outcome.score);
   return {
     ...base,
     state: 'assessed',
     reason: null,
-    scoreOnScale: outcome.score,
-    score10: normalizeScore(outcome.score, rubric.scale),
+    scoreOnScale: judged,
+    score10: normalizeScore(judged, rubric.scale),
     confidence,
     diagnostics,
   };

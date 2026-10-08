@@ -8,7 +8,10 @@ import {
 } from './parameters.js';
 import { parametersHash } from './parameters-hash.js';
 import { FALLBACK_RUBRIC_DEFINITION } from './rubric/fallback.js';
+import { eq, fromNumber, gt, gte, mul, ZERO, type Rational } from './rational.js';
 import { evidenceItemStrength } from './strength.js';
+
+const num = (value: Rational): number => Number(value.n) / Number(value.d);
 
 // The approved V1 heuristics, written out independently of the implementation.
 const V: Record<EffectiveLevel, number> = {
@@ -33,24 +36,33 @@ describe('evidence item strength = V(level) x L(directness) x L(specificity)', (
   });
 
   it.each(cells)('%s / %s / %s', (level, directness, specificity) => {
-    expect(evidenceItemStrength(level, directness, specificity)).toBe(
-      V[level] * DIRECTNESS[directness] * SPECIFICITY[specificity],
+    // Exact: the product of the three published decimals, with no floating-point rounding.
+    const expected = mul(
+      mul(fromNumber(V[level]), fromNumber(DIRECTNESS[directness])),
+      fromNumber(SPECIFICITY[specificity]),
     );
+    expect(eq(evidenceItemStrength(level, directness, specificity), expected)).toBe(true);
   });
 
   it('is always in (0, 0.6] and ordered by every factor', () => {
     const values = cells.map((cell) => evidenceItemStrength(...cell));
-    expect(Math.min(...values)).toBeCloseTo(0.0135, 12);
-    expect(Math.max(...values)).toBe(0.6);
-    expect(values.every((value) => value > 0 && value <= 0.6)).toBe(true);
+    expect(Math.min(...values.map(num))).toBeCloseTo(0.0135, 12);
+    expect(Math.max(...values.map(num))).toBe(0.6);
+    expect(values.every((value) => gt(value, ZERO) && gte(fromNumber(0.6), value))).toBe(true);
     for (const directness of ['direct', 'adjacent', 'indirect'] as const) {
       for (const specificity of ['exact', 'partial', 'generic'] as const) {
-        expect(evidenceItemStrength('repo_corroborated', directness, specificity)).toBeGreaterThan(
-          evidenceItemStrength('team_claim', directness, specificity),
-        );
-        expect(evidenceItemStrength('team_claim', directness, specificity)).toBeGreaterThan(
-          evidenceItemStrength('unverified', directness, specificity),
-        );
+        expect(
+          gt(
+            evidenceItemStrength('repo_corroborated', directness, specificity),
+            evidenceItemStrength('team_claim', directness, specificity),
+          ),
+        ).toBe(true);
+        expect(
+          gt(
+            evidenceItemStrength('team_claim', directness, specificity),
+            evidenceItemStrength('unverified', directness, specificity),
+          ),
+        ).toBe(true);
       }
     }
   });
@@ -66,16 +78,16 @@ describe('evidence item strength = V(level) x L(directness) x L(specificity)', (
 describe('contradiction factor', () => {
   it('is 1, 0.7, 0.49, 0.343 and stays at the cap', () => {
     expect(CONTRADICTION_CAP).toBe(3);
-    expect([0, 1, 2, 3, 4, 9, 1000].map(contradictionFactor)).toEqual([
+    expect([0, 1, 2, 3, 4, 9, 1000].map((k) => num(contradictionFactor(k)))).toEqual([
       1, 0.7, 0.49, 0.343, 0.343, 0.343, 0.343,
     ]);
   });
 
   it('reproduces the E2 confidences', () => {
     const base = 0.6;
-    expect([0, 1, 2, 3, 4].map((k) => roundReported(base * contradictionFactor(k)))).toEqual([
-      0.6, 0.42, 0.294, 0.2058, 0.2058,
-    ]);
+    expect(
+      [0, 1, 2, 3, 4].map((k) => roundReported(mul(fromNumber(base), contradictionFactor(k)))),
+    ).toEqual([0.6, 0.42, 0.294, 0.2058, 0.2058]);
   });
 });
 

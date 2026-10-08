@@ -16,6 +16,59 @@ question generation, interview mode, human final score, migration, table or rout
 is a pure library that nothing in the repository calls yet. No score is computed or shown for any real
 project. M5 is not started.
 
+## Review round 1 (independent hostile review of PR #5, head `ebf73a4`: FIX THEN RECHECK)
+
+Same branch, same PR, no M5 work, no new persistence, no model call, no migration (old migrations are
+unchanged, `pnpm db:generate` reports no schema changes). Prerequisite A's consistent-snapshot read fix
+and `createGraph` at `READ COMMITTED` are untouched.
+
+| Finding                        | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **F1 (P1)** mutable context    | `createTrustedScoringContext` now takes validated, deeply frozen COPIES (`snapshot.ts`: every record schema-parsed into new objects, caller index Maps compared with the ordered arrays and rejected on disagreement, indexes rebuilt from the copies; `rubric/locked.ts` for the locked snapshot) before integrity validation and fingerprinting. The authoritative graph is in a module-private `WeakMap`; the public context has no `graph`/`known`.                | `context.immutability.test.ts` (11): README key → source path cannot lift 0.15 to 0.60 (with a control that does at creation time); injected evidence is not citable and a phantom index entry is refused; mutating relations, contradictions, snapshots, provenance, labels and supersession leaves the report equal; the context is frozen and copies are refused; repeated runs share `outputHash`. Mutation proof: using the caller's references instead of the copy fails 3 of the 11. Capped-graph cost: 5,000 evidence + 5,000 claims + 5,000 relations create a context in about 120 ms. |
+| **F2 (P2)** rounding           | All arithmetic is exact rational (BigInt; `rational.ts`). Each double is read as the decimal its shortest representation spells, thresholds are compared exactly, and rounding is exact half-up once at output. `shareEpsilon` is gone (no epsilon exists). Dimension `scoreOnScale`, `score10`, strength, coverage and confidence are now rounded to four decimals like every other reported number; on-scale values are denormalized from the exact value.           | `rational.test.ts` (22): the reviewer's 0.5/0.5 with 7.0001 and 7.0036 → **7.0019**; 20,000 consecutive exact ties round up; 20,000 values at `m.4999999999e-4` stay down and 20,000 at `m.5000000001e-4` go up (so no epsilon is hiding); 20,000 random rationals and 20,000 binary-fraction ties match an independent BigInt reference; 400 random 0–10 rubrics and 300 random 1–5 rubrics (many exact ties) match a BigInt reference; exact threshold probes at 0.5 and 0.6 in `aggregate.test.ts`. Mutations: float `Math.round` fails 3, a `1e-9` epsilon fails 1.                          |
+| **F3 (P2)** unsafe scales      | `rubric/scale.ts`: endpoints finite, within ±1,000,000, `min < max`, exact range ≥ 0.01, else a typed `RUBRIC_INVALID` (path `rubric.scale`) before any normalization. Rationale in `SCORING.md` §13. Non-finite numbers are already refused by the locked-snapshot schema (`LOCKED_CONTEXT_INVALID`). No normal scale or weight changed.                                                                                                                              | `rubric/scale-locked.test.ts`: −1e308..1e308, 0..1e308, 0..1e-320, 0..5e-324, 0..0.001, ±1,000,001, equal and inverted all reject; 0–10, 1–5, 0–100, −5..5, 0–1, 0–0.01 and ±1e6 accept and score their endpoints exactly; the normalize/denormalize path round-trips exactly. Mutation (policy removed) fails 10.                                                                                                                                                                                                                                                                               |
+| **F4 (P2)** locked context     | `rubric/locked.ts`: schema-valid (a COPY is returned), `status = locked` (superseded is refused), version ≥ 1, 64-hex lowercase content hash, every source belongs to the snapshot's version, expected event, recomputed hash equal. Typed `LOCKED_CONTEXT_INVALID` / `LOCKED_CONTEXT_MISMATCH`. `SECURITY.md` §15 separates structural validation from authenticity: a self-consistent forged snapshot still passes and is the trusted adapter's (M5) responsibility. | `scale-locked.test.ts` (41 in the file incl. F3): null/{}/string/array, superseded/draft/in_review/missing status, malformed ids, bad version numbers, bad hashes, foreign source, other event, tampered document each reject; a test documents the forged-snapshot limitation. Four mutations (status, hash, source, event checks removed) each fail exactly the matching test.                                                                                                                                                                                                                 |
+| **F6** weaker overlapping cite | Behavior unchanged (approved design). Described in `SCORING.md` §13 and in code comments, and pinned by a test.                                                                                                                                                                                                                                                                                                                                                        | `overlap.test.ts` (5): a 0.60 passage gives 0.60/0.60; adding an overlapping 0.15 record gives 0.15/0.15 with `DUPLICATE_PROVENANCE_GROUPED` and `INCONSISTENT_CLASSIFICATION_RESOLVED`; a disjoint weaker record changes nothing; the judged score never moves. Mutation (group = max) fails 2.                                                                                                                                                                                                                                                                                                 |
+
+**Golden fixtures.** Regenerated once (`UPDATE_GOLDEN=1`) and the diff reviewed: every report's
+`parametersHash` (the epsilon parameter was replaced by the scale policy) and therefore its
+`outputHash`/fingerprints changed, and two reported numbers changed, both because IEEE arithmetic had
+rounded an exact tie DOWN: `ten-statements-one-source` overall confidence `0.00875` (7/800) is now 0.0088
+(was 0.0087) and `weak-but-well-supported` overall coverage `0.46625` (373/800) is now 0.4663 (was 0.4662).
+The inline headline assertions (E1–E14) are unchanged. The two rejection goldens for NaN/Infinity weights
+now record `LOCKED_CONTEXT_INVALID` (the schema refuses them before rubric rules).
+
+**Deviations from the approved design (R1).**
+
+1. **`scoring-engine/v1` was not renamed** although `parametersHash` and a few tie-rounded values changed.
+   The PR is unmerged and nothing was ever persisted or consumed, so there is no v1 output in the wild to
+   preserve; changing the version string would be misleading. If you want a bump anyway, it is a one-line
+   change plus regenerated goldens.
+2. **A `superseded` locked snapshot is now refused** (`status` must be `locked`). Reproducing an
+   assessment under a superseded Event Context is a deliberate M5 decision, not an M4 default.
+3. **Dimension `scoreOnScale` is now reported rounded to four decimals** (it was the raw judged number).
+   Judged inputs with more than four decimals are therefore shown rounded; the computation uses them exactly.
+4. **Added the issue code `LOCKED_CONTEXT_INVALID`** to the closed scoring vocabulary.
+5. **Official scales are restricted** (±1,000,000, range ≥ 0.01). No known real scale is affected.
+6. **Callers no longer see `context.graph`/`context.known`.** Nothing in the repository used them.
+
+**Verification (head of this round; CI results are recorded in the PR).**
+
+| Run                                                           | Result                                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `pnpm check` (format, lint, typecheck, db:check, test, build) | exit 0                                                                         |
+| `pnpm db:generate`                                            | "No schema changes, nothing to migrate"                                        |
+| `pnpm install --frozen-lockfile`                              | "Already up to date"                                                           |
+| `pnpm test` (PGlite)                                          | 81 files (80 passed, 1 skipped), 1,324 tests: **1,308 passed, 16 skipped**     |
+| `TEST_DATABASE_URL=… pnpm test` (PostgreSQL 16.15)            | 81 files, 1,583 tests: **1,582 passed, 1 skipped**                             |
+| `packages/scoring` alone                                      | 16 files, **390 tests** (was 305): golden + cross-process determinism included |
+| `git diff --check`; secrets scan                              | clean; no matches                                                              |
+
+**Remaining limitations after R1.** The engine still trusts whoever calls the context factory: a
+self-consistent forged locked snapshot or a forged `known`/graph passes structural checks (the graph is
+integrity-validated, but cannot be proven to be what the database holds). The M5 database adapter must be
+the only production caller. Semantic relevance of citations remains unverified.
+
 ## Scope delivered
 
 ### Prerequisite A — consistent graph reads (approved, kept)
@@ -165,8 +218,9 @@ recorded_only`); hashes cover the engine version, every parameter, the fallback 
 4. **Published weights "as they are"** applies only when _every_ criterion of the rubric is scored. A
    first implementation divided by nothing when a `not_applicable` criterion had been excluded and
    returned 7.2 instead of 8; a test caught it and it is fixed (mutation-checked).
-5. **`shareEpsilon` (1e-9)** is a documented parameter: scoring completion + impact + innovation + track
-   is exactly 0.60 of the fallback weight but IEEE arithmetic gives `0.5999999999999999` (a regression test).
+5. ~~`shareEpsilon` (1e-9)~~ **Superseded in review round 1:** exact rational arithmetic replaced the
+   epsilon, which could not fix decimal-tie rounding. Scoring completion + impact + innovation + track is
+   exactly 0.60 of the fallback weight and is now compared exactly (the regression test remains).
 6. **Provenance scope is specified more precisely than the design text:** a snapshot-level reference is
    its own scope, so a whole-snapshot statement never merges with (and never weakens) a code span.
 7. **Structural integrity findings that no valid database row can produce stay fatal**
@@ -183,6 +237,8 @@ recorded_only`); hashes cover the engine version, every parameter, the fallback 
    vocabulary; dimensions of a `not_applicable` criterion are omitted from `dimensions[]`.
 
 ## Tests
+
+_Numbers in this section are from the original PR head `ebf73a4`; the current ones are under "Review round 1" above._
 
 | Run                                                              | Result                                                                                             |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -232,7 +288,7 @@ regenerated file cannot silently change them:
 
 Seventeen deliberate breakages are each caught by at least three tests: noisy-OR instead of max (23
 failures), group strength = max (4), privileged label trusted (10), missing evidence zero-filled (12),
-epsilon removed (15), contradiction chain not followed (3), published weights used with a
+epsilon removed (15; obsolete after R1 — exact arithmetic replaced it), contradiction chain not followed (3), published weights used with a
 `not_applicable` criterion (3), a score kept without a usable citation (10), a claim label boosting
 strength (3), invented coverage for official criteria (8), a contradiction deducting from the score (8),
 snapshot-level merged with artifact-level provenance (4), overall confidence renormalized (7), an
@@ -279,7 +335,9 @@ collapsed: M4 adds the deterministic scoring stage only.
   cannot reward a second independent source inside one dimension; breadth shows only through coverage
   channels (fallback) and not at all for official criteria.
 - **Official-criteria confidence** (presence basis) is not comparable with fallback confidence.
-- **Linear-scale assumption** for non-0–10 official scales.
+- **Linear-scale assumption** for non-0–10 official scales (scales are limited to ±1,000,000, range ≥ 0.01).
+- **The locked snapshot and the graph are only structurally validated**; authenticity is the M5 adapter's job.
+- **A weaker citation overlapping a stronger one lowers confidence** (intentional, see SCORING.md §13).
 - **Fallback need-groups are provisional heuristics.** `qa_understanding` (max coverage 0) and
   `technical_ownership` (max 1/2) cannot be satisfied before M7; a deployment observation is one HTTP
   response and a video item is oEmbed metadata; event-context evidence is version-level.

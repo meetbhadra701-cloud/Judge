@@ -1,9 +1,9 @@
 {
   "infinite": [
     {
-      "code": "RUBRIC_INVALID",
-      "message": "Criterion 1 weight must be finite, greater than 0 and at most 1",
-      "path": "rubric.criteria.weight"
+      "code": "LOCKED_CONTEXT_INVALID",
+      "message": "Invalid input: expected number, received Infinity",
+      "path": "locked.document.rubrics.0.criteria.0.weight"
     }
   ],
   "negative-weight": [
@@ -20,9 +20,9 @@
   ],
   "not-a-number": [
     {
-      "code": "RUBRIC_INVALID",
-      "message": "Criterion 1 weight must be finite, greater than 0 and at most 1",
-      "path": "rubric.criteria.weight"
+      "code": "LOCKED_CONTEXT_INVALID",
+      "message": "Invalid input: expected number, received NaN",
+      "path": "locked.document.rubrics.0.criteria.0.weight"
     }
   ],
   "partially-weighted": [

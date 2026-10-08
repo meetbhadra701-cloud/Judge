@@ -1,4 +1,3 @@
-import { lockedContentHash } from '@judge-copilot/context';
 import {
   FALLBACK_RUBRIC_VERSION,
   IDENTIFIER_PATTERN,
@@ -10,6 +9,8 @@ import { compareText } from '../canonical.js';
 import { SCORING_PARAMETERS } from '../parameters.js';
 import { FALLBACK_RUBRIC_DEFINITION, FALLBACK_TRACK_CRITERION_KEY } from './fallback.js';
 import type { CriterionSpec, RubricSpec } from './spec.js';
+import { validateLockedSnapshot } from './locked.js';
+import { validateOfficialScale } from './scale.js';
 import { validatePublishedWeights } from './weights.js';
 
 /*
@@ -54,11 +55,27 @@ const issue = (code: ScoringIssue['code'], path: string, message: string): Scori
   message,
 });
 
+/**
+ * Standalone entry point: validates the locked snapshot structurally (status, schema, content hash)
+ * and works on the validated COPY. The trusted context factory validates the snapshot itself and
+ * calls {@link selectValidatedRubric}.
+ */
 export function selectRubric(input: SelectRubricInput): SelectRubricResult {
+  const locked = validateLockedSnapshot(input.locked, null);
+  if (!locked.ok) return { ok: false, issues: locked.issues };
+  return selectValidatedRubric(locked.locked, input.target, input.declaredTrackKeys);
+}
+
+/** ASSUMES `locked` already passed `validateLockedSnapshot`. */
+export function selectValidatedRubric(
+  locked: EventContextLockedSnapshot,
+  target: ScoringTarget,
+  declaredTrackKeysInput: readonly string[],
+): SelectRubricResult {
   const issues: ScoringIssue[] = [];
 
   const declared = new Set<string>();
-  input.declaredTrackKeys.forEach((key, index) => {
+  declaredTrackKeysInput.forEach((key, index) => {
     if (typeof key !== 'string' || !IDENTIFIER.test(key) || key.length > 100) {
       issues.push(
         issue('INVALID_INPUT', `declaredTrackKeys[${String(index)}]`, 'Not a valid track key'),
@@ -68,27 +85,12 @@ export function selectRubric(input: SelectRubricInput): SelectRubricResult {
     }
   });
   const declaredTrackKeys = [...declared].sort(compareText);
-
-  // The snapshot must still hash to what was locked: the rubric is the frozen published one.
-  const recomputed = lockedContentHash({
-    document: input.locked.document,
-    sources: input.locked.sources,
-  });
-  if (recomputed !== input.locked.lockedContentHash) {
-    issues.push(
-      issue(
-        'LOCKED_CONTEXT_MISMATCH',
-        'locked',
-        'The locked Event Context content does not match its recorded content hash',
-      ),
-    );
-  }
   if (issues.length > 0) return { ok: false, issues };
 
-  const { rubrics } = input.locked.document;
+  const { rubrics } = locked.document;
 
-  if (input.target.kind === 'track') {
-    const { trackKey } = input.target;
+  if (target.kind === 'track') {
+    const { trackKey } = target;
     if (!declared.has(trackKey)) {
       return {
         ok: false,
@@ -117,13 +119,13 @@ export function selectRubric(input: SelectRubricInput): SelectRubricResult {
         ],
       };
     }
-    return buildOfficial(input.locked, only, matches.length, declaredTrackKeys);
+    return buildOfficial(locked, only, matches.length, declaredTrackKeys);
   }
 
   const overall = rubrics.filter((rubric) => rubric.scope === 'overall');
   const [official] = overall;
-  if (official) return buildOfficial(input.locked, official, overall.length, declaredTrackKeys);
-  return { ok: true, rubric: buildFallback(input.locked, declaredTrackKeys), declaredTrackKeys };
+  if (official) return buildOfficial(locked, official, overall.length, declaredTrackKeys);
+  return { ok: true, rubric: buildFallback(locked, declaredTrackKeys), declaredTrackKeys };
 }
 
 function buildOfficial(
@@ -139,16 +141,8 @@ function buildOfficial(
 
   if (matchCount > 1) fail('The locked Event Context has more than one rubric for this target');
   if (rubric.criteria.length === 0) fail('The official rubric has no criteria');
-  if (
-    !Number.isFinite(rubric.scaleMin) ||
-    !Number.isFinite(rubric.scaleMax) ||
-    !(rubric.scaleMin < rubric.scaleMax)
-  ) {
-    fail(
-      'The official rubric scale must be finite with a minimum below its maximum',
-      'rubric.scale',
-    );
-  }
+  const scaleProblem = validateOfficialScale(rubric.scaleMin, rubric.scaleMax);
+  if (scaleProblem !== null) fail(scaleProblem, 'rubric.scale');
   const keys = new Set<string>();
   rubric.criteria.forEach((criterion, index) => {
     if (keys.has(criterion.key)) {

@@ -29,7 +29,7 @@ const context = createTrustedScoringContext({
   eventId,
   graph,
   known, // one consistent snapshot: EvidenceGraphStore.loadGraph
-  locked, // the locked Event Context snapshot (hash re-verified)
+  locked, // the locked Event Context snapshot (status, schema, event and hash re-verified)
   target, // { kind: 'overall' } | { kind: 'track', trackKey }
   declaredTrackKeys, // TRUSTED project facts, never an assessor payload
 });
@@ -43,6 +43,12 @@ Three inputs, three trust levels:
 | `context`   | trusted   | rubric, evidence graph and source facts, declared tracks; branded, frozen, factory-built     |
 | `options`   | caller    | only the explicit request for the unofficial equal-weight preview                            |
 | `judgments` | untrusted | a score or `insufficient_evidence` per dimension, plus citations classified from closed sets |
+
+The factory copies and deep-freezes everything it consumes (the locked snapshot, the graph and the
+source facts) _before_ validating and fingerprinting, and keeps the authoritative copy in module-private
+state; the returned context carries no `graph` or `known` property, so mutating the objects you passed in
+afterwards cannot change a report. The locked-snapshot checks are structural: they do not prove the
+snapshot is authentic (that is the trusted database adapter's job, M5).
 
 `judgments` is a strict schema: there is **no field** for attestations, verification levels, weights,
 rubric content or track declarations, and unknown keys are an error. An object that did not come from
@@ -61,7 +67,12 @@ JSON, so a model response can never be one.
 - **Trust is re-derived from structure.** `repo_corroborated` is producer-asserted and gets its own lower
   factor; privileged labels (`machine_verified`, `judge_verified`, `live_verified`) resolve to
   `unverified`. Claim labels are never an input.
-- **Strength = the maximum over provenance groups** (repetition adds nothing); contradictions lower
+- **Exact arithmetic.** All quantities are exact rationals (BigInt); thresholds are compared exactly and
+  each reported number is rounded once, exactly half-up, to four decimals. There is no epsilon.
+- **Official scales must be safe:** finite, within ±1,000,000, `min < max`, range ≥ 0.01; otherwise
+  `RUBRIC_INVALID`.
+- **Strength = the maximum over provenance groups** (repetition adds nothing; a group is as strong as its weakest record, so a weaker citation that overlaps
+  a stronger one **lowers** strength and confidence, by design); contradictions lower
   confidence, never the score; only recorded contradictions are counted, and the report says so.
 
 ## Provisional heuristics and their limits

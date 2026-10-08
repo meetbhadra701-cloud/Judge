@@ -321,10 +321,40 @@ division, when every dimension is assessed. Overall: the same over scored criter
 criteria leave numerator and denominator. Coverage, citation presence and confidence are weighted means
 over all applicable children (insufficient ones contribute their own, possibly zero, values).
 
-**Output.** Computation is unrounded; each reported number is rounded once, half-up, to four decimals,
-and rounded values are never inputs to another step. Reports are canonical JSON with a SHA-256
+**Exact arithmetic.** Every computed quantity is an exact rational number (BigInt numerator and
+denominator): each published weight, judged score and constant is read as the decimal its shortest
+representation spells (0.7 is 7/10, not a binary approximation), and sums, products, quotients,
+normalization to 0-10 and back, thresholds (0.5 criterion, 0.6 overall) and rounding are all exact. No
+floating-point tolerance or epsilon exists anywhere: a value exactly at a threshold satisfies it, and a
+value one part in 10^300 below does not. (An earlier draft used `1e-9`; it was removed.)
+
+**Output.** Computation is unrounded; each reported number is rounded once, **exactly half-up**, to
+four decimals (a value whose exact expansion ends in a 5 at the fifth place rounds up; one infinitesimally
+below it rounds down), and rounded values are never inputs to another step. This includes the
+dimension's `scoreOnScale`, `score10`, `evidenceStrength`, `coverage` and `confidence`, and
+the criterion and overall `scoreOnScale`, which is denormalized from the exact value, not from the rounded
+0-10 number. Binary floating point is only the representation of the final, already-rounded number. Reports are canonical JSON with a SHA-256
 `outputHash`; `inputFingerprint`, `graphFingerprint`, the rubric fingerprint and `parametersHash`
 identify what was computed from what.
+
+**Official scale policy.** An official rubric's own scale is accepted only if both endpoints are finite
+numbers within ±1,000,000, `min < max`, and the exact range `max − min` is at least 0.01. Rationale: the
+engine normalizes judged values to 0-10, aggregates and maps back, and the reported four-decimal values
+must be exactly representable (1e6 at four decimals is 1e10, far below 2^53) and distinguish at least 100
+steps of the scale. A range that overflows (`-1e308..1e308`), whose endpoints are astronomically large
+(`0..1e308`) or whose spacing is subnormal (`0..1e-320`) is rejected with a typed `RUBRIC_INVALID` before any
+normalization or scoring, and never silently clamped, widened or replaced by the fallback. Ordinary scales
+(0-10, 1-5, 0-100, −5..5, 0-1) are unchanged. The fallback scale is fixed at 0-10.
+
+**Conservative overlap (intentional).** Cited records of the same passage form one provenance group whose
+strength is the MINIMUM of its members (rule above), and the dimension takes the maximum over groups.
+Consequently, **adding a weaker citation that overlaps a stronger one can lower** the dimension's
+evidence strength and confidence (a 0.60 passage plus an overlapping 0.15 record of it gives 0.15), and a
+`DUPLICATE_PROVENANCE_GROUPED` / `INCONSISTENT_CLASSIFICATION_RESOLVED` diagnostic says so. This is the
+approved design: repeating or re-describing one passage must never raise strength, and a disagreement
+about how strong that single passage is resolves conservatively. It affects only the evidence-quality
+indices, never the judged score. A weaker record of a different passage does not lower anything.
+Changing this would be a new engine version.
 
 **What a report never establishes** (fixed notices in every report): contradiction coverage is
 `recorded_only` (only contradictions recorded in the graph are counted); `semanticRelevance` is

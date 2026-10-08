@@ -718,7 +718,7 @@
   ],
   "engineVersion": "scoring-engine/v1",
   "graphFingerprint": "5ca0ff3658b958e89cec6f97f5fda7c461840ccdc7413fb08fc0ef4c9ce356d4",
-  "inputFingerprint": "106f9c7986366e3b5b58d80bd4b444b352e7e91d9f268dbd4cb2a41d35df699a",
+  "inputFingerprint": "fb0c3e74facd4c1403c5b6bbbf119b331c383d0efdc0bc0e89b4bf47a530132e",
   "notices": {
     "claimLabels": "never_proof_of_truth",
     "confidenceMeaning": "index_not_probability",
@@ -726,7 +726,7 @@
     "parameterStatus": "heuristic_not_calibrated",
     "semanticRelevance": "not_verified"
   },
-  "outputHash": "de8dcc8e484bd33a98249f6d2ecc5c6e4d12f3dd852cf5338e51b3b147889342",
+  "outputHash": "bd26b83e344968dbf5d4b268673362ec7126874071ec65882599fbb798698a0a",
   "overall": {
     "assessedWeightShare": 0,
     "citationPresenceShare": null,
@@ -744,7 +744,7 @@
     "state": "insufficient_evidence",
     "weightBasis": "fallback"
   },
-  "parametersHash": "e4b028a19abac6bc5ad5034b2c4677506e7402954a5c474c6b16abd289c4d5e4",
+  "parametersHash": "d2bea4fd35f059a05e76564d3c6af75dfdf8a41519463cb54eff9ddd8a49b226",
   "rubric": {
     "contextContentHash": "199465bcf2b9106695d4defe9f65c364819f7ac1662f403ce19a47cab109207b",
     "contextVersionId": "c0000001-0000-4000-8000-000000000001",

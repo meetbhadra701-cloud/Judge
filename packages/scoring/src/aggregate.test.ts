@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { aggregate } from './aggregate.js';
 import { scoreProject } from './engine.js';
 import type { DimensionResult } from './dimension.js';
+import { fromNumber, ZERO } from './rational.js';
 import type { CriterionSpec, DimensionSpec, RubricSpec } from './rubric/spec.js';
 import {
   baseWorld,
@@ -73,16 +74,16 @@ function results(rubric: RubricSpec, values: Record<string, Stub | undefined>) {
         criterionKey: criterion.key,
         state: stub?.score === undefined ? 'insufficient_evidence' : 'assessed',
         reason: stub?.score === undefined ? 'assessor_reported_insufficient' : null,
-        scoreOnScale: stub?.score ?? null,
-        score10: stub?.score ?? null,
-        strength: 0,
+        scoreOnScale: stub?.score === undefined ? null : fromNumber(stub.score),
+        score10: stub?.score === undefined ? null : fromNumber(stub.score),
+        strength: ZERO,
         strongestEvidenceIds: [],
         satisfiedGroups: needs ? 0 : null,
         totalGroups: needs ? 1 : null,
-        coverage: needs ? (stub?.coverage ?? 0) : null,
+        coverage: needs ? fromNumber(stub?.coverage ?? 0) : null,
         citationPresence: needs ? null : (stub?.presence ?? 0),
         confidenceBasis: needs ? 'declared_needs_coverage' : 'citation_presence',
-        confidence: stub?.confidence ?? 0,
+        confidence: fromNumber(stub?.confidence ?? 0),
         contradictionIds: [],
         mappedClaimIds: new Set(),
         mappedUnknownIds: [],
@@ -398,7 +399,7 @@ describe('overall aggregation', () => {
 });
 
 describe('thresholds and floating-point representation', () => {
-  it('0.6 of the weight is scored even though IEEE arithmetic computes 0.5999999999999999 (the epsilon)', () => {
+  it('0.6 of the weight is scored even though IEEE arithmetic computes 0.5999999999999999 (exact arithmetic needs no epsilon)', () => {
     const g = baseWorld();
     const dev = devpostEvidence(g, uid(1, 'e7000001'));
     const ctx = makeContext(g.build(), lockedSnapshot({ trackKeys: ['ai_track'] }), {
@@ -453,5 +454,54 @@ describe('thresholds and floating-point representation', () => {
       state: 'insufficient_evidence',
       assessedWeightShare: 0.5,
     });
+  });
+});
+
+describe('thresholds are compared exactly, with no tolerance in either direction', () => {
+  const overallState = (first: number, second: number, scoreFirstOnly = true) => {
+    const rubric = rubricOf(
+      [
+        { key: 'a', weight: first, dims: [['d', 1]] },
+        { key: 'b', weight: second, dims: [['d', 1]] },
+      ],
+      { weightBasis: 'official' },
+    );
+    const values = scoreFirstOnly
+      ? { 'a.d': { score: 5 } }
+      : { 'a.d': { score: 5 }, 'b.d': { score: 5 } };
+    return aggregate(rubric, results(rubric, values), false).overall;
+  };
+
+  it('overall: exactly 0.6 of the weight is enough, one part in 10^7 less is not, more is', () => {
+    expect(overallState(0.6, 0.4).state).toBe('scored_partial');
+    expect(overallState(0.5999999, 0.4000001).state).toBe('insufficient_evidence');
+    expect(overallState(0.6000001, 0.3999999).state).toBe('scored_partial');
+    // Many decimal splits that sum to one in decimals but not in binary floating point.
+    for (const [x, y] of [
+      [0.1 + 0.5, 0.4],
+      [0.3 + 0.3, 0.4],
+      [0.2 + 0.2 + 0.2, 0.4],
+    ] as const) {
+      expect(overallState(Math.round(x * 1e7) / 1e7, y).state).toBe('scored_partial');
+    }
+  });
+
+  it('criterion: exactly 0.5 is partial, 0.4999999 is insufficient, 0.5000001 is partial', () => {
+    const state = (first: number, second: number) => {
+      const rubric = rubricOf([
+        {
+          key: 'c',
+          weight: 1,
+          dims: [
+            ['a', first],
+            ['b', second],
+          ],
+        },
+      ]);
+      return only(aggregate(rubric, results(rubric, { 'c.a': { score: 5 } }), false), 'c').state;
+    };
+    expect(state(0.5, 0.5)).toBe('partial');
+    expect(state(0.4999999, 0.5000001)).toBe('insufficient_evidence');
+    expect(state(0.5000001, 0.4999999)).toBe('partial');
   });
 });

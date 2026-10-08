@@ -16,6 +16,15 @@ Implemented on this branch: **prerequisite A** (§1), a **characterization audit
 (§2) and clarifying policy text in `docs/SCORING.md` (§12 and two notes). No AI calls, no assessment
 persistence, no M5/M6 work, no migration; `createGraph` stays `READ COMMITTED`.
 
+> **Review round 1 (after the implementation PR).** An independent review of the implementation led to
+> four changes to what this document describes: (1) the context owns a private, validated, frozen
+> snapshot of the graph and source facts (§3 trust boundary); (2) all arithmetic is exact rational and
+> there is no `shareEpsilon` (§5 "Rounding" and thresholds); (3) official scales must be safe (§4);
+> (4) the locked snapshot must be `locked`, schema-valid and hash/event consistent (§3). It also records
+> that a weaker overlapping citation lowering a group is intended (§5 D8). See
+> [M4-report.md](./M4-report.md) "Review round 1" and `docs/SCORING.md` §13. The approved formulas and
+> constants are unchanged; `scoring-engine/v1` is unchanged.
+
 ## 0. Decision log (owner review of revision 1)
 
 | #   | Decision                                              | Revision 2 outcome                                                                                                             |

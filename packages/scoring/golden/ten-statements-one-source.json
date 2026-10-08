@@ -761,7 +761,7 @@
   ],
   "engineVersion": "scoring-engine/v1",
   "graphFingerprint": "0e163b9461e696409148e80309620b90cce483da4a0635f59c9da2ac7cc7f769",
-  "inputFingerprint": "70411fd6b5f6f960d3ea2d8695602f985780259250652def19575e7b46b3bc7e",
+  "inputFingerprint": "d9c6b1390c36d9203cfbce6dc94a86f7ec70aec0c36bc81461f4164b44ac5904",
   "notices": {
     "claimLabels": "never_proof_of_truth",
     "confidenceMeaning": "index_not_probability",
@@ -769,11 +769,11 @@
     "parameterStatus": "heuristic_not_calibrated",
     "semanticRelevance": "not_verified"
   },
-  "outputHash": "7a95e74b6cba95a737f922e1861f8a7e050e75d25bb4a6d269aceee483a9a614",
+  "outputHash": "32d6c6407975170cdf6ca9f7aad1993d7d75155668436a08db25f8a5001a7d47",
   "overall": {
     "assessedWeightShare": 0,
     "citationPresenceShare": null,
-    "confidence": 0.0087,
+    "confidence": 0.0088,
     "coverage": 0.025,
     "missingCriterionKeys": [
       "completion_functionality",
@@ -787,7 +787,7 @@
     "state": "insufficient_evidence",
     "weightBasis": "fallback"
   },
-  "parametersHash": "e4b028a19abac6bc5ad5034b2c4677506e7402954a5c474c6b16abd289c4d5e4",
+  "parametersHash": "d2bea4fd35f059a05e76564d3c6af75dfdf8a41519463cb54eff9ddd8a49b226",
   "rubric": {
     "contextContentHash": "199465bcf2b9106695d4defe9f65c364819f7ac1662f403ce19a47cab109207b",
     "contextVersionId": "c0000001-0000-4000-8000-000000000001",

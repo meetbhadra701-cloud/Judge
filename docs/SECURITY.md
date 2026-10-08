@@ -314,9 +314,29 @@ processes spawned by integration tests. Any non-loopback connection attempt thro
   judgments schema; the rubric, graph and declared tracks are a branded, frozen context built by a
   validating factory, and an object that did not come from it is refused. Project text is never read by
   the engine at all (free text is not even part of the graph fingerprint).
+- **[M4] The context owns a private, validated, frozen snapshot.** The graph and source-fact Maps a caller
+  passes in are mutable and caller-owned (`Object.freeze` does not protect a Map's contents), so the
+  factory never keeps them. It schema-parses every record into new objects, rebuilds the indexes from
+  those copies, deep-freezes them, and then validates integrity, fingerprints and scores that snapshot
+  and nothing else. The authoritative state lives in a module-private `WeakMap` keyed by the context
+  object; the public context exposes only frozen, read-only values (rubric, declared tracks, fingerprint,
+  diagnostics) and has no `graph` or `known` property. Mutating the original objects after creation (an
+  artifact key, injected evidence, relations, contradictions, snapshots, provenance, labels,
+  supersession) cannot change a report, and a spread, JSON or structured-clone copy of a context is
+  refused as untrusted.
+- **[M4] Locked Event Context: structural validation, not authenticity.** The factory requires the locked
+  snapshot to be schema-valid, `status = locked`, of the expected event, with sane version metadata and a
+  well-formed content hash, sources belonging to its own version, and a recomputed content hash equal to
+  the recorded one. These checks detect accidental or careless inconsistency. They do **not** prove the
+  snapshot came from the database: someone who can construct the object in process can forge a different
+  rubric and recompute a matching hash, and the engine cannot tell. Authenticity is the responsibility of
+  the trusted adapter that reads the locked snapshot (and the project's declared tracks) from the
+  database; that adapter is M5 work, and until it exists the context factory must only be called from
+  trusted code.
 - **[M4] Fail closed.** Invented, malformed or other-project evidence IDs, duplicate citations, scores
   outside the published scale, unknown or missing dimensions, a mixed-project or structurally broken
-  graph, invalid published weights and a tampered locked context each reject the whole request.
+  graph, invalid published weights, an unsafe official scale and a malformed, superseded or tampered locked
+  context each reject the whole request.
 - **[M4] Structure, not semantics.** A cited item may be semantically unrelated to its dimension. The
   engine validates IDs, project, kind and provenance structure and states `semanticRelevance:
 not_verified` in every report. Verifying relevance, and meaningful provenance spans, is a prerequisite

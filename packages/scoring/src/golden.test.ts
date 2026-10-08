@@ -219,8 +219,12 @@ describe('rejection goldens: invalid weights and invalid IDs are rejected, never
       });
       expect(result.ok, name).toBe(false);
       if (!result.ok) {
+        // Non-finite numbers are refused by the locked-snapshot schema itself, before rubric rules.
+        const expected = ['not-a-number', 'infinite'].includes(name)
+          ? 'LOCKED_CONTEXT_INVALID'
+          : 'RUBRIC_INVALID';
         expect(
-          result.issues.every((issue) => issue.code === 'RUBRIC_INVALID'),
+          result.issues.every((issue) => issue.code === expected),
           name,
         ).toBe(true);
         issues[name] = result.issues;

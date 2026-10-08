@@ -1,4 +1,5 @@
 import { deepFreeze } from './freeze.js';
+import { fromNumber, ZERO, type Rational } from './rational.js';
 import {
   FALLBACK_RUBRIC_VERSION,
   SCORING_ENGINE_VERSION,
@@ -53,13 +54,26 @@ export const SCORING_PARAMETERS = deepFreeze({
    */
   contradictionFactors: [1, 0.7, 0.49, 0.343],
 
-  /** Minimum share of weight that must be assessed before a number is reported. */
+  /**
+   * Minimum share of weight that must be assessed before a number is reported. Compared EXACTLY
+   * (rational arithmetic on the decimal values), with no tolerance: a share just below a
+   * threshold is below it.
+   */
   minAssessedShare: { criterion: 0.5, overall: 0.6 },
-  /** Absorbs binary representation noise when a share is compared with a threshold. */
-  shareEpsilon: 1e-9,
 
-  /** Reported numbers are rounded once, half-up, to this many decimals; never fed back. */
+  /**
+   * Reported numbers are rounded once, half-up, to this many decimals, on the exact value; the
+   * rounded number is never fed back into a later step.
+   */
   roundingDecimals: 4,
+
+  /**
+   * The official scales the engine accepts (see `rubric/scale.ts`): finite endpoints within
+   * +/- maxMagnitude and a range of at least minRange. Rationale: every normalized, denormalized
+   * and four-decimal-rounded value must be an exactly representable double, and a scale narrower
+   * than minRange could not be told apart at the reporting precision.
+   */
+  officialScale: { maxMagnitude: 1_000_000, minRange: 0.01 },
 
   /** The fallback rubric's scale. */
   fallbackScale: { min: 0, max: 10 },
@@ -68,7 +82,11 @@ export const SCORING_PARAMETERS = deepFreeze({
 /** The largest number of contradictions that still lowers confidence. */
 export const CONTRADICTION_CAP = SCORING_PARAMETERS.contradictionFactors.length - 1;
 
-export function contradictionFactor(distinctContradictions: number): number {
+const CONTRADICTION_FACTORS: readonly Rational[] =
+  SCORING_PARAMETERS.contradictionFactors.map(fromNumber);
+
+/** Exact: 1, 7/10, 49/100, 343/1000. */
+export function contradictionFactor(distinctContradictions: number): Rational {
   const index = Math.min(distinctContradictions, CONTRADICTION_CAP);
-  return SCORING_PARAMETERS.contradictionFactors[index] ?? 0;
+  return CONTRADICTION_FACTORS[index] ?? ZERO;
 }

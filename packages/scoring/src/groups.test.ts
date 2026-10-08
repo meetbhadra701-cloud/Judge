@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { groupByProvenance, type GroupableItem } from './groups.js';
+import { fromNumber, type Rational } from './rational.js';
 import { seeded, uid } from './testing/builders.js';
 
 const SNAP = uid(1, 'f1000001');
@@ -10,13 +11,16 @@ const CTX = uid(1, 'f3000001');
 
 let n = 0;
 const item = (
-  overrides: Omit<Partial<GroupableItem>, 'span'> & { span?: [number, number] | null },
+  overrides: Omit<Partial<GroupableItem>, 'span' | 'strength'> & {
+    span?: [number, number] | null;
+    strength?: number;
+  },
 ): GroupableItem => {
   n += 1;
-  const { span, ...rest } = overrides;
+  const { span, strength, ...rest } = overrides;
   return {
     id: uid(n, 'e2000001'),
-    strength: 0.6,
+    strength: fromNumber(strength ?? 0.6),
     snapshotId: SNAP,
     artifactId: ART,
     span: span ? { start: span[0], end: span[1] } : null,
@@ -25,6 +29,12 @@ const item = (
   };
 };
 
+const num = (value: Rational | undefined): number | undefined =>
+  value && Number(value.n) / Number(value.d);
+const stable = (value: unknown): string =>
+  JSON.stringify(value, (_key, entry: unknown) =>
+    typeof entry === 'bigint' ? entry.toString() : entry,
+  );
 const ids = (groups: ReturnType<typeof groupByProvenance>) => groups.map((g) => g.memberIds);
 
 describe('provenance grouping', () => {
@@ -106,13 +116,13 @@ describe('provenance grouping', () => {
     const strong = item({ strength: 0.6, span: [0, 10] });
     const weak = item({ strength: 0.126, span: [5, 15] });
     const [group] = groupByProvenance([strong, weak]);
-    expect(group?.strength).toBe(0.126);
+    expect(num(group?.strength)).toBe(0.126);
     expect(group?.inconsistent).toBe(true);
     const [equal] = groupByProvenance([
       item({ strength: 0.6, span: [0, 10] }),
       item({ strength: 0.6, span: [5, 15] }),
     ]);
-    expect(equal?.strength).toBe(0.6);
+    expect(num(equal?.strength)).toBe(0.6);
     expect(equal?.inconsistent).toBe(false);
   });
 
@@ -121,8 +131,8 @@ describe('provenance grouping', () => {
     const copies = Array.from({ length: 20 }, () => item({ strength: 0.6, span: [0, 10] }));
     const [alone] = groupByProvenance([original]);
     const [repeated] = groupByProvenance([original, ...copies]);
-    expect(repeated?.strength).toBe(Math.min(0.35, 0.6));
-    expect(repeated?.strength).toBeLessThanOrEqual(alone?.strength ?? 0);
+    expect(num(repeated?.strength)).toBe(0.35);
+    expect(num(repeated?.strength)).toBeLessThanOrEqual(num(alone?.strength) ?? 0);
   });
 
   it('is independent of input order (all 120 permutations of five records)', () => {
@@ -144,9 +154,8 @@ describe('provenance grouping', () => {
           );
     const all = permutations(base);
     expect(all).toHaveLength(120);
-    const expected = JSON.stringify(groupByProvenance(base));
-    for (const permutation of all)
-      expect(JSON.stringify(groupByProvenance(permutation))).toBe(expected);
+    const expected = stable(groupByProvenance(base));
+    for (const permutation of all) expect(stable(groupByProvenance(permutation))).toBe(expected);
   });
 
   it('is independent of input order for random overlapping sets (seeded)', () => {
@@ -162,9 +171,7 @@ describe('provenance grouping', () => {
         });
       });
       const shuffled = [...items].sort(() => random() - 0.5).reverse();
-      expect(JSON.stringify(groupByProvenance(shuffled))).toBe(
-        JSON.stringify(groupByProvenance(items)),
-      );
+      expect(stable(groupByProvenance(shuffled))).toBe(stable(groupByProvenance(items)));
     }
   });
 
