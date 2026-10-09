@@ -4,6 +4,7 @@ import type {
   ModelUnknownType,
   UnknownIdentificationOutput,
 } from '@judge-copilot/schemas';
+import { shownHandles, type ClosedSet } from './closed-set.js';
 import type { GateOutcome } from './extraction.js';
 import type { Rejection } from './issues.js';
 import { containsAccusation } from './neutral.js';
@@ -36,8 +37,11 @@ const sideKey = (side: { type: string; handle: string }): string => `${side.type
 export function gateContradictions(
   output: ContradictionDetectionOutput,
   world: CommentaryWorld,
+  shown: Pick<ClosedSet, 'claims' | 'evidence'>,
   existing: readonly ProposedContradiction[] = [],
 ): GateOutcome<ProposedContradiction> {
+  const shownClaims = shownHandles(shown, 'claims');
+  const shownEvidence = shownHandles(shown, 'evidence');
   const accepted: ProposedContradiction[] = [];
   const rejected: Rejection[] = [];
   const pairs = new Set(existing.map((c) => [sideKey(c.sideA), sideKey(c.sideB)].sort().join('|')));
@@ -47,6 +51,10 @@ export function gateContradictions(
         const present =
           side.type === 'claim' ? world.claims.has(side.handle) : world.evidence.has(side.handle);
         if (!present) return 'unknown_side';
+        // a real record that THIS call did not show cannot be a side of a contradiction found in it
+        const wasShown =
+          side.type === 'claim' ? shownClaims.has(side.handle) : shownEvidence.has(side.handle);
+        if (!wasShown) return 'side_not_shown';
       }
       if (sideKey(item.sideA) === sideKey(item.sideB)) return 'same_side';
       // A claim and its own statement item are the same words: they cannot contradict each other.
@@ -89,8 +97,11 @@ export interface ProposedUnknown {
 export function gateUnknowns(
   output: UnknownIdentificationOutput,
   world: CommentaryWorld,
+  shown: Pick<ClosedSet, 'claims' | 'evidence'>,
   existing: readonly ProposedUnknown[] = [],
 ): GateOutcome<ProposedUnknown> {
+  const shownClaims = shownHandles(shown, 'claims');
+  const shownEvidence = shownHandles(shown, 'evidence');
   const accepted: ProposedUnknown[] = [];
   const rejected: Rejection[] = [];
   output.unknowns.forEach((item, index) => {
@@ -98,6 +109,8 @@ export function gateUnknowns(
       if ((item.unknownType as string) === 'missing') return 'missing_is_code_authored';
       if (item.claims.some((handle) => !world.claims.has(handle))) return 'unknown_claim';
       if (item.evidence.some((handle) => !world.evidence.has(handle))) return 'unknown_evidence';
+      if (item.claims.some((handle) => !shownClaims.has(handle))) return 'claim_not_shown';
+      if (item.evidence.some((handle) => !shownEvidence.has(handle))) return 'evidence_not_shown';
       if (new Set(item.claims).size !== item.claims.length) return 'duplicate_reference';
       if (new Set(item.evidence).size !== item.evidence.length) return 'duplicate_reference';
       if (containsAccusation(item.text)) return 'accusatory_language';

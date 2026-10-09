@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import * as stage from './stage.js';
+const { validateFidelityReview } = stage;
 import {
   indexPassages,
   pendingReviews,
@@ -6,11 +8,7 @@ import {
   type AdmittedClaim,
   type AdmittedEvidence,
 } from './extraction.js';
-import {
-  validateClaimExtraction,
-  validateEvidenceInterpretation,
-  validateFidelityReview,
-} from './stage.js';
+import { validateClaimExtraction, validateEvidenceInterpretation } from './testing/calls.js';
 import { artifact, hydroTrackArtifacts } from './testing/world.js';
 import { buildPassages, type Passage } from './windowing.js';
 
@@ -119,7 +117,8 @@ describe('G1: claim admission', () => {
     );
     expect(malformed.ok).toBe(false);
     expect(!malformed.ok && malformed.phase).toBe('shape');
-    const wrongRoute = validateClaimExtraction(
+    // even when a (buggy) renderer showed the repository passage to the claim stage, the route check still holds
+    const wrongRoute = stage.validateClaimExtraction(
       claimsOutput(code.handle, [
         {
           text: 'It rejects non-positive amounts.',
@@ -127,6 +126,7 @@ describe('G1: claim admission', () => {
         },
       ]),
       index,
+      { passages: passages.map((p) => p.handle) },
     );
     expect(wrongRoute.ok && wrongRoute.rejected.map((r) => r.code)).toEqual([
       'passage_not_statement',
@@ -317,7 +317,7 @@ describe('G2: interpreted evidence admission', () => {
     expect(accept<AdmittedEvidence>(ok)[0]?.sourceType).toBe('deployment');
     expect(accept<AdmittedEvidence>(ok)[0]?.artifactClass).toBe('deployment_observation');
     const devpost = passageOf(passages, 'submission.txt');
-    const wrong = validateEvidenceInterpretation(
+    const wrong = stage.validateEvidenceInterpretation(
       {
         evidence: [
           {
@@ -329,6 +329,7 @@ describe('G2: interpreted evidence admission', () => {
         ],
       },
       index,
+      { passages: passages.map((p) => p.handle) },
     );
     expect(wrong.ok && wrong.rejected.map((r) => r.code)).toEqual(['passage_not_repository']);
   });
@@ -366,6 +367,16 @@ describe('G2: interpreted evidence admission', () => {
     expect(item?.grounding).toBe('exact_text');
   });
 });
+
+/** One fidelity call whose prompt showed every pending item (a single batch). */
+const resolveOne = (
+  claims: readonly AdmittedClaim[],
+  evidence: readonly AdmittedEvidence[],
+  verdicts: { item: string; verdict: 'faithful' | 'overstated' | 'unfaithful' | 'cannot_tell' }[],
+) =>
+  resolveFidelity(claims, evidence, [
+    { shown: pendingReviews(claims, evidence).map((p) => p.handle), verdicts },
+  ]);
 
 describe('G2b: fidelity of paraphrases', () => {
   function admitted() {
@@ -410,7 +421,7 @@ describe('G2b: fidelity of paraphrases', () => {
 
   it('admits a paraphrase only with exactly one faithful verdict, and the statement stays verbatim', () => {
     const { claims, evidence } = admitted();
-    const result = resolveFidelity(claims, evidence, [
+    const result = resolveOne(claims, evidence, [
       { item: 'C-002', verdict: 'faithful' },
       { item: 'E-001', verdict: 'faithful' },
     ]);
@@ -433,7 +444,7 @@ describe('G2b: fidelity of paraphrases', () => {
     '%s: downgrades to the verbatim words and records it',
     (verdict) => {
       const { claims, evidence } = admitted();
-      const result = resolveFidelity(claims, evidence, [
+      const result = resolveOne(claims, evidence, [
         { item: 'C-002', verdict },
         { item: 'E-001', verdict },
       ]);
@@ -468,7 +479,7 @@ describe('G2b: fidelity of paraphrases', () => {
         index,
       ),
     );
-    const result = resolveFidelity(claims, [], [{ item: 'C-001', verdict: 'unfaithful' }]);
+    const result = resolveOne(claims, [], [{ item: 'C-001', verdict: 'unfaithful' }]);
     expect(result.claims).toEqual([]);
     expect(result.dispositions).toEqual([
       { handle: 'C-001', disposition: 'claim_dropped_unfaithful' },
@@ -477,7 +488,7 @@ describe('G2b: fidelity of paraphrases', () => {
 
   it('admits NOTHING unreviewed when the review is unavailable (empty answer)', () => {
     const { claims, evidence } = admitted();
-    const result = resolveFidelity(claims, evidence, []);
+    const result = resolveOne(claims, evidence, []);
     expect(result.claims.every((c) => c.grounding === 'exact_text')).toBe(true);
     expect(result.evidence.every((e) => e.grounding === 'exact_text')).toBe(true);
     expect(result.claims.map((c) => c.text)).not.toContain(
@@ -488,7 +499,7 @@ describe('G2b: fidelity of paraphrases', () => {
 
   it('rejects verdicts for unknown or non-reviewed items and duplicates, without admitting', () => {
     const { claims, evidence } = admitted();
-    const result = resolveFidelity(claims, evidence, [
+    const result = resolveOne(claims, evidence, [
       { item: 'C-001', verdict: 'faithful' }, // verbatim: never reviewed
       { item: 'C-099', verdict: 'faithful' },
       { item: 'C-002', verdict: 'faithful' },
@@ -508,10 +519,11 @@ describe('G2b: fidelity of paraphrases', () => {
 
   it('runs behind the strict schema: an unknown verdict word is a shape failure', () => {
     const { claims, evidence } = admitted();
+    const pending = pendingReviews(claims, evidence);
     const result = validateFidelityReview(
       { verdicts: [{ item: 'C-002', verdict: 'verified' }] },
-      claims,
-      evidence,
+      { items: pending.map((p) => p.handle) },
+      pending,
     );
     expect(result.ok).toBe(false);
   });

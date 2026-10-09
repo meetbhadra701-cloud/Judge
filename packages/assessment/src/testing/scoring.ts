@@ -1,5 +1,11 @@
 /* Test-only: wires the pure P3 output into the M4 engine, the way the P5 orchestrator will. */
-import { buildEvidenceGraph, type EvidenceGraph, type PlannedGraph } from '@judge-copilot/evidence';
+import {
+  buildEvidenceGraph,
+  type EvidenceGraph,
+  type EvidenceGraphRecords,
+  type KnownEntities,
+  type PlannedGraph,
+} from '@judge-copilot/evidence';
 import {
   createTrustedScoringContext,
   scoreProject,
@@ -13,10 +19,14 @@ import {
   buildEventReferenceItems,
   buildPlanContext,
   dryRunPlan,
+  referenceMetaByEvidenceId,
+  membersHash,
   membersOf,
   recordsFromPlan,
   scopeGraph,
+  type EventReferenceMeta,
   type ExtractionMembers,
+  type VerifiedScopeInput,
   type ExtractionRecords,
   type UnitCandidates,
 } from '../index.js';
@@ -32,6 +42,10 @@ export interface Built {
   readonly units: UnitCandidates[];
   readonly locked: EventContextLockedSnapshot;
   readonly byHandle: ReadonlyMap<string, string>;
+  readonly known: KnownEntities;
+  /** The verified-scope inputs (project, event, authoritative facts, committed membership) and the unscoped records. */
+  readonly scopeInput: VerifiedScopeInput;
+  readonly records: EvidenceGraphRecords;
 }
 
 export function build(
@@ -61,11 +75,13 @@ export function build(
   if (!main.ok) throw new Error(`plan rejected: ${JSON.stringify(main.issues)}`);
   const reference = buildEventReferenceItems(locked, declared);
   const parts: PlannedGraph[] = [main.graph];
+  let eventReferences: ReadonlyMap<string, EventReferenceMeta> = new Map();
   if (reference.items.length > 0) {
     const contextPlan = dryRunPlan(assembleContextBatch(reference.items, VERSION_ID), world);
     if (!contextPlan.ok)
       throw new Error(`context plan rejected: ${JSON.stringify(contextPlan.issues)}`);
     parts.push(contextPlan.graph);
+    eventReferences = referenceMetaByEvidenceId(contextPlan.graph.evidence, reference.items);
   }
   const planned: PlannedGraph = {
     claims: parts.flatMap((p) => p.claims),
@@ -77,7 +93,14 @@ export function build(
   const records = recordsFromPlan(planned, { projectId: PROJECT_ID, eventId: EVENT_ID });
   const members = membersOf(planned);
   const known = buildPlanContext(world);
-  const scoped = scopeGraph(records, members, { known });
+  const scopeInput: VerifiedScopeInput = {
+    projectId: PROJECT_ID,
+    eventId: EVENT_ID,
+    known,
+    expectedMembersHash: membersHash(members),
+    members,
+  };
+  const scoped = scopeGraph(records, scopeInput);
   if (!scoped.ok) throw new Error(`scope rejected: ${JSON.stringify(scoped.issues)}`);
   const result = createTrustedScoringContext({
     projectId: PROJECT_ID,
@@ -89,7 +112,13 @@ export function build(
     declaredTrackKeys: declared,
   });
   if (!result.ok) throw new Error(`context rejected: ${JSON.stringify(result.issues)}`);
-  const units = buildCandidateSets({ graph: scoped.graph, known, rubric: result.context.rubric });
+  const units = buildCandidateSets({
+    graph: scoped.graph,
+    known,
+    rubric: result.context.rubric,
+    declaredTrackKeys: declared,
+    eventReferences,
+  });
   // handle (C-/E-) -> planned id, through the batch refs
   const byHandle = new Map<string, string>();
   for (const [handle, ref] of assembled.claimRefs) {
@@ -109,6 +138,9 @@ export function build(
     units,
     locked,
     byHandle,
+    known,
+    scopeInput,
+    records,
   };
 }
 

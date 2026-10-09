@@ -5,7 +5,7 @@ import {
   validateRelationMatching,
   validateRelationVerification,
   validateUnknowns,
-} from './stage.js';
+} from './testing/calls.js';
 import { extract } from './testing/pipeline.js';
 
 const ex = extract();
@@ -200,13 +200,17 @@ describe('G3b: relation verification', () => {
   );
 
   it('drops a missing or duplicated verdict and flags the protocol violation', () => {
-    const result = resolveVerification(pairs, {
-      verdicts: [
-        { pair: 'X-001', verdict: 'supports' },
-        { pair: 'X-001', verdict: 'supports' },
-        { pair: 'X-077', verdict: 'supports' },
-      ],
-    });
+    const result = resolveVerification(
+      pairs,
+      {
+        verdicts: [
+          { pair: 'X-001', verdict: 'supports' },
+          { pair: 'X-001', verdict: 'supports' },
+          { pair: 'X-077', verdict: 'supports' },
+        ],
+      },
+      { pairs: pairs.map((p) => p.handle) },
+    );
     expect(result.dropped.map((d) => [d.pair, d.reason])).toEqual([
       ['X-001', 'verdict_duplicated'],
       ['X-002', 'verdict_missing'],
@@ -219,12 +223,16 @@ describe('G3b: relation verification', () => {
   });
 
   it('a verifier that answers supports to everything cannot raise anything: it can only confirm a proposal', () => {
-    const result = resolveVerification(pairs, {
-      verdicts: [
-        { pair: 'X-001', verdict: 'supports' },
-        { pair: 'X-002', verdict: 'supports' },
-      ],
-    });
+    const result = resolveVerification(
+      pairs,
+      {
+        verdicts: [
+          { pair: 'X-001', verdict: 'supports' },
+          { pair: 'X-002', verdict: 'supports' },
+        ],
+      },
+      { pairs: pairs.map((p) => p.handle) },
+    );
     expect(result.kept.map((r) => [r.claim, r.type])).toEqual([['C-001', 'supports']]); // X-002 proposed contradicts
   });
 });

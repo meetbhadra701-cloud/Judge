@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decideAfterCritic, gateCritic, RERUN_CAPS, type CriticFinding } from './critic.js';
-import { validateCritic } from './stage.js';
+import { validateCritic } from './testing/calls.js';
 
 const SHOWN = new Set(['E-001', 'E-002', 'E-003']);
 const UNIT = 'official.problem_fit';
@@ -45,8 +45,7 @@ describe('G7: critic output', () => {
           finding({ note: 'The team cheated.' }),
         ],
       },
-      UNIT,
-      SHOWN,
+      { unit: UNIT, evidence: [...SHOWN] },
     );
     expect(result.ok).toBe(false);
     expect(!result.ok && result.issues.map((i) => i.code).sort()).toEqual([

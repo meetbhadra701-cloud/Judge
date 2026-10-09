@@ -3,6 +3,8 @@ import {
   buildEvidenceGraph,
   deterministicIdAllocator,
   planEvidenceGraphBatch,
+  checkProvenanceReferences,
+  checkProvenanceShape,
   validateGraphIntegrity,
   type EvidenceGraph,
   type EvidenceGraphRecords,
@@ -14,6 +16,7 @@ import {
 } from '@judge-copilot/evidence';
 import {
   EvidenceGraphBatchInput,
+  Uuid,
   type ClaimRecord,
   type ContradictionRecord,
   type EvidenceRecord,
@@ -518,32 +521,127 @@ const LABEL_ONLY_INTEGRITY: readonly string[] = [
 ];
 
 /**
- * The pure core of P4's trusted reader: from ALL records of a project and one extraction's explicit member IDs, produce the scoped
- * graph, or fail closed. Records that are not members (older extractions, other producers, foreign relations that merely reference a
- * member) are excluded wholesale and cannot reach a report.
+ * Everything an AUTHORITATIVE scoping needs, all REQUIRED (review F3). A caller cannot obtain a verified scope by leaving one out:
+ * a missing or malformed trust input fails closed with `trust_input_missing`; there is no "skip the provenance checks" mode.
+ *
+ * This function does not authenticate the database. It verifies the loaded records against the facts the CALLER supplies, so P4
+ * must read those facts from independent, authorized database reads: the project and event from the run row, `known` from the pinned
+ * snapshots / artifacts (with readable text for every cited span) / context version, and the member ids and membership hash from the
+ * committed extraction record.
  */
-export function scopeGraph(
-  all: EvidenceGraphRecords,
-  members: ExtractionMembers,
-  options: { known?: KnownEntities; expectedMembersHash?: string } = {},
-): ScopeResult {
+export interface VerifiedScopeInput {
+  /** The project the run is for (from the authorized run, never from the records being checked). */
+  readonly projectId: string;
+  readonly eventId: string;
+  /** The COMPLETE authoritative provenance facts for the cited snapshots, artifacts and context versions. */
+  readonly known: KnownEntities;
+  /** The membership hash stored with the committed extraction record. */
+  readonly expectedMembersHash: string;
+  /** The member ids stored with the committed extraction record. */
+  readonly members: ExtractionMembers;
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+function trustInputIssues(input: unknown): DomainIssue[] {
+  const missing = (path: string) => issue('graph', 'trust_input_missing', path);
+  if (typeof input !== 'object' || input === null) return [missing('input')];
+  const value = input as Record<string, unknown>;
   const issues: DomainIssue[] = [];
-  const pick = <T extends { id: string }>(
-    label: string,
-    records: readonly T[],
-    ids: readonly string[],
-  ): T[] => {
-    const wanted = new Set(ids);
-    if (wanted.size !== ids.length) issues.push(issue('graph', 'member_ids_not_unique', label));
-    const found = records.filter((record) => wanted.has(record.id));
-    if (found.length !== wanted.size) issues.push(issue('graph', 'member_missing', label));
-    return found;
-  };
-  const claims = pick('claims', all.claims, members.claimIds);
-  const evidence = pick('evidence', all.evidence, members.evidenceIds);
-  const relations = pick('relations', all.relations, members.relationIds);
-  const unknowns = pick('unknowns', all.unknowns, members.unknownIds);
-  const contradictions = pick('contradictions', all.contradictions, members.contradictionIds);
+  if (!Uuid.safeParse(value['projectId']).success) issues.push(missing('projectId'));
+  if (!Uuid.safeParse(value['eventId']).success) issues.push(missing('eventId'));
+  const known = value['known'] as Record<string, unknown> | undefined | null;
+  for (const field of ['snapshots', 'artifacts', 'contextVersions']) {
+    if (typeof known !== 'object' || known === null || !(known[field] instanceof Map)) {
+      issues.push(missing(`known.${field}`));
+    }
+  }
+  const hash = value['expectedMembersHash'];
+  if (typeof hash !== 'string' || !SHA256_HEX.test(hash))
+    issues.push(missing('expectedMembersHash'));
+  const members = value['members'] as Record<string, unknown> | undefined | null;
+  for (const field of [
+    'claimIds',
+    'evidenceIds',
+    'relationIds',
+    'unknownIds',
+    'contradictionIds',
+  ]) {
+    const list = typeof members === 'object' && members !== null ? members[field] : undefined;
+    if (!Array.isArray(list) || list.some((id) => typeof id !== 'string')) {
+      issues.push(missing(`members.${field}`));
+    }
+  }
+  return issues;
+}
+
+/**
+ * Selects the records whose ids are listed, WITHOUT verifying anything about them. Internal on purpose: filtering is not scoping, and
+ * nothing outside `scopeGraph` may use its result as a trusted reader would.
+ */
+function selectMembersUnverified<T extends { id: string }>(
+  label: string,
+  records: readonly T[],
+  ids: readonly string[],
+  issues: DomainIssue[],
+): T[] {
+  const wanted = new Set(ids);
+  if (wanted.size !== ids.length) issues.push(issue('graph', 'member_ids_not_unique', label));
+  const found = records.filter((record) => wanted.has(record.id));
+  if (found.length !== wanted.size) issues.push(issue('graph', 'member_missing', label));
+  return found;
+}
+
+/**
+ * The pure core of P4's trusted reader: from ALL records of a project and the committed extraction record, produce the VERIFIED scoped
+ * graph, or fail closed. Verified means: (1) every trust input is present; (2) the committed ids hash to the committed hash; (3) every
+ * member exists exactly once, belongs to the expected project and event, and the loaded members hash to the same value; (4) the member
+ * set is closed (relation endpoints, contradiction sides, unknown references, no supersession); (5) every member evidence record's
+ * provenance points to authorized snapshots, artifacts, context versions and exact span text, checked against the EXPECTED scope (not
+ * against the record's own project, which a fabricated record would carry); (6) M3 graph integrity holds apart from label-only findings.
+ * Records that are not members (older extractions, other producers, foreign relations that merely reference a member) are excluded.
+ */
+export function scopeGraph(all: EvidenceGraphRecords, input: VerifiedScopeInput): ScopeResult {
+  const trust = trustInputIssues(input);
+  if (trust.length > 0) return { ok: false, issues: trust };
+  const { members, known } = input;
+  const scope = { projectId: input.projectId, eventId: input.eventId };
+  const issues: DomainIssue[] = [];
+
+  if (membersHash(members) !== input.expectedMembersHash) {
+    issues.push(issue('graph', 'committed_members_hash_mismatch', 'members'));
+  }
+  const claims = selectMembersUnverified('claims', all.claims, members.claimIds, issues);
+  const evidence = selectMembersUnverified('evidence', all.evidence, members.evidenceIds, issues);
+  const relations = selectMembersUnverified(
+    'relations',
+    all.relations,
+    members.relationIds,
+    issues,
+  );
+  const unknowns = selectMembersUnverified('unknowns', all.unknowns, members.unknownIds, issues);
+  const contradictions = selectMembersUnverified(
+    'contradictions',
+    all.contradictions,
+    members.contradictionIds,
+    issues,
+  );
+
+  // identity: every loaded member belongs to the run's project and event
+  for (const [label, records] of [
+    ['claims', claims],
+    ['evidence', evidence],
+    ['relations', relations],
+    ['unknowns', unknowns],
+    ['contradictions', contradictions],
+  ] as const) {
+    if (records.some((record) => record.projectId !== scope.projectId)) {
+      issues.push(issue('graph', 'member_wrong_project', label));
+    }
+  }
+  if (evidence.some((record) => record.eventId !== scope.eventId)) {
+    issues.push(issue('graph', 'member_wrong_event', 'evidence'));
+  }
 
   issues.push(
     ...closureIssues({
@@ -562,13 +660,43 @@ export function scopeGraph(
     unknownIds: unknowns.map((r) => r.id),
     contradictionIds: contradictions.map((r) => r.id),
   });
-  if (options.expectedMembersHash !== undefined && options.expectedMembersHash !== hash) {
+  if (hash !== input.expectedMembersHash)
     issues.push(issue('graph', 'members_hash_mismatch', 'members'));
+
+  // provenance, against the EXPECTED scope and the authoritative facts
+  for (const record of evidence) {
+    const path = `evidence:${record.id}`;
+    const provenance = {
+      snapshotId: record.provenance.snapshotId,
+      artifactId: record.provenance.artifactId,
+      span: record.provenance.span
+        ? { start: record.provenance.span.start, end: record.provenance.span.end }
+        : null,
+      excerpt: record.provenance.excerpt,
+      contextVersionId: record.provenance.contextVersionId,
+    };
+    for (const finding of checkProvenanceShape(record, provenance)) {
+      issues.push(
+        issue('graph', `provenance_${finding.code.toLowerCase()}`, `${path}.${finding.field}`),
+      );
+    }
+    for (const finding of checkProvenanceReferences(record, provenance, known, scope).issues) {
+      issues.push(
+        issue('graph', `provenance_${finding.code.toLowerCase()}`, `${path}.${finding.field}`),
+      );
+    }
+    // a cited span must be verifiable against the stored text: without readable text the excerpt is only a claim
+    const artifact =
+      provenance.artifactId === null ? undefined : known.artifacts.get(provenance.artifactId);
+    if (provenance.span !== null && artifact !== undefined && artifact.slice === undefined) {
+      issues.push(issue('graph', 'artifact_text_unavailable', `${path}.provenance.span`));
+    }
   }
+
   const records: EvidenceGraphRecords = { claims, evidence, relations, unknowns, contradictions };
-  if (issues.length === 0 && options.known) {
+  if (issues.length === 0) {
     const graph = buildEvidenceGraph(records);
-    for (const finding of validateGraphIntegrity(graph, options.known)) {
+    for (const finding of validateGraphIntegrity(graph, known)) {
       if (!LABEL_ONLY_INTEGRITY.includes(finding.code)) {
         issues.push(issue('graph', `integrity_${finding.code.toLowerCase()}`, finding.path));
       }

@@ -6,6 +6,7 @@ import {
   EVENT_REFERENCES_PER_UNIT,
   type UnitCandidates,
 } from './candidates.js';
+import type { EventReferenceApplicability } from './event-evidence.js';
 import { build } from './testing/scoring.js';
 import { lockedSnapshot } from './testing/world.js';
 
@@ -159,6 +160,7 @@ describe('deterministic pre-gates', () => {
     handle: string,
     channel: UnitCandidates['items'][number]['channel'],
     projectDerived = true,
+    applicability?: EventReferenceApplicability,
   ) => ({
     handle,
     evidenceId: `00000000-0000-4000-8000-${handle.slice(2).padStart(12, '0')}`,
@@ -168,6 +170,7 @@ describe('deterministic pre-gates', () => {
     text: 'text',
     excerpt: null,
     projectDerived,
+    reference: applicability ? { applicability, trackKey: 'health' } : null,
   });
 
   it('an empty candidate set is insufficient without a model call', () => {
@@ -209,7 +212,10 @@ describe('deterministic pre-gates', () => {
     const withRule = unit({
       dimensionId: 'track_prize_alignment.track_fit',
       needGroups: [['submission', 'event_context']],
-      items: [item('E-001', 'submission'), item('E-002', 'event_context', false)],
+      items: [
+        item('E-001', 'submission'),
+        item('E-002', 'event_context', false, 'declared_track_definition'),
+      ],
     });
     expect(preGate(withRule)).toBeNull();
   });

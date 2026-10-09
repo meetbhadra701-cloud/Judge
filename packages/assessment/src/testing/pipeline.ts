@@ -23,6 +23,17 @@ export const DEVPOST_OFFLINE = 'It works offline and never sends your data to a 
 export const CODE_THROW = "if (amount <= 0) throw new RangeError('amount must be positive');";
 export const CODE_INSERT = 'db.insert({ amount, at: Date.now() });';
 
+/**
+ * What the P2 renderer's `closedSet` would contain for a request that showed `passages`: the same shapes, built the way the prompt
+ * builds them (statement passages go to claim extraction, repository passages to evidence interpretation).
+ */
+export function shownStatementPassages(passages: readonly Passage[]): { passages: string[] } {
+  return { passages: passages.filter((p) => p.route === 'statement').map((p) => p.handle) };
+}
+export function shownInterpretPassages(passages: readonly Passage[]): { passages: string[] } {
+  return { passages: passages.filter((p) => p.route === 'interpret').map((p) => p.handle) };
+}
+
 export function passageFor(passages: readonly Passage[], key: string): Passage {
   const found = passages.find((p) => p.artifactKey === key);
   if (!found) throw new Error(`no passage for ${key}`);
@@ -60,6 +71,7 @@ export function extract(artifacts: readonly SourceArtifact[] = hydroTrackArtifac
         ],
       },
       index,
+      shownStatementPassages(passages),
     ),
   );
   // A project without a repository passage (for example a Devpost-only submission) has no interpreted evidence.
@@ -78,10 +90,13 @@ export function extract(artifacts: readonly SourceArtifact[] = hydroTrackArtifac
             ],
           },
           index,
+          shownInterpretPassages(passages),
         ),
       )
     : [];
-  const resolved = resolveFidelity(claims, interpreted, [{ item: 'E-001', verdict: 'faithful' }]);
+  const resolved = resolveFidelity(claims, interpreted, [
+    { shown: ['E-001'], verdicts: [{ item: 'E-001', verdict: 'faithful' }] },
+  ]);
   const statements = buildStatementItems(resolved.claims, resolved.evidence).items;
   const relationWorld: RelationWorld = {
     claims: new Map(resolved.claims.map((c) => [c.handle, { handle: c.handle, text: c.text }])),

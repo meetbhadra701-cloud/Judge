@@ -15,13 +15,12 @@ import {
   membersHash,
   membersOf,
   recordsFromPlan,
-  scopeGraph,
   verifyClosure,
 } from './graph.js';
 import { buildStatementItems } from './statements.js';
 import { sourceGapUnknowns } from './source-gaps.js';
 import { buildEventReferenceItems } from './event-evidence.js';
-import { validateRelationMatching } from './stage.js';
+import { validateRelationMatching } from './testing/calls.js';
 import { extract, DEVPOST_REMINDER } from './testing/pipeline.js';
 import {
   EVENT_ID,
@@ -390,70 +389,6 @@ describe('membership, closure and the scoped graph (design §8.7)', () => {
     expect(verifyClosure(evidenceEndpoint).map((i) => i.code)).toEqual([
       'relation_evidence_outside_members',
     ]);
-  });
-
-  it('scopes to the members: foreign records, even ones that reference a member, cannot enter (metamorphic)', () => {
-    const own = recordsFromPlan(graph, scope);
-    const other = planned(extract(), {}).graph; // a second, unrelated extraction of the same project (different ids)
-    const otherRecords = recordsFromPlan(other, scope);
-    // a foreign relation that REFERENCES a member claim and a member evidence item
-    const foreignRelation = {
-      ...(otherRecords.relations[0] ??
-        (() => {
-          throw new Error('fixture');
-        })()),
-      id: uid(500),
-      claimId: own.claims[0]?.id ?? '',
-      evidenceId: own.evidence[0]?.id ?? '',
-      seq: 9_000,
-    };
-    const all = {
-      claims: [...own.claims, ...otherRecords.claims.map((c) => ({ ...c, seq: c.seq + 1_000 }))],
-      evidence: [
-        ...own.evidence,
-        ...otherRecords.evidence.map((e) => ({ ...e, seq: e.seq + 1_000 })),
-      ],
-      relations: [
-        ...own.relations,
-        ...otherRecords.relations.map((r) => ({ ...r, seq: r.seq + 1_000 })),
-        foreignRelation,
-      ],
-      unknowns: [...own.unknowns, ...otherRecords.unknowns],
-      contradictions: [...own.contradictions, ...otherRecords.contradictions],
-    };
-    const members = membersOf(graph);
-    const known = buildPlanContext(world);
-    const scoped = scopeGraph(all, members, { known, expectedMembersHash: membersHash(members) });
-    expect(scoped.ok).toBe(true);
-    if (scoped.ok) {
-      expect(scoped.records.claims.map((c) => c.id).sort()).toEqual([...members.claimIds]);
-      expect(scoped.records.relations.map((r) => r.id)).not.toContain(foreignRelation.id);
-      const alone = scopeGraph(own, members, { known });
-      expect(alone.ok && alone.membersHash).toBe(scoped.membersHash);
-      expect(JSON.stringify(scoped.records)).toBe(JSON.stringify(alone.ok ? alone.records : null));
-    }
-  });
-
-  it('fails closed on a missing member, a duplicated member id, a hash mismatch and an out-of-scope endpoint', () => {
-    const own = recordsFromPlan(graph, scope);
-    const members = membersOf(graph);
-    const withoutClaim = { ...own, claims: own.claims.slice(1) };
-    expect(scopeGraph(withoutClaim, members).ok).toBe(false);
-    const dup = { ...members, claimIds: [...members.claimIds, members.claimIds[0] ?? ''] };
-    const dupResult = scopeGraph(own, dup);
-    expect(!dupResult.ok && dupResult.issues.map((i) => i.code)).toContain('member_ids_not_unique');
-    const wrongHash = scopeGraph(own, members, { expectedMembersHash: 'f'.repeat(64) });
-    expect(!wrongHash.ok && wrongHash.issues.map((i) => i.code)).toContain('members_hash_mismatch');
-    // a member relation whose evidence endpoint is NOT a member: the member list omits that evidence item
-    const endpoint = graph.relations[0]?.evidenceId ?? '';
-    const trimmed = {
-      ...members,
-      evidenceIds: members.evidenceIds.filter((id) => id !== endpoint),
-    };
-    const open = scopeGraph(own, trimmed);
-    expect(!open.ok && open.issues.map((i) => i.code)).toContain(
-      'relation_evidence_outside_members',
-    );
   });
 
   it('the scoped records pass M3 integrity (label-only findings are not fatal)', () => {

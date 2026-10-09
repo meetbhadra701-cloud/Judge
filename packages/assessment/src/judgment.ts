@@ -9,7 +9,13 @@ import {
   type EvidenceSpecificity,
 } from '@judge-copilot/schemas';
 import type { RubricSpec } from '@judge-copilot/scoring';
-import type { CandidateItem, PreGateReason, UnitCandidates } from './candidates.js';
+import {
+  requiredReferenceKinds,
+  type CandidateItem,
+  type PreGateReason,
+  type UnitCandidates,
+} from './candidates.js';
+import { shownHandles, shownUnit, type ClosedSet } from './closed-set.js';
 import { issue, type DomainIssue } from './issues.js';
 
 /*
@@ -44,17 +50,26 @@ export type JudgmentGateResult =
   | { readonly ok: true; readonly judgment: ValidatedJudgment }
   | { readonly ok: false; readonly issues: readonly DomainIssue[] };
 
-/** G6. `scale` is the rubric's published scale for the unit. */
+/**
+ * G6. `scale` is the rubric's published scale for the unit. `shown` is the closed set of THIS assessor call (the evidence handles and
+ * the unit its prompt showed): a candidate that is in `unit` but was not in the prompt (for example one removed for a re-run) is not
+ * citable, and the judgment must be about the unit the prompt asked about.
+ */
 export function gateJudgment(
   output: DimensionAssessmentOutput,
   unit: UnitCandidates,
   scale: { readonly min: number; readonly max: number },
+  shown: Pick<ClosedSet, 'evidence' | 'unit'>,
 ): JudgmentGateResult {
+  const shownEvidence = shownHandles(shown, 'evidence');
+  const shownDimension = shownUnit(shown);
   const issues: DomainIssue[] = [];
   const add = (code: string, path: string, handle?: string) =>
     issues.push(issue('G6', code, path, handle));
 
-  if (output.dimensionId !== unit.dimensionId) add('wrong_dimension', 'dimensionId');
+  if (output.dimensionId !== unit.dimensionId || output.dimensionId !== shownDimension) {
+    add('wrong_dimension', 'dimensionId');
+  }
   if (output.outcome.kind === 'scored') {
     const { score } = output.outcome;
     if (!Number.isFinite(score)) add('score_not_finite', 'outcome.score');
@@ -69,6 +84,10 @@ export function gateJudgment(
     const item = unit.byHandle.get(citation.evidence);
     if (!item) {
       add('unknown_citation_handle', path, citation.evidence);
+      return;
+    }
+    if (!shownEvidence.has(citation.evidence)) {
+      add('citation_not_shown', path, citation.evidence);
       return;
     }
     if (seen.has(citation.evidence)) {
@@ -116,6 +135,7 @@ export const UNIT_DISPOSITION_VALUES = [
   'no_official_requirement_available',
   'event_reference_only',
   'no_project_derived_citation',
+  'no_applicable_context_cited',
   'no_declared_need_satisfied',
   // substantive: the pipeline worked and judged the support inadequate
   'marked_insufficient_by_critic',
@@ -161,6 +181,7 @@ export function preGated(unit: UnitCandidates, reason: PreGateReason): FinalUnit
  * Post-gates on a validated, SCORED judgment (design §4.7, §5.3). They only ever turn it into `insufficient_evidence`:
  *   - every citation is an Event-Context reference            -> event_reference_only
  *   - fallback Track unit without a project-derived citation  -> no_project_derived_citation
+ *   - fallback Track unit citing no APPLICABLE official context -> no_applicable_context_cited  (review F2)
  *   - fallback unit whose cited channels satisfy no declared need -> no_declared_need_satisfied  (decision N4)
  */
 export function applyPostGates(judgment: ValidatedJudgment, unit: UnitCandidates): FinalUnit {
@@ -181,11 +202,18 @@ export function applyPostGates(judgment: ValidatedJudgment, unit: UnitCandidates
   });
   if (cited.length > 0 && cited.every((item) => !item.projectDerived))
     return downgrade('event_reference_only');
-  if (
-    unit.dimensionId.startsWith('track_prize_alignment.') &&
-    !cited.some((item) => item.projectDerived)
-  ) {
-    return downgrade('no_project_derived_citation');
+  const required = requiredReferenceKinds(unit.dimensionId);
+  if (required !== null) {
+    // A Track judgment must cite BOTH project-derived evidence AND applicable official context. Applicability comes from the
+    // code-authored metadata of the cited item, never from what the model says about it.
+    if (!cited.some((item) => item.projectDerived)) return downgrade('no_project_derived_citation');
+    if (
+      !cited.some(
+        (item) => item.reference !== null && required.includes(item.reference.applicability),
+      )
+    ) {
+      return downgrade('no_applicable_context_cited');
+    }
   }
   if (unit.needGroups !== null) {
     const channels = new Set<EvidenceChannel>(cited.map((item) => item.channel));

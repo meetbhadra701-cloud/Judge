@@ -15,7 +15,7 @@ import {
   validateDimensionAssessment,
   validateRelationMatching,
   validateRelationVerification,
-} from './stage.js';
+} from './testing/calls.js';
 import { storedFormOf, verifyStoredAssessment } from './verify-report.js';
 import { extract } from './testing/pipeline.js';
 import { build, scoreProject, type Built } from './testing/scoring.js';
@@ -121,7 +121,7 @@ describe('end to end: sources -> gates -> graph -> candidates -> judgments -> M4
       const world = planWorld(built.extracted.artifacts, {
         contextVersion: { id: VERSION_ID, version: 1, status: 'locked' },
       });
-      const scoped = scopeGraph(shuffled, built.members, { known: buildPlanContext(world) });
+      const scoped = scopeGraph(shuffled, built.scopeInput);
       if (!scoped.ok) throw new Error('scope');
       const context = createTrustedScoringContext({
         projectId: PROJECT_ID,
@@ -188,7 +188,7 @@ describe('end to end: sources -> gates -> graph -> candidates -> judgments -> M4
       contextVersion: { id: VERSION_ID, version: 1, status: 'locked' },
     });
     const known = buildPlanContext(world);
-    const scoped = scopeGraph(all, built.members, { known });
+    const scoped = scopeGraph(all, built.scopeInput);
     if (!scoped.ok) throw new Error(JSON.stringify(scoped.issues));
     const contextOf = (graph: ReturnType<typeof buildEvidenceGraph>) => {
       const result = createTrustedScoringContext({

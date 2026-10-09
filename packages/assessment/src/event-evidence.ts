@@ -22,13 +22,59 @@ export const EVENT_REFERENCE_BUILDER = 'event-reference/v1' as const;
 
 export type EventReferenceKind = 'track_definition' | 'rule' | 'submission_requirement';
 
+/**
+ * What an Event-Context reference item IS, decided by code from the locked document (never by a model, never by a rule's wording):
+ *   declared_track_definition   the name/description of a DECLARED track: the track's theme. It is not a requirement.
+ *   track_specific_requirement  an EXPLICIT submission requirement tied to a DECLARED track.
+ *   overall_rule                an EXPLICIT rule, or an explicit requirement with no track, that applies to every submission.
+ */
+export const REFERENCE_APPLICABILITY_VALUES = [
+  'declared_track_definition',
+  'track_specific_requirement',
+  'overall_rule',
+] as const;
+export type EventReferenceApplicability = (typeof REFERENCE_APPLICABILITY_VALUES)[number];
+
 export interface EventReferenceItem {
   /** Batch-local ref (stable: kind + ordinal). */
   readonly ref: string;
   readonly kind: EventReferenceKind;
+  readonly applicability: EventReferenceApplicability;
   /** The declared track this item concerns, or null for the overall submission. */
   readonly trackKey: string | null;
   readonly text: string;
+}
+
+/**
+ * The code-authored metadata of a reference item, keyed by the evidence record that carries its text. It is what lets a later step
+ * decide applicability WITHOUT trusting a model's claim that a rule applies, and it is persisted with the extraction (P4).
+ */
+export interface EventReferenceMeta {
+  readonly builder: typeof EVENT_REFERENCE_BUILDER;
+  readonly kind: EventReferenceKind;
+  readonly applicability: EventReferenceApplicability;
+  readonly trackKey: string | null;
+}
+
+export const referenceMetaOf = (item: EventReferenceItem): EventReferenceMeta => ({
+  builder: EVENT_REFERENCE_BUILDER,
+  kind: item.kind,
+  applicability: item.applicability,
+  trackKey: item.trackKey,
+});
+
+/** Maps each planned/persisted reference evidence record (by its batch ref) to the metadata of the item it was built from. */
+export function referenceMetaByEvidenceId(
+  evidence: readonly { readonly id: string; readonly ref: string }[],
+  items: readonly EventReferenceItem[],
+): ReadonlyMap<string, EventReferenceMeta> {
+  const byRef = new Map(items.map((item) => [item.ref, referenceMetaOf(item)]));
+  const map = new Map<string, EventReferenceMeta>();
+  for (const record of evidence) {
+    const meta = byRef.get(record.ref);
+    if (meta) map.set(record.id, meta);
+  }
+  return map;
 }
 
 export interface EventReferenceExclusion {
@@ -61,7 +107,12 @@ export function buildEventReferenceItems(
     rule: 0,
     submission_requirement: 0,
   };
-  const add = (kind: EventReferenceKind, trackKey: string | null, raw: string) => {
+  const add = (
+    kind: EventReferenceKind,
+    applicability: EventReferenceApplicability,
+    trackKey: string | null,
+    raw: string,
+  ) => {
     const built = usable(raw);
     if (built === 'empty' || built === 'too_long') {
       exclusions.push({ kind, code: built });
@@ -71,6 +122,7 @@ export function buildEventReferenceItems(
     items.push({
       ref: `ctx-${kind.replaceAll('_', '-')}-${String(counters[kind])}`,
       kind,
+      applicability,
       trackKey,
       text: built.text,
     });
@@ -84,6 +136,7 @@ export function buildEventReferenceItems(
     }
     add(
       'track_definition',
+      'declared_track_definition',
       track.key,
       track.description ? `${track.name}: ${track.description}` : track.name,
     );
@@ -93,7 +146,7 @@ export function buildEventReferenceItems(
       exclusions.push({ kind: 'rule', code: 'not_explicit' });
       continue;
     }
-    add('rule', null, rule.statement);
+    add('rule', 'overall_rule', null, rule.statement);
   }
   for (const requirement of document.submissionRequirements) {
     if (requirement.trackKey !== null && !declared.has(requirement.trackKey)) {
@@ -104,7 +157,12 @@ export function buildEventReferenceItems(
       exclusions.push({ kind: 'submission_requirement', code: 'not_explicit' });
       continue;
     }
-    add('submission_requirement', requirement.trackKey, requirement.statement);
+    add(
+      'submission_requirement',
+      requirement.trackKey === null ? 'overall_rule' : 'track_specific_requirement',
+      requirement.trackKey,
+      requirement.statement,
+    );
   }
   return { contextVersionId: locked.versionId, items, exclusions };
 }

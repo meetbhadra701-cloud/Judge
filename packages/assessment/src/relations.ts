@@ -4,6 +4,7 @@ import {
   type RelationVerificationOutput,
 } from '@judge-copilot/schemas';
 import { relationKindProblem } from '@judge-copilot/evidence';
+import { shownHandles, type ClosedSet } from './closed-set.js';
 import { pairHandle } from './handles.js';
 import { issue, type DomainIssue, type Rejection } from './issues.js';
 import type { GateOutcome } from './extraction.js';
@@ -52,8 +53,11 @@ export interface ProposedRelation {
 export function gateRelations(
   output: RelationMatchingOutput,
   world: RelationWorld,
+  shown: Pick<ClosedSet, 'claims' | 'evidence'>,
   existing: readonly ProposedRelation[] = [],
 ): GateOutcome<ProposedRelation> {
+  const shownClaims = shownHandles(shown, 'claims');
+  const shownEvidence = shownHandles(shown, 'evidence');
   const accepted: ProposedRelation[] = [];
   const rejected: Rejection[] = [];
   const pairs = new Map<string, EvidenceRelationType>(
@@ -69,6 +73,9 @@ export function gateRelations(
       if (!claim) return 'unknown_claim';
       const evidence = world.evidence.get(item.evidence);
       if (!evidence) return 'unknown_evidence';
+      // real records of the extraction that THIS call's prompt did not show are not authorized references
+      if (!shownClaims.has(item.claim)) return 'claim_not_shown';
+      if (!shownEvidence.has(item.evidence)) return 'evidence_not_shown';
       if (evidence.statementOf.includes(claim.handle)) return 'own_statement_item';
       if (relationKindProblem(item.type, evidence.kind) !== null)
         return 'relation_kind_not_allowed';
@@ -148,19 +155,32 @@ export interface VerificationResolution {
   /** Recorded as `relation_dropped_by_verifier`. Never a contradiction. */
   readonly dropped: readonly DroppedRelation[];
   readonly issues: readonly DomainIssue[];
+  /** The pairs this call showed and judged (a call never judges a pair it did not show). */
+  readonly judged: readonly string[];
 }
 
-/** G3b. */
+/**
+ * G3b for ONE verifier call. Only pairs that this call SHOWED are judged; a verdict about a real pair of another batch is
+ * `pair_not_shown` (ignored), and a pair of this call without exactly one verdict is dropped. Use `combineVerifications` to settle
+ * the pairs over all calls.
+ */
 export function resolveVerification(
   pairs: readonly VerificationPair[],
   output: RelationVerificationOutput,
+  shown: Pick<ClosedSet, 'pairs'>,
 ): VerificationResolution {
+  const shownPairs = shownHandles(shown, 'pairs');
   const issues: DomainIssue[] = [];
   const known = new Set(pairs.map((pair) => pair.handle));
   const verdicts = new Map<string, string[]>();
   output.verdicts.forEach((entry, index) => {
+    const path = `verdicts[${String(index)}].pair`;
     if (!known.has(entry.pair)) {
-      issues.push(issue('G3b', 'unknown_pair', `verdicts[${String(index)}].pair`, entry.pair));
+      issues.push(issue('G3b', 'unknown_pair', path, entry.pair));
+      return;
+    }
+    if (!shownPairs.has(entry.pair)) {
+      issues.push(issue('G3b', 'pair_not_shown', path, entry.pair));
       return;
     }
     const list = verdicts.get(entry.pair);
@@ -169,7 +189,10 @@ export function resolveVerification(
   });
   const kept: ProposedRelation[] = [];
   const dropped: DroppedRelation[] = [];
+  const judged: string[] = [];
   for (const pair of pairs) {
+    if (!shownPairs.has(pair.handle)) continue;
+    judged.push(pair.handle);
     const list = verdicts.get(pair.handle);
     let reason: RelationDropReason | null = null;
     if (!list) reason = 'verdict_missing';
@@ -187,5 +210,42 @@ export function resolveVerification(
         issues.push(issue('G3b', 'duplicate_verdict', 'verdicts', pair.handle));
     }
   }
-  return { kept, dropped, issues };
+  return { kept, dropped, issues, judged };
+}
+
+/**
+ * Settles every pair over all verifier calls: a relation is kept only if some call that showed its pair kept it, and a pair that no
+ * call ever showed is dropped (`verdict_missing`): an unverified relation never reaches the graph.
+ */
+export function combineVerifications(
+  pairs: readonly VerificationPair[],
+  resolutions: readonly VerificationResolution[],
+): VerificationResolution {
+  const keptPairs = new Set<string>();
+  const droppedByPair = new Map<string, DroppedRelation>();
+  const judged = new Set<string>();
+  const issues: DomainIssue[] = [];
+  for (const resolution of resolutions) {
+    issues.push(...resolution.issues);
+    for (const handle of resolution.judged) judged.add(handle);
+    for (const drop of resolution.dropped) droppedByPair.set(drop.pair, drop);
+    for (const relation of resolution.kept) {
+      const pair = pairs.find((candidate) => candidate.relation === relation);
+      if (pair) keptPairs.add(pair.handle);
+    }
+  }
+  const kept: ProposedRelation[] = [];
+  const dropped: DroppedRelation[] = [];
+  for (const pair of pairs) {
+    if (keptPairs.has(pair.handle) && !droppedByPair.has(pair.handle)) kept.push(pair.relation);
+    else {
+      const recorded = droppedByPair.get(pair.handle);
+      dropped.push(
+        recorded ?? { pair: pair.handle, reason: 'verdict_missing', relation: pair.relation },
+      );
+      if (!judged.has(pair.handle))
+        issues.push(issue('G3b', 'never_verified', 'verdicts', pair.handle));
+    }
+  }
+  return { kept, dropped, issues, judged: [...judged] };
 }

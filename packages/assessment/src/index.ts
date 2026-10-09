@@ -13,6 +13,9 @@ export {
   buildCandidateSets,
   channelOfEvidence,
   preGate,
+  requiredReferenceKinds,
+  TRACK_ELIGIBILITY_DIMENSION,
+  withoutCandidates,
   CANDIDATE_POLICY,
   CANDIDATES_PER_UNIT,
   EVENT_REFERENCES_PER_UNIT,
@@ -26,6 +29,8 @@ export type {
   PreGateReason,
   UnitCandidates,
 } from './candidates.js';
+export { ClosedSetRequiredError } from './closed-set.js';
+export type { ClosedSet } from './closed-set.js';
 export { containsAccusation } from './neutral.js';
 export { decideAfterCritic, gateCritic, RERUN_CAPS } from './critic.js';
 export type {
@@ -36,16 +41,25 @@ export type {
   RerunFeedback,
   RubricKind,
 } from './critic.js';
-export { buildEventReferenceItems, EVENT_REFERENCE_BUILDER } from './event-evidence.js';
+export {
+  buildEventReferenceItems,
+  EVENT_REFERENCE_BUILDER,
+  referenceMetaByEvidenceId,
+  referenceMetaOf,
+  REFERENCE_APPLICABILITY_VALUES,
+} from './event-evidence.js';
 export type {
+  EventReferenceApplicability,
   EventReferenceExclusion,
   EventReferenceItem,
   EventReferenceKind,
+  EventReferenceMeta,
   EventReferenceResult,
 } from './event-evidence.js';
 export {
   gateClaims,
   gateEvidence,
+  gateFidelityCall,
   indexPassages,
   MAX_CLAIMS_PER_RUN,
   MAX_EVIDENCE_PER_RUN,
@@ -58,6 +72,8 @@ export type {
   AdmittedEvidence,
   ClaimGateState,
   EvidenceGateState,
+  FidelityCall,
+  FidelityCallResult,
   FidelityDisposition,
   FidelityResolution,
   GateOutcome,
@@ -84,6 +100,7 @@ export type {
   PlanWorld,
   RelationBasisRecord,
   ScopeResult,
+  VerifiedScopeInput,
   SnapshotFact,
 } from './graph.js';
 export { claimHandle, evidenceHandle, pairHandle } from './handles.js';
@@ -131,6 +148,7 @@ export {
 } from './commentary.js';
 export type { CommentaryWorld, ProposedContradiction, ProposedUnknown } from './commentary.js';
 export {
+  combineVerifications,
   gateRelations,
   pairsForVerification,
   resolveVerification,

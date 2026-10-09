@@ -1,4 +1,5 @@
 import type { CriticFindingCode, CriticOutput, CriticSeverity } from '@judge-copilot/schemas';
+import { shownHandles, shownUnit, type ClosedSet } from './closed-set.js';
 import { issue, type DomainIssue } from './issues.js';
 import { containsAccusation } from './neutral.js';
 
@@ -16,17 +17,21 @@ export type CriticGateResult =
   | { readonly ok: true; readonly findings: readonly CriticFinding[] }
   | { readonly ok: false; readonly issues: readonly DomainIssue[] };
 
-/** G7. `shown` is the set of handles the critic was shown for this unit (cited records plus the other candidates). */
+/**
+ * G7. `shown` is the closed set of THIS critic call (`unit` and the `evidence` handles it was shown: the cited records plus the other
+ * candidates). The critic may name only those, and only for the unit it was asked about.
+ */
 export function gateCritic(
   output: CriticOutput,
-  unit: string,
-  shown: ReadonlySet<string>,
+  shown: Pick<ClosedSet, 'evidence' | 'unit'>,
 ): CriticGateResult {
+  const shownEvidence = shownHandles(shown, 'evidence');
+  const unit = shownUnit(shown);
   const issues: DomainIssue[] = [];
   if (output.unit !== unit) issues.push(issue('G7', 'wrong_unit', 'unit'));
   output.findings.forEach((finding, index) => {
     finding.evidence.forEach((handle, i) => {
-      if (!shown.has(handle)) {
+      if (!shownEvidence.has(handle)) {
         issues.push(
           issue(
             'G7',

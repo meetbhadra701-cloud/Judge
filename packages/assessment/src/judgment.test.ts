@@ -11,7 +11,7 @@ import {
   type FinalUnit,
   type ValidatedJudgment,
 } from './judgment.js';
-import { validateDimensionAssessment } from './stage.js';
+import { validateDimensionAssessment } from './testing/calls.js';
 import { build, scoreProject } from './testing/scoring.js';
 import { lockedSnapshot, seeded } from './testing/world.js';
 

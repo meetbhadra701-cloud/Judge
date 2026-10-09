@@ -5,8 +5,10 @@ import {
   normalizeGraphText,
   type ClaimExtractionOutput,
   type EvidenceInterpretationOutput,
+  type FidelityReviewOutput,
   type FidelityVerdict,
 } from '@judge-copilot/schemas';
+import { shownHandles, type ClosedSet } from './closed-set.js';
 import { claimHandle, evidenceHandle, handleNumber } from './handles.js';
 import { issue, type DomainIssue, type Rejection } from './issues.js';
 import { locateQuote, type LocatedQuote } from './quote.js';
@@ -73,8 +75,10 @@ const claimKey = (c: Pick<AdmittedClaim, 'located' | 'text'>): string =>
 export function gateClaims(
   output: ClaimExtractionOutput,
   passages: PassageIndex,
+  shown: Pick<ClosedSet, 'passages'>,
   state: ClaimGateState = { existing: [] },
 ): GateOutcome<AdmittedClaim> {
+  const shownPassages = shownHandles(shown, 'passages');
   const accepted: AdmittedClaim[] = [];
   const rejected: Rejection[] = [];
   const max = state.maxClaims ?? MAX_CLAIMS_PER_RUN;
@@ -91,6 +95,8 @@ export function gateClaims(
       seenRefs.add(item.ref);
       const passage = passages.get(item.passage);
       if (!passage) return 'unknown_passage';
+      // a real passage of this extraction that THIS call did not show is not an authorized reference
+      if (!shownPassages.has(item.passage)) return 'passage_not_shown';
       if (passage.route !== 'statement') return 'passage_not_statement';
       if (state.existing.length + accepted.length >= max) return 'over_cap';
       const located = locateQuote(passage, item.quote);
@@ -129,8 +135,10 @@ const evidenceKey = (e: Pick<AdmittedEvidence, 'located' | 'text'>): string =>
 export function gateEvidence(
   output: EvidenceInterpretationOutput,
   passages: PassageIndex,
+  shown: Pick<ClosedSet, 'passages'>,
   state: EvidenceGateState = { existing: [] },
 ): GateOutcome<AdmittedEvidence> {
+  const shownPassages = shownHandles(shown, 'passages');
   const accepted: AdmittedEvidence[] = [];
   const rejected: Rejection[] = [];
   const max = state.maxEvidence ?? MAX_EVIDENCE_PER_RUN;
@@ -147,6 +155,7 @@ export function gateEvidence(
       seenRefs.add(item.ref);
       const passage = passages.get(item.passage);
       if (!passage) return 'unknown_passage';
+      if (!shownPassages.has(item.passage)) return 'passage_not_shown';
       if (passage.route !== 'interpret') return 'passage_not_repository';
       if (state.existing.length + accepted.length >= max) return 'over_cap';
       const located = locateQuote(passage, item.quote);
@@ -231,34 +240,102 @@ export interface FidelityResolution {
   readonly issues: readonly DomainIssue[];
 }
 
+/** One fidelity-review CALL: the items its prompt showed (the batch) and the verdicts that survived its gate. */
+export interface FidelityCall {
+  readonly shown: readonly string[];
+  readonly verdicts: readonly { readonly item: string; readonly verdict: FidelityVerdict }[];
+}
+
+export interface FidelityCallResult {
+  readonly call: FidelityCall;
+  readonly issues: readonly DomainIssue[];
+}
+
 /**
- * G2b. `verdicts` is the reviewer's list (empty or partial when the review was unavailable). A paraphrase is admitted ONLY with
- * exactly one `faithful` verdict for its handle. Everything else (overstated, unfaithful, cannot_tell, absent, duplicated) takes
- * the downgrade path: the verbatim quote replaces the text, or the item is dropped if the quote cannot stand as that text.
- * Nothing is ever admitted unreviewed, and an unfaithful paraphrase can never become stronger evidence.
+ * G2b for ONE call (a batch of at most ten items). A verdict counts only for an item that is both pending review AND shown in THIS
+ * call: a verdict about a real pending item of another batch is `item_not_shown`, about an item that is not pending at all
+ * `unknown_item`; a repeated verdict voids that item's verdicts in this call. An item shown but not answered is `missing_verdict`.
+ */
+export function gateFidelityCall(
+  output: FidelityReviewOutput,
+  shown: Pick<ClosedSet, 'items'>,
+  pending: readonly PendingReview[],
+): FidelityCallResult {
+  const shownItems = shownHandles(shown, 'items');
+  const pendingHandles = new Set(pending.map((entry) => entry.handle));
+  const issues: DomainIssue[] = [];
+  const byHandle = new Map<string, FidelityVerdict[]>();
+  output.verdicts.forEach((entry, index) => {
+    const path = `verdicts[${String(index)}].item`;
+    if (!pendingHandles.has(entry.item)) {
+      issues.push(issue('G2b', 'unknown_item', path, entry.item));
+    } else if (!shownItems.has(entry.item)) {
+      issues.push(issue('G2b', 'item_not_shown', path, entry.item));
+    } else {
+      const list = byHandle.get(entry.item);
+      if (list) list.push(entry.verdict);
+      else byHandle.set(entry.item, [entry.verdict]);
+    }
+  });
+  const verdicts: { item: string; verdict: FidelityVerdict }[] = [];
+  for (const handle of shownItems) {
+    const list = byHandle.get(handle);
+    if (!list) {
+      if (pendingHandles.has(handle))
+        issues.push(issue('G2b', 'missing_verdict', 'verdicts', handle));
+    } else if (list.length > 1) {
+      issues.push(issue('G2b', 'duplicate_verdict', 'verdicts', handle));
+    } else if (list[0] !== undefined) {
+      verdicts.push({ item: handle, verdict: list[0] });
+    }
+  }
+  return { call: { shown: [...shownItems], verdicts }, issues };
+}
+
+/**
+ * G2b over all calls of the extraction. A paraphrase is admitted ONLY with exactly one `faithful` verdict from a call that SHOWED
+ * it. Everything else (overstated, unfaithful, cannot_tell, never shown, unanswered, duplicated) takes the downgrade path: the
+ * verbatim quote replaces the text, or the item is dropped if the quote cannot stand as that text. Nothing is ever admitted
+ * unreviewed, a verdict is re-checked against its own call's shown set (so a forged `FidelityCall` gains nothing), and an
+ * unfaithful paraphrase can never become stronger evidence.
  */
 export function resolveFidelity(
   claims: readonly AdmittedClaim[],
   evidence: readonly AdmittedEvidence[],
-  verdicts: readonly { readonly item: string; readonly verdict: FidelityVerdict }[],
+  calls: readonly FidelityCall[],
 ): FidelityResolution {
   const pending = pendingReviews(claims, evidence);
   const pendingHandles = new Set(pending.map((entry) => entry.handle));
   const issues: DomainIssue[] = [];
   const byHandle = new Map<string, FidelityVerdict[]>();
-  verdicts.forEach((entry, index) => {
-    if (!pendingHandles.has(entry.item)) {
-      issues.push(issue('G2b', 'unknown_item', `verdicts[${String(index)}].item`, entry.item));
-      return;
-    }
-    const list = byHandle.get(entry.item);
-    if (list) list.push(entry.verdict);
-    else byHandle.set(entry.item, [entry.verdict]);
+  const everShown = new Set<string>();
+  calls.forEach((call, callIndex) => {
+    const shownItems = new Set(call.shown);
+    for (const handle of shownItems) everShown.add(handle);
+    call.verdicts.forEach((entry, index) => {
+      const path = `calls[${String(callIndex)}].verdicts[${String(index)}].item`;
+      if (!pendingHandles.has(entry.item)) {
+        issues.push(issue('G2b', 'unknown_item', path, entry.item));
+      } else if (!shownItems.has(entry.item)) {
+        issues.push(issue('G2b', 'item_not_shown', path, entry.item));
+      } else {
+        const list = byHandle.get(entry.item);
+        if (list) list.push(entry.verdict);
+        else byHandle.set(entry.item, [entry.verdict]);
+      }
+    });
   });
   const verdictFor = (handle: string): FidelityVerdict | null => {
     const list = byHandle.get(handle);
     if (!list) {
-      issues.push(issue('G2b', 'missing_verdict', 'verdicts', handle));
+      issues.push(
+        issue(
+          'G2b',
+          everShown.has(handle) ? 'missing_verdict' : 'never_reviewed',
+          'verdicts',
+          handle,
+        ),
+      );
       return null;
     }
     if (list.length > 1) {
