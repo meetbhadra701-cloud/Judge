@@ -58,3 +58,8 @@ Public interface (`@judge-copilot/prompts`): `PROMPTS`, `PROMPT_REGISTRY`, `prom
 3. Handles are code-assigned per call (`P-0001`, `C-001`, `E-001`, `X-001`); P3/P5 must keep the handle-to-record maps, and the closed set returned by `renderPrompt` is the set P3 validates against.
 4. The prompt wording (`src/system.ts`) has never met a real model. It is a v1 to be calibrated during the owner-authorized live phase, and any change is a new prompt version.
 5. Fallback anchors remain disabled; enabling them needs the owner's approval of the exact text and a deliberate change of `FALLBACK_ANCHORS_APPROVED`, which a test pins to `false`.
+
+## Corrections after the independent P2 review (commit following `80973eb`)
+
+See [M5-P3-note.md](./M5-P3-note.md#p2-corrections-review-of-80973eb): F1 (exact locked context version), F2 (marker instructions agree with emitted markers; `framing/v2`, prompt `v2`, goldens
+regenerated, the v1 table kept in `golden/history/`) and F3 (carriage-return / quote policy). The numbers in this note describe the state at `80973eb`.

@@ -162,6 +162,21 @@ importers:
         specifier: ^3.4.9
         version: 3.4.9
 
+  packages/assessment:
+    dependencies:
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../context
+      '@judge-copilot/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@judge-copilot/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+      '@judge-copilot/scoring':
+        specifier: workspace:*
+        version: link:../scoring
+
   packages/audit:
     dependencies:
       '@judge-copilot/schemas':

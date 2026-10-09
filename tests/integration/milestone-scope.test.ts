@@ -3,8 +3,10 @@
  * M3 added the evidence graph; M4 the pure scoring engine. M5 PHASE P1 added only the shared assessment
  * vocabularies/schemas and the provider-neutral `packages/llm` interface (digest, timeout, retry, local
  * spending guard, replay and scripted providers); PHASE P2 adds only the pure `packages/prompts` renderer
- * (frozen templates, framing of untrusted data): NO vendor SDK or endpoint, NO assessment validators or
- * pipeline, NO migration, table, route, worker job or UI. Everything from M6 on, and the later M5 phases,
+ * (frozen templates, framing of untrusted data); PHASE P3 adds only the pure `packages/assessment` trust boundary
+ * (windowing, quote location, gates G1-G7, graph planning, critic policy, report verification) and one additive scoring
+ * export (the report-hash verifier): NO vendor SDK or endpoint, NO pipeline orchestration, NO migration, table, route,
+ * worker job or UI. Everything from M6 on, and the later M5 phases,
  * must stay unimplemented. Each M5 phase updates this guard together with its own work. The guard inspects implementation
  * surfaces (code, manifests, migrations, routes), not the binding documentation, which discusses
  * those concepts by design. If a later milestone legitimately adds one of these, update this
@@ -36,6 +38,7 @@ const IMPLEMENTED_PACKAGES = [
   'scoring', // M4
   'llm', // M5 P1: provider-neutral interface only; no vendor adapter yet
   'prompts', // M5 P2: pure renderer and frozen templates only; no provider, no pipeline
+  'assessment', // M5 P3: pure gates, planning and policy only; no provider, no database, no pipeline
 ];
 
 const MODEL_SDKS = [
@@ -109,7 +112,7 @@ function sourceFiles(dir: string, { includeTests = false } = {}): string[] {
 
 const applicationSource = ['apps', 'packages'].flatMap((group) => sourceFiles(join(ROOT, group)));
 
-describe('M5 milestone scope (phase P2)', () => {
+describe('M5 milestone scope (phase P3)', () => {
   it('keeps the later packages as README-only placeholders', () => {
     for (const name of NOT_YET_IMPLEMENTED) {
       const dir = join(ROOT, 'packages', name);
@@ -254,15 +257,17 @@ describe('M5 milestone scope (phase P2)', () => {
     ]);
   });
 
-  it('keeps the scoring engine out of every app and every adapter: no API, worker, web or database use', () => {
+  it('keeps the scoring engine out of every app and every adapter: only the pure assessment package (M5 P3) uses it', () => {
     const importers = applicationSource.filter(
       (file) =>
         !file.startsWith(join(ROOT, 'packages/scoring')) &&
+        !file.startsWith(join(ROOT, 'packages/assessment')) &&
         /@judge-copilot\/scoring/.test(readFileSync(file, 'utf8')),
     );
     expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
     for (const { dir, manifest } of workspaceManifests()) {
-      if (dir === join(ROOT, 'packages/scoring')) continue;
+      if (dir === join(ROOT, 'packages/scoring') || dir === join(ROOT, 'packages/assessment'))
+        continue;
       const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
       expect(deps.includes('@judge-copilot/scoring'), dir).toBe(false);
     }
@@ -357,7 +362,52 @@ describe('M5 milestone scope (phase P2)', () => {
     expect(offenders.map((file) => relative(ROOT, file))).toEqual([]);
   });
 
-  it('adds no assessment table, route, job type or pipeline in P2', () => {
+  it('keeps packages/assessment pure: only context, evidence, schemas and scoring, no model, prompt, database or worker', () => {
+    const manifest = JSON.parse(
+      readFileSync(join(ROOT, 'packages/assessment/package.json'), 'utf8'),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
+      '@judge-copilot/context',
+      '@judge-copilot/evidence',
+      '@judge-copilot/schemas',
+      '@judge-copilot/scoring',
+    ]);
+    expect(manifest.devDependencies ?? {}).toEqual({});
+  });
+
+  it('has no importer of @judge-copilot/assessment yet: no pipeline, route, worker job or UI uses the gates in P3', () => {
+    const importers = applicationSource.filter(
+      (file) =>
+        !file.startsWith(join(ROOT, 'packages/assessment')) &&
+        /@judge-copilot\/assessment/.test(readFileSync(file, 'utf8')),
+    );
+    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    for (const { dir, manifest } of workspaceManifests()) {
+      if (dir === join(ROOT, 'packages/assessment')) continue;
+      const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
+      expect(deps.includes('@judge-copilot/assessment'), dir).toBe(false);
+    }
+  });
+
+  it('changes scoring only by the approved additive report-hash export (design §8.9, D15)', () => {
+    const index = readFileSync(join(ROOT, 'packages/scoring/src/index.ts'), 'utf8');
+    expect(index).toContain(
+      "export { reportOutputHash, verifyScoreReportHash } from './report-hash.js';",
+    );
+    const hashFile = readFileSync(join(ROOT, 'packages/scoring/src/report-hash.ts'), 'utf8');
+    // the verifier reproduces the engine's existing rule through the engine's own hash helper; it defines no new rule
+    expect(hashFile).toContain("import { hashOf } from './canonical.js';");
+    expect(hashFile).toContain('return hashOf(body);');
+    // the engine still computes the hash itself, over the body, exactly as before
+    const engine = readFileSync(join(ROOT, 'packages/scoring/src/engine.ts'), 'utf8');
+    expect(engine).toContain('const outputHash = hashOf(body);');
+    expect(engine).not.toContain('report-hash');
+  });
+
+  it('adds no assessment table, route, job type or pipeline in P3', () => {
     const migrations = join(ROOT, 'packages/database/drizzle');
     const sql = readdirSync(migrations)
       .filter((name) => name.endsWith('.sql'))

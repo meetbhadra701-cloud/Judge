@@ -44,9 +44,12 @@ describe('the public API has exactly the intended entry points', () => {
         'createTrustedScoringContext',
         'isTrustedScoringContext',
         'parametersHash',
+        // M5 (design §8.9, decision D15): the one approved additive export, verifying M4's report outputHash by the engine's own rule
+        'reportOutputHash',
         'scoreProject',
         'selectRubric',
         'validatePublishedWeights',
+        'verifyScoreReportHash',
       ].sort(),
     );
   });

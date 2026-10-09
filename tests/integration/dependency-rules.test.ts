@@ -31,6 +31,7 @@ const LAYERS: Record<string, number> = {
   scoring: 2,
   uncertainty: 2,
   questions: 2,
+  assessment: 2,
   database: 3,
   auth: 3,
   'safe-http': 3,

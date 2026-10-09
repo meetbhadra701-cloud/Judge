@@ -3,7 +3,7 @@
 > **Status:** No model or provider calls exist (M0–M3; M2 source capture and the M3 evidence graph
 > are deterministic). `packages/llm` (M5 phase P1) now holds the provider-neutral interface, request digest,
 > retry/timeout, the local spending guard and the offline replay/scripted providers, with **no vendor adapter, no
-> API key handling and no pipeline**; `packages/prompts` (M5 phase P2) holds the nine frozen prompt templates and the pure renderer (trusted instructions separated from deterministically delimited untrusted data, code-assigned handles only), also with **no pipeline**. M3 implemented the deterministic half of stages 3–5 — trusted ID
+> API key handling and no pipeline**; `packages/prompts` (M5 phase P2) holds the nine frozen prompt templates and the pure renderer (trusted instructions separated from deterministically delimited untrusted data, code-assigned handles only), also with **no pipeline**; `packages/assessment` (M5 phase P3) is the pure trust boundary that validates every model output (gates G1–G7), plans the graph and builds the scorer input, with no orchestration. M3 implemented the deterministic half of stages 3–5 — trusted ID
 > assignment, ID-integrity validation, provenance to snapshot spans, relation and verification
 > rules, never an accusation — behind a validated write path (`EvidenceGraphStore.createGraph`);
 > the model-backed producer that feeds it arrives in M5. M1 implemented stage 1's **port** (`EventContextExtractor`) and its

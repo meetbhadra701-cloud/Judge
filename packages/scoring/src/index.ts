@@ -22,6 +22,7 @@ export type {
 export { scoreProject } from './engine.js';
 export type { ScoreResult } from './engine.js';
 export { parametersHash } from './parameters-hash.js';
+export { reportOutputHash, verifyScoreReportHash } from './report-hash.js';
 export { SCORING_PARAMETERS } from './parameters.js';
 export { FALLBACK_RUBRIC_DEFINITION } from './rubric/fallback.js';
 export { selectRubric } from './rubric/select.js';

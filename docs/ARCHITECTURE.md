@@ -279,7 +279,8 @@ judge-copilot/
 │   ├── context/    Event Context domain rules + extraction port                [implemented, M1]
 │   ├── capture/    capture ports, URL/path rules, hashing, HTML extraction     [implemented, M2]
 │   ├── evidence/   evidence graph rules, ID integrity, graph queries           [implemented, M3]
-│   ├── scoring/    deterministic score engine (scoring-engine/v1)              [implemented, M4]
+│   ├── scoring/    deterministic score engine (scoring-engine/v1)              [implemented, M4; + report-hash verifier, M5 P3]
+│   ├── assessment/ trust boundary: windowing, quote location, gates G1-G7, graph planning [M5 P3; pure, no pipeline yet]
 │   ├── uncertainty/ coverage, confidence, uncertainty analysis                 [M6, README only]
 │   ├── questions/  question validation + information-gain ranking              [M6, README only]
 │   ├── safe-http/  SSRF-safe HTTP client (DNS pinning, redirect policy)        [implemented, M2]
@@ -338,7 +339,7 @@ These rules are **enforced** by `tests/integration/dependency-rules.test.ts`.
 | ------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
 | 0 — foundation            | `shared`, `schemas`                                                                                      | external libraries only                          |
 | 1 — domain                | `domain`                                                                                                 | layer 0                                          |
-| 2 — deterministic core    | `audit`, `context`, `capture`, `evidence`, `scoring`, `uncertainty`, `questions`                         | layers 0–1, and other layer-2 packages (acyclic) |
+| 2 — deterministic core    | `audit`, `context`, `capture`, `evidence`, `scoring`, `assessment`, `uncertainty`, `questions`           | layers 0–1, and other layer-2 packages (acyclic) |
 | 3 — adapters (I/O and AI) | `database`, `auth`, `safe-http`, `github`, `devpost`, `deployment`, `video`, `browser`, `llm`, `prompts` | layers 0–2                                       |
 | 4 — apps                  | `api`, `worker`, `web`                                                                                   | layers 0–3                                       |
 

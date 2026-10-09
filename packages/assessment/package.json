@@ -1,0 +1,27 @@
+{
+  "name": "@judge-copilot/assessment",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The trust boundary between model-produced JSON and the authoritative evidence graph and scoring engine (M5 P3): deterministic windowing, exact quote location, domain gates G1-G7, graph planning, scoped graphs, candidate sets, critic policy and report verification. Layer 2 (deterministic core): no I/O, no model calls.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/context": "workspace:*",
+    "@judge-copilot/evidence": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "@judge-copilot/scoring": "workspace:*"
+  }
+}

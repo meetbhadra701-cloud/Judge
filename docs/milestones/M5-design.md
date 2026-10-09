@@ -1403,3 +1403,11 @@ Risks and assumptions: §15 (U1–U20). New owner decisions: §14.2 (N1–N13). 
 | C4  | Event rules never score a project alone; Track units need an official requirement **and** project-derived evidence                                                                                     | §4.7, §5.3                                      | T-C4 (three cases + mutation)                                                                |
 | C5  | Digest = hash of the exact effective serialized request (all user blocks, schema, generation); four-way reproducibility table; fresh extractions are **not** promised byte-identical                   | §12.1                                           | T-R4a–e                                                                                      |
 | C6  | Every unit technical ⇒ run fails, nothing persisted; never applies to valid insufficiency                                                                                                              | §9.3, §9.5                                      | T-C6 (`U=1`, `U=5`, `U=36`)                                                                  |
+
+### 17.6 Implementation notes added during P3 (no change of approved behavior)
+
+- **Source routing (`source-routing/v1`)** was pinned against the artifact keys the M2 adapters actually produce; risk U8 is closed for the current adapters (see [M5-P3-note.md](./M5-P3-note.md)).
+- **Quote policy.** A quote cannot contain a carriage return (or another control character besides tab and newline); a multi-line quote over CRLF / lone-CR text is therefore rejected (`quote_crosses_line_ending`).
+  Single-line quotes are located with exact original code-point offsets. Passage text excludes characters that may not appear in it; they separate passages.
+- **Candidate handles** are numbered per scoring unit; Event-Context reference items are shown after project evidence (at most eight per unit) and never count as project evidence.
+- **Prompt identity.** The P2 corrections bumped `framing/v1 → v2` and every prompt `v1 → v2`; the v1 template-hash table is kept in `packages/prompts/golden/history/`.
