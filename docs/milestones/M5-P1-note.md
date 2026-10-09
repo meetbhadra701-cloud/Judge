@@ -36,3 +36,6 @@ Durable facts:
   `MAX_RECORDED_RESPONSE_BYTES` (256 KiB, measured in UTF-8 bytes); oversized or unserializable answers are marked (`responseRecord`) and keep their hash;
   prompts, credentials and failure results are never recorded. **Durable storage is P4's responsibility** (`assessment_run_calls.response_json`, same bound);
   `ledger-contract.test.ts` is parameterized over a ledger factory so the database ledger inherits the contract.
+- Mutation proofs for F1–F3 (each applied, shown to fail a named test, restored): a released attempt frees its call slot; production check only when the option says so; an injected `nodeEnv`
+  overriding runtime production; unrecognized `NODE_ENV` values allowed; recorded response aliasing the caller's object; recorded response not frozen; no size bound; bound measured in characters
+  instead of bytes; `withBudget` dropping the answer. All 9 were killed. The llm package has 176 tests.

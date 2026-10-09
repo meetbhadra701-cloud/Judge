@@ -1,8 +1,9 @@
 /*
  * Guards the M5 scope while M5 is built phase by phase (docs/V1_CONTRACT.md, docs/milestones/M5-design.md).
- * M3 added the evidence graph; M4 the pure scoring engine. M5 PHASE P1 adds only the shared assessment
+ * M3 added the evidence graph; M4 the pure scoring engine. M5 PHASE P1 added only the shared assessment
  * vocabularies/schemas and the provider-neutral `packages/llm` interface (digest, timeout, retry, local
- * spending guard, replay and scripted providers): NO vendor SDK or endpoint, NO prompt, NO assessment
+ * spending guard, replay and scripted providers); PHASE P2 adds only the pure `packages/prompts` renderer
+ * (frozen templates, framing of untrusted data): NO vendor SDK or endpoint, NO assessment validators or
  * pipeline, NO migration, table, route, worker job or UI. Everything from M6 on, and the later M5 phases,
  * must stay unimplemented. Each M5 phase updates this guard together with its own work. The guard inspects implementation
  * surfaces (code, manifests, migrations, routes), not the binding documentation, which discusses
@@ -20,7 +21,6 @@ const NOT_YET_IMPLEMENTED = [
   'uncertainty', // M6
   'questions', // M6
   'browser', // headless/sandboxed browser inspection (deferred; M2 uses plain HTTP observation)
-  'prompts', // M5 P2
 ];
 
 /** Packages M2 and M3 implement. */
@@ -35,6 +35,7 @@ const IMPLEMENTED_PACKAGES = [
   'evidence', // M3
   'scoring', // M4
   'llm', // M5 P1: provider-neutral interface only; no vendor adapter yet
+  'prompts', // M5 P2: pure renderer and frozen templates only; no provider, no pipeline
 ];
 
 const MODEL_SDKS = [
@@ -108,7 +109,7 @@ function sourceFiles(dir: string, { includeTests = false } = {}): string[] {
 
 const applicationSource = ['apps', 'packages'].flatMap((group) => sourceFiles(join(ROOT, group)));
 
-describe('M5 milestone scope (phase P1)', () => {
+describe('M5 milestone scope (phase P2)', () => {
   it('keeps the later packages as README-only placeholders', () => {
     for (const name of NOT_YET_IMPLEMENTED) {
       const dir = join(ROOT, 'packages', name);
@@ -320,7 +321,43 @@ describe('M5 milestone scope (phase P1)', () => {
     }
   });
 
-  it('adds no assessment table, route, job type or prompt in P1', () => {
+  it('keeps packages/prompts a pure library: only context, schemas and zod, no model SDK or provider package', () => {
+    const manifest = JSON.parse(
+      readFileSync(join(ROOT, 'packages/prompts/package.json'), 'utf8'),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
+      '@judge-copilot/context',
+      '@judge-copilot/schemas',
+      'zod',
+    ]);
+    expect(manifest.devDependencies ?? {}).toEqual({});
+  });
+
+  it('has no importer of @judge-copilot/prompts yet: no pipeline, route, worker job or UI renders a prompt in P2', () => {
+    const importers = applicationSource.filter(
+      (file) =>
+        !file.startsWith(join(ROOT, 'packages/prompts')) &&
+        /@judge-copilot\/prompts/.test(readFileSync(file, 'utf8')),
+    );
+    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    for (const { dir, manifest } of workspaceManifests()) {
+      if (dir === join(ROOT, 'packages/prompts')) continue;
+      const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
+      expect(deps.includes('@judge-copilot/prompts'), dir).toBe(false);
+    }
+  });
+
+  it('keeps the unapproved fallback anchors out of every implementation file', () => {
+    const offenders = applicationSource.filter((file) =>
+      /M5-fallback-anchors-draft|fallback-anchors-draft/.test(readFileSync(file, 'utf8')),
+    );
+    expect(offenders.map((file) => relative(ROOT, file))).toEqual([]);
+  });
+
+  it('adds no assessment table, route, job type or pipeline in P2', () => {
     const migrations = join(ROOT, 'packages/database/drizzle');
     const sql = readdirSync(migrations)
       .filter((name) => name.endsWith('.sql'))
@@ -329,7 +366,7 @@ describe('M5 milestone scope (phase P1)', () => {
     expect(
       /CREATE TABLE "[a-z_]*(assessment|pre_interview|graph_extraction|budget)[a-z_]*"/i.test(sql),
     ).toBe(false);
-    expect(existsSync(join(ROOT, 'packages/prompts/package.json'))).toBe(false);
+    expect(existsSync(join(ROOT, 'packages/prompts/package.json'))).toBe(true);
     const workerAndApi = [
       ...sourceFiles(join(ROOT, 'apps/api/src')),
       ...sourceFiles(join(ROOT, 'apps/worker/src')),

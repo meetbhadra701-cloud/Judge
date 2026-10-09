@@ -290,7 +290,7 @@ judge-copilot/
 │   ├── auth/       AuthVerifier adapters (JWT/JWKS, dev-only)                  [implemented, M2]
 │   ├── browser/    sandboxed headless-browser inspection                       [deferred, README only]
 │   ├── llm/        provider-neutral interface, request digest, retry, spending guard, replay [M5 P1; no vendor adapter yet]
-│   └── prompts/    versioned prompt templates                                  [M5, README only]
+│   └── prompts/    versioned prompt templates, pure renderer, untrusted-data framing [M5 P2; no pipeline yet]
 ├── tests/
 │   ├── support/    test-only helpers (network guard)
 │   ├── integration/ cross-package tests (dependency rules, process boot)

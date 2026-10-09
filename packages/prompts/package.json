@@ -1,0 +1,26 @@
+{
+  "name": "@judge-copilot/prompts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Versioned, frozen prompt templates and the pure prompt renderer for the M5 assessment pipeline: trusted instructions separated from delimited untrusted project data, code-assigned handles, deterministic collision-safe boundaries. Layer 3 (adapter): no provider, no network, no filesystem, no environment access.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/context": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}
