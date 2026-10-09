@@ -5,11 +5,12 @@ import type { UnitView } from './inputs.js';
 
 /*
  * The standard a scoring unit is judged against, taken from THE SAME locked Event Context snapshot that builds the scoring
- * rubric (design §5.1). A caller must say which snapshot it expects (its content hash, pinned at the start of the run), so
- * a prompt can never be built from a different version than the one that was pinned and scored.
+ * rubric (design §5.1). A caller must say which snapshot it expects: the event, the exact context VERSION id and the content hash,
+ * all pinned at the start of the run, so a prompt can never be built from a different version than the one that was pinned and
+ * scored (a different version with byte-identical content is refused too).
  *
  * What this does and does not establish: it checks the snapshot is schema-valid, currently `locked`, hashes to its recorded
- * content hash and to the pinned expectation. It cannot prove the snapshot is AUTHENTIC; a self-consistent forged snapshot
+ * content hash and to the pinned expectation, and belongs to the pinned event and version. It cannot prove the snapshot is AUTHENTIC; a self-consistent forged snapshot
  * would pass. Authenticity is the database-backed trusted reader's job (P4), exactly as for the scoring context.
  *
  * Official criteria keep their OWN descriptions and anchors. A criterion with no published anchors becomes
@@ -28,9 +29,17 @@ export interface OfficialUnit {
   readonly binding: OfficialUnitBinding;
 }
 
+/** Case-insensitive UUID equality that also refuses a missing (non-string) expectation. */
+const sameId = (actual: string, expected: unknown): boolean =>
+  typeof expected === 'string' && actual.toLowerCase() === expected.toLowerCase();
+
 export function officialUnitFromLockedSnapshot(
   snapshot: unknown,
-  expected: { readonly lockedContentHash: string; readonly eventId: string },
+  expected: {
+    readonly versionId: string;
+    readonly lockedContentHash: string;
+    readonly eventId: string;
+  },
   criterionKey: string,
 ): OfficialUnit {
   const parsed = EventContextLockedSnapshot.safeParse(snapshot);
@@ -41,6 +50,9 @@ export function officialUnitFromLockedSnapshot(
   };
   if (locked.status !== 'locked') fail('not_locked');
   if (locked.eventId !== expected.eventId) fail('event_mismatch');
+  // The exact pinned version, not merely identical content: a different version of the same event is refused even when its
+  // document and sources hash to the same value.
+  if (!sameId(locked.versionId, expected.versionId)) fail('version_mismatch');
   if (
     lockedContentHash({ document: locked.document, sources: locked.sources }) !==
     locked.lockedContentHash

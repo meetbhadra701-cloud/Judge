@@ -22,7 +22,7 @@ describe('frozen prompt identity', () => {
   it('has exactly one frozen prompt per model-backed stage', () => {
     expect(Object.keys(PROMPTS).sort()).toEqual([...ASSESSMENT_STAGE_VALUES].sort());
     expect(PROMPT_REGISTRY.map((entry) => entry.stage)).toEqual([...ASSESSMENT_STAGE_VALUES]);
-    expect(PROMPT_VERSION).toBe('v1');
+    expect(PROMPT_VERSION).toBe('v2');
   });
 
   it('uses kebab-case ids, a shared version, and schema ids equal to prompt ids', () => {
@@ -30,7 +30,7 @@ describe('frozen prompt identity', () => {
       const prompt = promptFor(stage);
       expect(prompt.id).toMatch(/^[a-z]+(-[a-z]+)*$/);
       expect(prompt.id).toBe(stage.replaceAll('_', '-'));
-      expect(prompt.version).toBe('v1');
+      expect(prompt.version).toBe('v2');
       expect(prompt.schemaId).toBe(prompt.id);
       expect(prompt.schemaVersion).toBe(prompt.version);
       expect(prompt.templateHash).toMatch(/^[0-9a-f]{64}$/);
@@ -74,7 +74,7 @@ describe('frozen prompt identity', () => {
           schemaId: critic.schemaId,
           schemaVersion: critic.schemaVersion,
           outputSchemaHash: critic.outputSchemaHash,
-          framing: 'framing/v1',
+          framing: 'framing/v2',
           blocks: critic.blocks,
           systemBase: critic.systemBase,
           ...changes,
@@ -82,10 +82,10 @@ describe('frozen prompt identity', () => {
       );
     expect(recompute({})).toBe(critic.templateHash);
     expect(recompute({ systemBase: `${critic.systemBase} ` })).not.toBe(critic.templateHash);
-    expect(recompute({ version: 'v2' })).not.toBe(critic.templateHash);
+    expect(recompute({ version: 'v3' })).not.toBe(critic.templateHash);
     expect(recompute({ outputSchemaHash: 'f'.repeat(64) })).not.toBe(critic.templateHash);
     expect(recompute({ blocks: ['data'] })).not.toBe(critic.templateHash);
-    expect(recompute({ framing: 'framing/v2' })).not.toBe(critic.templateHash);
+    expect(recompute({ framing: 'framing/v3' })).not.toBe(critic.templateHash);
   });
 
   it('keeps the system text constant: no interpolation holes, no project data, no secrets', () => {
@@ -109,6 +109,46 @@ describe('frozen prompt identity', () => {
       expect(systemBase).toMatch(/Missing evidence is not negative evidence/);
       expect(systemBase).toMatch(/Never accuse/);
       expect(systemBase).toMatch(/exactly one JSON document/);
+    }
+  });
+
+  it('keeps the frozen v1 table and gives every stage a new identity under v2 (a frozen version is never rewritten)', () => {
+    const history = JSON.parse(
+      readFileSync(join(PACKAGE, 'golden', 'history', 'v1-template-hashes.json'), 'utf8'),
+    ) as {
+      stage: string;
+      version: string;
+      templateHash: string;
+      outputSchemaHash: string;
+    }[];
+    expect(history).toHaveLength(9);
+    for (const old of history) {
+      expect(old.version).toBe('v1');
+      const current = PROMPTS[old.stage as keyof typeof PROMPTS];
+      expect(current.version).toBe('v2');
+      // the trusted wording and the framing changed, so the template hash must differ from the v1 hash
+      expect(current.templateHash).not.toBe(old.templateHash);
+      // the output schemas did not change in this correction
+      expect(current.outputSchemaHash).toBe(old.outputSchemaHash);
+    }
+    // the history file itself is pinned
+    expect(sha256Hex(canonicalJson(history))).toBe(
+      sha256Hex(
+        canonicalJson(
+          JSON.parse(
+            readFileSync(join(PACKAGE, 'golden', 'history', 'v1-template-hashes.json'), 'utf8'),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it('tells the model how to quote across line endings (carriage returns and control characters are never quotable)', () => {
+    for (const stage of ['claim_extraction', 'evidence_interpretation'] as const) {
+      expect(promptFor(stage).systemBase).toMatch(
+        /must not contain a carriage return or any control character other than tab and newline/,
+      );
+      expect(promptFor(stage).systemBase).toMatch(/quote within a single line/);
     }
   });
 

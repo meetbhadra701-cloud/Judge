@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { PromptInputError } from './errors.js';
 import { renderPrompt } from './render.js';
 import { officialUnitFromLockedSnapshot } from './rubric-view.js';
-import { EVENT_ID, lockedSnapshot, VALID_INPUTS } from './testing/fixtures.js';
+import { EVENT_ID, lockedSnapshot, VALID_INPUTS, VERSION_ID } from './testing/fixtures.js';
 
-const expectation = (snapshot: { lockedContentHash: string }) => ({
+const expectation = (snapshot: { lockedContentHash: string; versionId: string }) => ({
+  versionId: snapshot.versionId,
   lockedContentHash: snapshot.lockedContentHash,
   eventId: EVENT_ID,
 });
@@ -110,6 +111,79 @@ describe('officialUnitFromLockedSnapshot', () => {
         ),
       ),
     ).toBe('not_the_pinned_version');
+  });
+
+  describe('the exact pinned context version', () => {
+    const OTHER_VERSION = '44444444-4444-4444-8444-444444444444';
+
+    it('accepts the pinned version (case-insensitive UUID)', () => {
+      const snapshot = lockedSnapshot();
+      expect(snapshot.versionId).toBe(VERSION_ID);
+      const pinned = { ...expectation(snapshot), versionId: VERSION_ID.toUpperCase() };
+      expect(
+        officialUnitFromLockedSnapshot(snapshot, pinned, 'problem_fit').binding.contextVersionId,
+      ).toBe(VERSION_ID);
+    });
+
+    it('refuses a different version whose document and sources are byte-identical', () => {
+      const pinned = lockedSnapshot();
+      const twin = lockedSnapshot(undefined, { versionId: OTHER_VERSION });
+      // identical content ⇒ identical content hash: only the version id tells them apart
+      expect(twin.lockedContentHash).toBe(pinned.lockedContentHash);
+      expect(
+        codeOf(() => officialUnitFromLockedSnapshot(twin, expectation(pinned), 'problem_fit')),
+      ).toBe('version_mismatch');
+      // and the other way round: the twin pinned, the original presented
+      expect(
+        codeOf(() => officialUnitFromLockedSnapshot(pinned, expectation(twin), 'problem_fit')),
+      ).toBe('version_mismatch');
+    });
+
+    it('refuses a mismatched event before anything else about the version', () => {
+      const snapshot = lockedSnapshot();
+      expect(
+        codeOf(() =>
+          officialUnitFromLockedSnapshot(
+            snapshot,
+            { ...expectation(snapshot), eventId: '99999999-9999-4999-8999-999999999999' },
+            'problem_fit',
+          ),
+        ),
+      ).toBe('event_mismatch');
+    });
+
+    it('refuses a changed content hash for the right version', () => {
+      const snapshot = lockedSnapshot();
+      expect(
+        codeOf(() =>
+          officialUnitFromLockedSnapshot(
+            snapshot,
+            { ...expectation(snapshot), lockedContentHash: 'e'.repeat(64) },
+            'problem_fit',
+          ),
+        ),
+      ).toBe('not_the_pinned_version');
+    });
+
+    it('refuses a superseded context even when version, event and hash all match', () => {
+      const superseded = lockedSnapshot(undefined, { status: 'superseded' });
+      expect(
+        codeOf(() =>
+          officialUnitFromLockedSnapshot(superseded, expectation(superseded), 'problem_fit'),
+        ),
+      ).toBe('not_locked');
+    });
+
+    it('does not accept an expectation without a version id', () => {
+      const snapshot = lockedSnapshot();
+      const withoutVersion = {
+        lockedContentHash: snapshot.lockedContentHash,
+        eventId: EVENT_ID,
+      } as unknown as Parameters<typeof officialUnitFromLockedSnapshot>[1];
+      expect(
+        codeOf(() => officialUnitFromLockedSnapshot(snapshot, withoutVersion, 'problem_fit')),
+      ).toBe('version_mismatch');
+    });
   });
 
   it('refuses a snapshot whose content does not hash to its recorded content hash', () => {

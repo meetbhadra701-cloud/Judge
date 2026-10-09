@@ -50,6 +50,7 @@ export function lockedSnapshot(
     status?: 'locked' | 'superseded';
     scope?: 'overall' | 'track';
     twoOverall?: boolean;
+    versionId?: string;
   } = {},
 ): EventContextLockedSnapshot {
   const date = (n: number) => ({ ...fact(n), value: null });
@@ -90,7 +91,7 @@ export function lockedSnapshot(
   };
   return {
     eventId: EVENT_ID,
-    versionId: VERSION_ID,
+    versionId: overrides.versionId ?? VERSION_ID,
     version: 1,
     status: overrides.status ?? 'locked',
     lockedAt: NOW,

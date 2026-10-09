@@ -25,7 +25,7 @@ describe('strict model JSON parsing: reject, never repair', () => {
     ['truncated JSON', '{"claims":[{"ref":"c1"'],
     ['single quotes', "{'claims': []}"],
     ['a trailing comma', '{"claims":[],}'],
-    ['a BOM', '﻿{"claims":[]}'],
+    ['a BOM', '\uFEFF{"claims":[]}'],
     ['a comment', '{"claims":[] /* x */}'],
     ['NaN', '{"score":NaN}'],
     ['Infinity', '{"score":Infinity}'],

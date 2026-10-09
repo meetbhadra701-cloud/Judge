@@ -16,7 +16,7 @@ import { FRAMING_VERSION, PREAMBLE, TASKS } from './system.js';
  * VERSION (`v2`), never an edit: old outputs stay attributable to the exact prompt that produced them.
  */
 
-export const PROMPT_VERSION = 'v1' as const;
+export const PROMPT_VERSION = 'v2' as const;
 
 const IDS: Readonly<Record<AssessmentStage, string>> = {
   claim_extraction: 'claim-extraction',

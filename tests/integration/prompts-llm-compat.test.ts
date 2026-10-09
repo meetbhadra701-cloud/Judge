@@ -77,7 +77,7 @@ describe('prompts ↔ llm: the request is exactly what was rendered', () => {
     const request = toRequest(stage, VALID_INPUTS[stage]);
     expect(request.stage).toBe(stage);
     expect(request.promptId).toBe(promptFor(stage).id);
-    expect(request.promptVersion).toBe('v1');
+    expect(request.promptVersion).toBe('v2');
     expect(request.promptTemplateHash).toBe(promptFor(stage).templateHash);
     expect(request.schemaId).toBe(promptFor(stage).schemaId);
     expect(request.system.length).toBeGreaterThan(0);
@@ -238,7 +238,11 @@ describe('prompts ↔ llm: changed model-visible text changes the digest', () =>
       ]);
       const { unit } = officialUnitFromLockedSnapshot(
         snapshot,
-        { lockedContentHash: snapshot.lockedContentHash, eventId: EVENT_ID },
+        {
+          versionId: snapshot.versionId,
+          lockedContentHash: snapshot.lockedContentHash,
+          eventId: EVENT_ID,
+        },
         'problem_fit',
       );
       return computeRequestDigest(
@@ -258,10 +262,10 @@ describe('prompts ↔ llm: changed model-visible text changes the digest', () =>
     const original = computeRequestDigest(request);
     const variants: Partial<StructuredRequest>[] = [
       { promptId: 'critic-x' },
-      { promptVersion: 'v2' },
+      { promptVersion: 'v3' },
       { promptTemplateHash: 'f'.repeat(64) },
       { schemaId: 'critic-x' },
-      { schemaVersion: 'v2' },
+      { schemaVersion: 'v3' },
       { system: `${request.system} ` },
       { user: [...request.user].reverse() },
       { user: request.user.slice(0, 1) },

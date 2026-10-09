@@ -2,64 +2,64 @@
   {
     "stage": "claim_extraction",
     "id": "claim-extraction",
-    "version": "v2",
-    "templateHash": "acfe9894ce473a0f7fc843fa9f57780b68c0f948e42719861bf40d3ceabe5de4",
+    "version": "v1",
+    "templateHash": "490e3b1b127ec2ee5cf8e4e21de44dd1e45f465576a46ac5298dc1846d10a3c1",
     "outputSchemaHash": "014e0daf7169254ff1511f5c6270eff960776e01137639463cee8cf6590e629c"
   },
   {
     "stage": "evidence_interpretation",
     "id": "evidence-interpretation",
-    "version": "v2",
-    "templateHash": "46d774642398977af34a5e49f84d21b7d25528a26cf34ad329d72a11386ad9eb",
+    "version": "v1",
+    "templateHash": "ef9b22650767b30503b1d068ac7c1b464045b6b9e53ff9ada5084e91b6ce7cb6",
     "outputSchemaHash": "8835ed4761f7176f31b1e1c7afdc3861ddad21764590d2026675cd1c020977c7"
   },
   {
     "stage": "fidelity_review",
     "id": "fidelity-review",
-    "version": "v2",
-    "templateHash": "02a1876b5cf28fd41663c510d1240aaee115657ca67d962dfb083c3a7c61f368",
+    "version": "v1",
+    "templateHash": "76b8e81d917c62ffddea37042fb572dc05f69ec8b8eacb9eb1034a08e4575ecc",
     "outputSchemaHash": "1de12754c58e4cc1781fc5ba5cfb9ef76c836ad17a59246ad5c315edea9a5b1a"
   },
   {
     "stage": "relation_matching",
     "id": "relation-matching",
-    "version": "v2",
-    "templateHash": "fb699da4d7cdc8c80f0c493da0fe0e0ce706f77b9c3404511d19697f98d47915",
+    "version": "v1",
+    "templateHash": "ca28651b5096f83efed5a27abf99a84907e314fed3f2e76b88bdd543950ce89d",
     "outputSchemaHash": "1f341116de395c1232fc219234aaae3d7aa1850e058cdeddf2c15bd56cc3662a"
   },
   {
     "stage": "relation_verification",
     "id": "relation-verification",
-    "version": "v2",
-    "templateHash": "985d0bc4a153ec238faa14535c685353e0fa9ab0e39dd255baebb87eec8be649",
+    "version": "v1",
+    "templateHash": "8cf1fa51ae544a93dae08a302af52831a23a16c2232399274f5d367c570292b9",
     "outputSchemaHash": "a643bcab468ca93cbb30b539a88c2b7ca311efc1604469210cf712a96e9025bb"
   },
   {
     "stage": "contradiction_detection",
     "id": "contradiction-detection",
-    "version": "v2",
-    "templateHash": "9917f688b9fc0aba52bfc83d19a07d256a1ef1c235e4f2b7abaaf170a6aea4ec",
+    "version": "v1",
+    "templateHash": "d7c100790e2de82b048724e241345592f9cbe63c8550f422509fc1765c3e3e89",
     "outputSchemaHash": "7153f8d005d04e027921705b3d991d0079046b455ee5ef6298c4c044cde2f8b9"
   },
   {
     "stage": "unknown_identification",
     "id": "unknown-identification",
-    "version": "v2",
-    "templateHash": "a30a19c084ad53e967bc08d2a305222a3650463ec3a36c9cfb86d65e0c910eb6",
+    "version": "v1",
+    "templateHash": "5893d886aa2829d40f24010b593087a9f42c7f748ab7cf241cf6bef3e226173f",
     "outputSchemaHash": "882f0cedc47a7c6abce8bb1fbf1ec7594d51db0d6f9c28478f3302e9bbc0292b"
   },
   {
     "stage": "dimension_assessment",
     "id": "dimension-assessment",
-    "version": "v2",
-    "templateHash": "1d5bf4524540995f0a57a27aaf5494b063ec0093737e67b784d335372bd827f1",
+    "version": "v1",
+    "templateHash": "0c131e67c2a3648c68c065028a2154f66278987907d7741e334a75277dca5689",
     "outputSchemaHash": "c7e6378439a74f85e55166fe22b7a452326a0568a95a46cc1285242dacfa5506"
   },
   {
     "stage": "critic",
     "id": "critic",
-    "version": "v2",
-    "templateHash": "f86ccae3f97672add88ad070353e7266a5d5bd9665ff251f83f63e29d7d9b7a4",
+    "version": "v1",
+    "templateHash": "a02befe447c748b5230d039fd4ae626955524f1318760d62910480b75d7c5db5",
     "outputSchemaHash": "48375e80ef5c8e00fd24e70873db1e9b14629903bedaf5a24eb6046c072ff212"
   }
 ]
