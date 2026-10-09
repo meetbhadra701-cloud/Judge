@@ -152,6 +152,68 @@ describe('guarded provider: reserve → call → settle for every attempt', () =
   });
 });
 
+describe('F1: released (not-sent) attempts still count against maxCalls', () => {
+  it('maxCalls=1: after a rate_limited/not_sent attempt the next call is denied and never reaches the provider', async () => {
+    const provider = new ScriptedProvider([fail('rate_limited', 'not_sent'), ok()]);
+    const { budget, clock } = budgetFor({ maxCalls: 1 });
+    const llm = withBudget(provider, budget, PRICES_V1); // no retry wrapper: one attempt per call
+    expect(await llm.generate(request(), signal())).toMatchObject({
+      ok: false,
+      category: 'rate_limited',
+    });
+    expect(await llm.generate(request(), signal())).toMatchObject({
+      ok: false,
+      category: 'budget_exceeded',
+      denial: 'calls',
+      sendState: 'not_sent',
+    });
+    expect(provider.requests).toHaveLength(1);
+    expect((await budget.entries()).map((e) => e.state)).toEqual(['released']);
+    expect(clock.pending).toBe(0);
+  });
+
+  it('three retryable not-sent failures cannot exceed maxCalls=2', async () => {
+    const provider = new ScriptedProvider([fail('rate_limited', 'not_sent')], { repeatLast: true });
+    const { llm, budget, clock } = guarded(provider, { maxCalls: 2 });
+    const result = await run(llm, clock);
+    expect(result).toMatchObject({ ok: false, category: 'budget_exceeded', denial: 'calls' });
+    expect(provider.requests).toHaveLength(2);
+    const snap = await budget.snapshot();
+    expect(snap.releasedCalls).toBe(2);
+    expect(snap.attemptsStarted).toBe(2);
+    expect(snap.settled.calls + snap.unknown.calls).toBe(0); // released attempts cost nothing...
+    expect(snap.reserved.costNanoUsd).toBe(0); // ...and hold no reservation
+  });
+
+  it('concurrent logical calls cannot exceed maxCalls when every attempt is released', async () => {
+    const provider = new ScriptedProvider([fail('auth', 'not_sent')], { repeatLast: true });
+    const { budget } = budgetFor({ maxCalls: 4 });
+    const llm = withBudget(provider, budget, PRICES_V1);
+    const results = await Promise.all(
+      Array.from({ length: 15 }, (_, index) =>
+        llm.generate(request({ user: [`q${String(index)}`] }), signal()),
+      ),
+    );
+    expect(provider.requests).toHaveLength(4);
+    expect(results.filter((r) => !r.ok && r.category === 'budget_exceeded')).toHaveLength(11);
+    expect((await budget.snapshot()).attemptsStarted).toBe(4);
+  });
+
+  it('a budget-denied call never invokes the underlying provider', async () => {
+    const provider = new ScriptedProvider([ok()], { repeatLast: true });
+    const { budget } = budgetFor({ maxCalls: 1 });
+    const llm = withBudget(provider, budget, PRICES_V1);
+    expect((await llm.generate(request(), signal())).ok).toBe(true);
+    for (let index = 0; index < 5; index += 1) {
+      expect(await llm.generate(request(), signal())).toMatchObject({
+        category: 'budget_exceeded',
+        denial: 'calls',
+      });
+    }
+    expect(provider.requests).toHaveLength(1);
+  });
+});
+
 describe('T-R5b: unexpected retries exhaust the configured guard safely', () => {
   it('stops EXACTLY at the call limit under a retry storm, with no success and no extra call', async () => {
     const provider = new ScriptedProvider([fail('provider_unavailable')], { repeatLast: true });

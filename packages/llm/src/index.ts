@@ -6,12 +6,13 @@
  * spending guard, versioned prices, failure normalization, and the offline replay and scripted providers.
  * The Anthropic adapter arrives in P6, behind this interface, and only with the owner's authorization.
  */
-export { InMemoryRunBudget, AsyncMutex } from './budget.js';
+export { AsyncMutex, InMemoryRunBudget, MAX_RECORDED_RESPONSE_BYTES } from './budget.js';
 export type {
   BudgetSnapshot,
   InMemoryRunBudgetOptions,
   LedgerEntry,
   ReserveOutcome,
+  ResponseRecordState,
   ReserveRequest,
   RunBudget,
   Settlement,

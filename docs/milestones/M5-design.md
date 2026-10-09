@@ -972,8 +972,7 @@ interface LlmProvider {
 ```
 
 Provider-neutral: nothing above names a vendor; the Anthropic adapter is one implementation (D13: an Ollama/OpenAI-compatible adapter later needs no interface change). Composition
-(decorators, all unit-tested with a fake clock/RNG): `withTimeout` → `withRetry` → `withBudget(reserve/settle)` → `withLedgerSink`. `ReplayProvider` and `ScriptedProvider` are refused when
-`NODE_ENV=production`.
+(decorators, all unit-tested with a fake clock/RNG): `withTimeout` → `withRetry` → `withBudget(reserve/settle)` → `withLedgerSink`. `ReplayProvider` and `ScriptedProvider` are refused unless the **actual runtime** `NODE_ENV` is `development` or `test` (P1 review fix F2: unset = `development`, anything else fails closed; a caller-supplied value can only tighten the check). The ledger retains each model answer as a bounded, frozen copy; durable storage of it is P4's `response_json` under the same bound (F3).
 
 **P1 implementation notes (deviations from the sketch above, all recorded in [M5-P1-note](./M5-P1-note.md)).** The result type is `LlmResult` (`LlmSuccess | LlmFailure`); a `max_tokens` truncation is a `truncated` _failure_ (with measured usage when the provider reports it), so `stopReason` is not a success field; costs are exact integers in **nano-USD** (persisted as micro-USD with a ceiling in P4); a failure may carry `usage` and, for the spending guard, a `denial` reason; the ledger port is `RunBudget` (`reserve`/`settle`/`snapshot`/`entries`/`reapInFlight`). The prompt boundary is a P2 deliverable and is not in P1.
 
@@ -1159,7 +1158,7 @@ byte", **not** a provider guarantee; `reserveOutput = generation.maxOutputTokens
    sequential; across projects `ASSESSMENT_CONCURRENCY ≤ 2` and each run has its own cap; an optional global daily cap (default off) uses the same protocol on a singleton row,
    always locked _before_ the run row.
 
-**Attempts, retries and exhaustion `[Rev3: C2]`.** Every provider attempt — including each transient retry — is its own reserve → call → settle cycle and counts against the call cap, the token caps and the cost cap. When any cap would be crossed, **no further call is made**: the retry loop stops, the run ends `budget_exceeded`, in-flight `unknown` spend stays counted, and no assessment or score is produced. Unplanned retries therefore consume the plan's headroom first and can never cause a call beyond the cap.
+**Attempts, retries and exhaustion `[Rev3: C2]`.** Every provider attempt — including each transient retry — is its own reserve → call → settle cycle and counts against the call cap, the token caps and the cost cap. A provably-unsent (`released`) attempt gives back its token and cost reservation but **never its attempt slot** (P1 review fix F1). When any cap would be crossed, **no further call is made**: the retry loop stops, the run ends `budget_exceeded`, in-flight `unknown` spend stays counted, and no assessment or score is produced. Unplanned retries therefore consume the plan's headroom first and can never cause a call beyond the cap.
 
 **Token counting.** The provider's token-counting endpoint could tighten the input estimate, but whether it is free and what its limits are could **not** be confirmed from the
 reference material available to the design session, and it is itself an external request. It is therefore **disabled by default**, would be a separately authorized option, and — if ever

@@ -39,6 +39,7 @@ export type ReplayFixtureFile = z.infer<typeof ReplayFixtureFile>;
 
 export interface ReplayProviderOptions {
   readonly fixtures: unknown;
+  /** Can only make the production check STRICTER than the real runtime environment; it can never relax it. */
   readonly nodeEnv?: string | undefined;
 }
 

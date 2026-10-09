@@ -1,3 +1,4 @@
+import { canonicalJson } from '@judge-copilot/context';
 import type {
   AssessmentRunLimits,
   BudgetDenialReason,
@@ -27,6 +28,23 @@ import type { Usage } from './types.js';
  * The in-memory implementation serializes reserve/settle with a mutex, modelling the `SELECT ... FOR UPDATE`
  * row lock of the database-backed ledger (P4) behind the same port.
  */
+
+/**
+ * RESPONSE AUDITING CONTRACT. A settled success may carry the model's parsed JSON (`Settlement.responseJson`). A ledger
+ * implementation MUST retain it, bounded and immutable, so an audit or a replay-fixture author can see exactly what the
+ * model returned. The in-memory ledger does so now (this file). The database-backed ledger (P4) must persist the same
+ * value in `assessment_run_calls.response_json` under the SAME bound and report it through `entries()`; the contract tests
+ * in budget.test.ts are parameterized over a ledger factory so that implementation inherits them.
+ *
+ * What is retained: only the model's JSON ANSWER, as canonical (key-sorted) JSON text re-parsed into a deeply frozen copy,
+ * never the caller's object. What is NEVER retained: the system text, the user blocks, the schema, headers or credentials
+ * (the ledger never receives them), and failure results (they have no answer). An answer larger than
+ * MAX_RECORDED_RESPONSE_BYTES, or one that cannot be serialized to JSON, is NOT stored; the entry says so
+ * (`responseRecord`) and still carries the hash of the answer when the caller supplied one.
+ */
+export const MAX_RECORDED_RESPONSE_BYTES = 262_144;
+
+export type ResponseRecordState = 'stored' | 'too_large' | 'unserializable' | 'none';
 
 export interface ReserveRequest {
   readonly stage: string;
@@ -67,6 +85,11 @@ export interface LedgerEntry {
   readonly costNanoUsd: number | null;
   readonly outcomeCode: string | null;
   readonly responseHash: string | null;
+  /** The model's answer as a deeply frozen canonical copy; null unless `responseRecord` is `stored`. */
+  readonly responseJson: unknown;
+  readonly responseRecord: ResponseRecordState;
+  /** UTF-8 size of the canonical answer, when it could be serialized. */
+  readonly responseBytes: number | null;
   /** True when measured usage exceeded the reservation: the byte-based bound was wrong for this attempt. */
   readonly boundViolation: boolean;
 }
@@ -83,8 +106,14 @@ export interface BudgetSnapshot {
   readonly settled: Readonly<Totals>;
   readonly unknown: Readonly<Totals>;
   readonly reserved: Readonly<Totals>;
-  /** Attempts released because they provably never reached the provider (not counted against the call limit). */
+  /**
+   * Attempts released because they provably never reached the provider. Their token and cost reservations are freed,
+   * but they STILL COUNT as attempts: the call limit is a limit on attempts started, and a refunded slot would let a
+   * rate-limit storm evade it.
+   */
   readonly releasedCalls: number;
+  /** Every attempt that was started: settled + unknown + in flight + released. This is what `maxCalls` limits. */
+  readonly attemptsStarted: number;
   readonly boundViolations: number;
 }
 
@@ -170,6 +199,9 @@ export class InMemoryRunBudget implements RunBudget {
         costNanoUsd: null,
         outcomeCode: null,
         responseHash: null,
+        responseJson: null,
+        responseRecord: 'none',
+        responseBytes: null,
         boundViolation: false,
       });
       addTo(
@@ -219,6 +251,7 @@ export class InMemoryRunBudget implements RunBudget {
         row.outputTokens = output;
         row.costNanoUsd = cost;
         row.responseHash = settlement.responseHash;
+        this.recordResponse(row, settlement.responseJson);
         row.boundViolation = input > reservation.inputTokens || output > reservation.outputTokens;
         if (row.boundViolation) this.boundViolations += 1;
         addTo(this.settled, 1, input, output, cost);
@@ -235,6 +268,8 @@ export class InMemoryRunBudget implements RunBudget {
         unknown: { ...this.unknown },
         reserved: { ...this.reserved },
         releasedCalls: this.releasedCalls,
+        attemptsStarted:
+          this.settled.calls + this.unknown.calls + this.reserved.calls + this.releasedCalls,
         boundViolations: this.boundViolations,
       }),
     );
@@ -264,6 +299,29 @@ export class InMemoryRunBudget implements RunBudget {
     });
   }
 
+  private recordResponse(row: MutableEntry, answer: unknown): void {
+    if (answer === undefined) return;
+    let canonical: string;
+    try {
+      canonical = canonicalJson(answer);
+    } catch {
+      row.responseRecord = 'unserializable';
+      return;
+    }
+    // `JSON.stringify` yields undefined for values with no JSON form (a bare function or symbol).
+    if (typeof canonical !== 'string') {
+      row.responseRecord = 'unserializable';
+      return;
+    }
+    row.responseBytes = new TextEncoder().encode(canonical).length;
+    if (row.responseBytes > MAX_RECORDED_RESPONSE_BYTES) {
+      row.responseRecord = 'too_large';
+      return;
+    }
+    row.responseJson = deepFreeze(JSON.parse(canonical) as unknown);
+    row.responseRecord = 'stored';
+  }
+
   private markUnknown(row: MutableEntry): void {
     row.state = 'unknown';
     row.usageBasis = 'unknown_reserved';
@@ -286,7 +344,10 @@ export class InMemoryRunBudget implements RunBudget {
     if (bounds.inputTokens > limits.maxReservedInputTokensPerCall) return 'per_call_input';
     const total = (pick: (t: Totals) => number) =>
       pick(this.settled) + pick(this.unknown) + pick(this.reserved);
-    if (total((t) => t.calls) + 1 > limits.maxCalls) return 'calls';
+    // `maxCalls` limits ATTEMPTS STARTED. A released attempt gives back its token and cost reservation (it never reached
+    // the provider) but never its attempt slot: refunding it would let repeated not-sent failures (for example HTTP 429)
+    // exceed the limit without bound.
+    if (total((t) => t.calls) + this.releasedCalls + 1 > limits.maxCalls) return 'calls';
     if (total((t) => t.inputTokens) + bounds.inputTokens > limits.maxInputTokens) {
       return 'input_tokens';
     }
@@ -296,4 +357,12 @@ export class InMemoryRunBudget implements RunBudget {
     if (total((t) => t.costNanoUsd) + bounds.costNanoUsd > limits.maxCostNanoUsd) return 'cost';
     return null;
   }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
 }

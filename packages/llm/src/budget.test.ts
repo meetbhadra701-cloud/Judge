@@ -73,16 +73,25 @@ describe('reserve → settle accounting', () => {
     });
   });
 
-  it('releases an attempt that provably never reached the provider (not counted as a call)', async () => {
-    const { budget } = budgetFor({ maxCalls: 1 });
-    const r = await budget.reserve(ask());
-    if (!r.ok) throw new Error('denied');
-    await budget.settle(r.callId, { kind: 'released', outcomeCode: 'rate_limited' });
+  it('releases an attempt that never reached the provider: it frees tokens and cost but NOT the attempt slot', async () => {
+    const cost = bounds(1_000, 100).costNanoUsd;
+    const { budget } = budgetFor({ maxCalls: 2, maxCostNanoUsd: cost });
+    const first = await budget.reserve(ask());
+    if (!first.ok) throw new Error('denied');
+    await budget.settle(first.callId, { kind: 'released', outcomeCode: 'rate_limited' });
     const snap = await budget.snapshot();
     expect(snap.releasedCalls).toBe(1);
-    expect(snap.reserved.calls + snap.settled.calls + snap.unknown.calls).toBe(0);
-    // The single allowed call is still available.
-    expect((await budget.reserve(ask())).ok).toBe(true);
+    expect(snap.attemptsStarted).toBe(1);
+    expect(snap.reserved).toEqual({ calls: 0, inputTokens: 0, outputTokens: 0, costNanoUsd: 0 });
+    expect(snap.settled.calls + snap.unknown.calls + snap.reserved.calls).toBe(0);
+    // The cost cap is exactly one reservation wide: it is free again, so a second attempt can start...
+    const second = await budget.reserve(ask(bounds(1_000, 100), 'b'));
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('denied');
+    await budget.settle(second.callId, { kind: 'released', outcomeCode: 'rate_limited' });
+    // ...but both attempt slots are spent, whatever the freed token and cost headroom says.
+    expect(await budget.reserve(ask(bounds(1, 1), 'c'))).toEqual({ ok: false, denial: 'calls' });
+    expect((await budget.snapshot()).attemptsStarted).toBe(2);
   });
 
   it('flags measured usage above the reservation (the byte bound was wrong) and counts the measured figure', async () => {
@@ -162,6 +171,35 @@ describe('every limit is enforced before the attempt starts', () => {
     await budget.settle(b.callId, { kind: 'unknown', outcomeCode: 'timeout' });
     expect((await budget.reserve(ask(bounds(1, 1), 'c'))).ok).toBe(true); // in flight
     expect(await budget.reserve(ask(bounds(1, 1), 'd'))).toEqual({ ok: false, denial: 'calls' });
+  });
+
+  it('does not refund a released attempt: maxCalls=1 and one rate_limited/not_sent attempt leaves no slot', async () => {
+    const { budget } = budgetFor({ maxCalls: 1 });
+    const only = await budget.reserve(ask());
+    if (!only.ok) throw new Error('denied');
+    await budget.settle(only.callId, { kind: 'released', outcomeCode: 'rate_limited' });
+    expect(await budget.reserve(ask(bounds(1, 1), 'next'))).toEqual({ ok: false, denial: 'calls' });
+  });
+
+  it('counts settled, unknown, released and in-flight attempts together against maxCalls', async () => {
+    const { budget } = budgetFor({ maxCalls: 4 });
+    const kinds = ['measured', 'unknown', 'released'] as const;
+    for (const [index, kind] of kinds.entries()) {
+      const r = await budget.reserve(ask(bounds(1, 1), `k${String(index)}`));
+      if (!r.ok) throw new Error('denied');
+      await budget.settle(
+        r.callId,
+        kind === 'measured'
+          ? { kind, usage: usage(1, 1), outcomeCode: 'ok', responseHash: null }
+          : { kind, outcomeCode: 'x' },
+      );
+    }
+    expect((await budget.reserve(ask(bounds(1, 1), 'inflight'))).ok).toBe(true); // the fourth attempt
+    expect(await budget.reserve(ask(bounds(1, 1), 'fifth'))).toEqual({
+      ok: false,
+      denial: 'calls',
+    });
+    expect((await budget.snapshot()).attemptsStarted).toBe(4);
   });
 
   it('denies on input tokens, output tokens and cost with the right reason', async () => {
@@ -245,6 +283,22 @@ describe('concurrency: racing reservations cannot both pass the same remaining b
     expect(outcomes.filter((o) => o.ok)).toHaveLength(3);
     const snap = await budget.snapshot();
     expect(snap.reserved.costNanoUsd).toBeLessThanOrEqual(cost * 3);
+  });
+
+  it('cannot exceed maxCalls under concurrency even when other attempts settle as released', async () => {
+    const { budget } = budgetFor({ maxCalls: 3 });
+    const results = await Promise.all(
+      Array.from({ length: 12 }, async (_, index) => {
+        const r = await budget.reserve(ask(bounds(10, 10), `c${String(index)}`));
+        if (r.ok) await budget.settle(r.callId, { kind: 'released', outcomeCode: 'rate_limited' });
+        return r.ok;
+      }),
+    );
+    expect(results.filter(Boolean)).toHaveLength(3);
+    const snap = await budget.snapshot();
+    expect(snap.attemptsStarted).toBe(3);
+    expect(snap.releasedCalls).toBe(3);
+    expect(snap.reserved.calls).toBe(0);
   });
 
   it('serializes settle against reserve: a settlement racing a reservation cannot double-spend the freed budget', async () => {

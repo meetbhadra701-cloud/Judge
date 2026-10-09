@@ -24,3 +24,15 @@ Durable facts:
 - Costs are exact integers in **nano-USD**; the persistence layer (P4) converts to micro-USD with a ceiling.
 - `ASSESSMENT_RUN_FAILURE_CATEGORY_VALUES` extends the existing six categories with `budget_exceeded`; the shared
   `ANALYSIS_RUN_FAILURE_CATEGORY_VALUES` tuple (and so the database CHECK) is deliberately unchanged until the P4 migration.
+
+## Review fixes after the independent P1 review (commit following `659487e`)
+
+- **F1 — `maxCalls` counts every attempt.** A `released` attempt (provably unsent, for example HTTP 429) frees its token and cost reservation but keeps its
+  attempt slot (`BudgetSnapshot.attemptsStarted`). Previously the slot was refunded, which let repeated not-sent failures evade the limit.
+- **F2 — production restriction fails closed.** `assertProviderAllowed` reads the actual `NODE_ENV` (the only environment read in `packages/llm`, in
+  `modes.ts`). Non-live providers run only when it is exactly `development` or `test` (unset = `development`, matching `BaseEnv`). A caller-supplied
+  `nodeEnv` can only tighten the check. Tests simulate production with `vi.stubEnv`, not with an argument.
+- **F3 — response auditing contract.** P1 retains the model answer in the in-memory ledger as a canonical, deeply frozen copy bounded to
+  `MAX_RECORDED_RESPONSE_BYTES` (256 KiB, measured in UTF-8 bytes); oversized or unserializable answers are marked (`responseRecord`) and keep their hash;
+  prompts, credentials and failure results are never recorded. **Durable storage is P4's responsibility** (`assessment_run_calls.response_json`, same bound);
+  `ledger-contract.test.ts` is parameterized over a ledger factory so the database ledger inherits the contract.

@@ -39,7 +39,6 @@ describe('packages/llm source (P1)', () => {
     ],
     ['filesystem access', /from ['"](node:)?fs(\/promises)?['"]/],
     ['process execution', /from ['"](node:)?(child_process|vm|worker_threads)['"]/],
-    ['environment access', /process\.env/],
     ['a key literal', /sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9_-]{8,}|x-api-key/],
     ['console output', /\bconsole\./],
     ['dynamic evaluation', /\beval\s*\(|new Function\s*\(/],
@@ -48,6 +47,18 @@ describe('packages/llm source (P1)', () => {
     for (const file of sources) {
       expect(pattern.test(code(file)), relative(SRC, file)).toBe(false);
     }
+  });
+
+  it('reads the environment in exactly one place, and reads only NODE_ENV there', () => {
+    const readers = sources.filter((file) => /process\.env/.test(code(file)));
+    expect(readers.map((file) => relative(SRC, file))).toEqual(['modes.ts']);
+    const reads = [
+      ...code(join(SRC, 'modes.ts')).matchAll(
+        /process\.env(?:\[['"]([A-Z_]+)['"]\]|\.([A-Z_]+))?/g,
+      ),
+    ];
+    expect(reads.length).toBeGreaterThan(0);
+    for (const read of reads) expect(read[1] ?? read[2]).toBe('NODE_ENV');
   });
 
   it('never reads an error message (SDK errors can carry request headers and keys)', () => {
