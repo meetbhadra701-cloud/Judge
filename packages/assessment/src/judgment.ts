@@ -16,6 +16,7 @@ import {
   type UnitCandidates,
 } from './candidates.js';
 import { shownHandles, shownUnit, type ClosedSet } from './closed-set.js';
+import type { EventReferenceApplicability } from './event-evidence.js';
 import { issue, type DomainIssue } from './issues.js';
 
 /*
@@ -124,6 +125,65 @@ export function gateJudgment(
   };
 }
 
+// -- Track reference audit (R3 A4) ----------------------------------------------------------------------------------------
+
+/**
+ * What a later semantic-relevance review needs for ONE scored Track judgment, retained verbatim from code-authored data. The P3 gate
+ * is STRUCTURAL: it proves the judgment cites an applicable reference of the right KIND for the declared track, not that the cited
+ * rule is relevant to the dimension ("Do not harass event staff" is a structurally applicable overall rule that says nothing about a
+ * required technology). So every such judgment carries `semanticRelevance: 'not_verified'` and `criticReviewRequired: true`, and P5 may
+ * not accept the assessment until a critic review of exactly these citations has completed.
+ */
+export interface TrackReferenceAudit {
+  readonly dimensionId: string;
+  readonly semanticRelevance: 'not_verified';
+  readonly criticReviewRequired: true;
+  readonly references: readonly {
+    readonly handle: string;
+    readonly evidenceId: string;
+    readonly applicability: EventReferenceApplicability;
+    readonly trackKey: string | null;
+    readonly directness: EvidenceDirectness;
+    readonly specificity: EvidenceSpecificity;
+  }[];
+}
+
+/** One audit per SCORED fallback Track judgment, in unit order. Empty when none was scored. */
+export function trackReferenceAudits(
+  units: readonly UnitCandidates[],
+  finals: readonly FinalUnit[],
+): TrackReferenceAudit[] {
+  const audits: TrackReferenceAudit[] = [];
+  for (const final of finals) {
+    if (final.disposition !== 'scored' || final.judgment === null) continue;
+    if (requiredReferenceKinds(final.dimensionId) === null) continue;
+    const unit = units.find((candidate) => candidate.dimensionId === final.dimensionId);
+    if (!unit) continue;
+    const references = final.judgment.citations.flatMap((citation) => {
+      const item = unit.byHandle.get(citation.handle);
+      return item?.reference
+        ? [
+            {
+              handle: citation.handle,
+              evidenceId: item.evidenceId,
+              applicability: item.reference.applicability,
+              trackKey: item.reference.trackKey,
+              directness: citation.directness,
+              specificity: citation.specificity,
+            },
+          ]
+        : [];
+    });
+    audits.push({
+      dimensionId: final.dimensionId,
+      semanticRelevance: 'not_verified',
+      criticReviewRequired: true,
+      references,
+    });
+  }
+  return audits;
+}
+
 // -- Dispositions ---------------------------------------------------------------------------------------------------------
 
 export const UNIT_DISPOSITION_VALUES = [
@@ -143,6 +203,7 @@ export const UNIT_DISPOSITION_VALUES = [
   'assessor_output_invalid',
   'critic_unavailable',
   'provider_refused',
+  'official_requirement_omitted_by_limit',
 ] as const;
 export type UnitDisposition = (typeof UNIT_DISPOSITION_VALUES)[number];
 
@@ -157,6 +218,7 @@ export function classifyDisposition(disposition: UnitDisposition): DispositionCl
     case 'assessor_output_invalid':
     case 'critic_unavailable':
     case 'provider_refused':
+    case 'official_requirement_omitted_by_limit':
       return 'technical';
     default:
       return 'valid_insufficiency';

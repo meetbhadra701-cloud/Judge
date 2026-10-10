@@ -391,7 +391,7 @@ describe('F1: relation verification is per batch', () => {
     expect(callB.ok && callB.issues.map((i) => [i.code, i.handle])).toEqual([
       ['pair_not_shown', 'X-001'],
     ]);
-    expect(callB.ok && callB.judged).toEqual(['X-003']);
+    expect(callB.ok && callB.judged.map((j) => j.pair)).toEqual(['X-003']);
     expect(callB.ok && callB.kept.map((r) => r.evidence)).toEqual([ex.evidence[1]?.handle]);
     // batch A's own call never verified X-001 / X-002: after combining, they are dropped, not kept
     const callA = stage.validateRelationVerification(
@@ -453,13 +453,13 @@ describe('F1: relation verification is per batch', () => {
       { verdicts: [{ pair: 'X-002', verdict: 'supports' }] },
       { pairs: ['X-002'] },
     );
-    expect(only.judged).toEqual(['X-002']);
+    expect(only.judged.map((j) => j.pair)).toEqual(['X-002']);
     expect(only.dropped).toEqual([]);
   });
 });
 
 function emptyResolution() {
-  return { kept: [], dropped: [], issues: [], judged: [] };
+  return { kept: [], keptPairs: [], dropped: [], issues: [], judged: [] };
 }
 
 describe('F1: assessor and critic closed sets', () => {

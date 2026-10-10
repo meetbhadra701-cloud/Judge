@@ -48,6 +48,16 @@ export interface UnitCandidates {
   readonly needGroups: readonly (readonly EvidenceChannel[])[] | null;
   readonly items: readonly CandidateItem[];
   readonly byHandle: ReadonlyMap<string, CandidateItem>;
+  /**
+   * What the reference cap did (R3 A3), so a requirement that EXISTS but was left out by the configured limit is never mistaken for a
+   * requirement the event does not have. `omittedRequired` counts applicable references of a kind this unit needs that were not shown.
+   */
+  readonly referenceSelection: {
+    readonly applicable: number;
+    readonly included: number;
+    readonly omittedRequired: number;
+    readonly omittedOther: number;
+  };
 }
 
 /** The channel of an evidence record: a structural derivation that mirrors M4's (cross-checked against the engine in tests). */
@@ -99,6 +109,14 @@ export interface CandidateInputs {
    * applicability cannot be established, and it is never guessed from its text.
    */
   readonly eventReferences: ReadonlyMap<string, EventReferenceMeta>;
+  /** Test/configuration seam for the per-unit reference cap (default `EVENT_REFERENCES_PER_UNIT`). */
+  readonly referenceCap?: number;
+}
+
+/** 0 when `applicability` is a kind the dimension REQUIRES (Track units only), else 1. */
+function requiredRank(dimensionId: string, applicability: EventReferenceApplicability): number {
+  const required = requiredReferenceKinds(dimensionId);
+  return required?.includes(applicability) === true ? 0 : 1;
 }
 
 const REFERENCE_ORDER: Readonly<Record<EventReferenceApplicability, number>> = {
@@ -151,13 +169,24 @@ export function buildCandidateSets(inputs: CandidateInputs): UnitCandidates[] {
           const reference = applicableReference(inputs.eventReferences.get(record.id), declared);
           return reference ? [{ record, order, reference }] : [];
         })
-        // track definitions first, then track-specific requirements, then overall rules, so the cap never drops track context
+        // References the dimension REQUIRES come first (an eligibility unit: requirements before track descriptions), then by kind
+        // (track definition, track-specific requirement, overall rule), so the cap never drops what the unit needs to be assessable.
         .sort(
           (a, b) =>
+            requiredRank(dimension.id, a.reference.applicability) -
+              requiredRank(dimension.id, b.reference.applicability) ||
             REFERENCE_ORDER[a.reference.applicability] -
-              REFERENCE_ORDER[b.reference.applicability] || a.order - b.order,
+              REFERENCE_ORDER[b.reference.applicability] ||
+            a.order - b.order,
         );
-      const referenceSlots = Math.min(references.length, EVENT_REFERENCES_PER_UNIT);
+      const referenceSlots = Math.min(
+        references.length,
+        inputs.referenceCap ?? EVENT_REFERENCES_PER_UNIT,
+      );
+      const omitted = references.slice(referenceSlots);
+      const omittedRequired = omitted.filter(
+        (entry) => requiredRank(dimension.id, entry.reference.applicability) === 0,
+      ).length;
       const chosen = [
         ...project.slice(0, CANDIDATES_PER_UNIT - referenceSlots).map((entry) => ({
           record: entry.record,
@@ -185,6 +214,12 @@ export function buildCandidateSets(inputs: CandidateInputs): UnitCandidates[] {
         needGroups: needs,
         items,
         byHandle: new Map(items.map((item) => [item.handle, item])),
+        referenceSelection: {
+          applicable: references.length,
+          included: referenceSlots,
+          omittedRequired: requiredReferenceKinds(dimension.id) === null ? 0 : omittedRequired,
+          omittedOther: omitted.length - omittedRequired,
+        },
       });
     }
   }
@@ -218,6 +253,8 @@ export const PRE_GATE_REASON_VALUES = [
   'no_candidate_evidence',
   'no_satisfiable_need',
   'no_official_requirement_available',
+  /** An applicable requirement exists but the configured reference cap left every one of them out: not a valid insufficiency. */
+  'official_requirement_omitted_by_limit',
 ] as const;
 export type PreGateReason = (typeof PRE_GATE_REASON_VALUES)[number];
 
@@ -242,7 +279,9 @@ export function preGate(unit: UnitCandidates): PreGateReason | null {
       (item) => item.reference !== null && required.includes(item.reference.applicability),
     )
   ) {
-    return 'no_official_requirement_available';
+    return unit.referenceSelection.omittedRequired > 0
+      ? 'official_requirement_omitted_by_limit'
+      : 'no_official_requirement_available';
   }
   return null;
 }

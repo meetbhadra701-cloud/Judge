@@ -54,6 +54,7 @@ export function build(
     locked?: EventContextLockedSnapshot;
     declaredTrackKeys?: string[];
     extraRecords?: Partial<ExtractionRecords>;
+    referenceCap?: number;
   } = {},
 ): Built {
   const extracted = options.extracted ?? extract();
@@ -118,6 +119,7 @@ export function build(
     rubric: result.context.rubric,
     declaredTrackKeys: declared,
     eventReferences,
+    ...(options.referenceCap === undefined ? {} : { referenceCap: options.referenceCap }),
   });
   // handle (C-/E-) -> planned id, through the batch refs
   const byHandle = new Map<string, string>();

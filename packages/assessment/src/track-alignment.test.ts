@@ -7,7 +7,7 @@ import {
   type UnitCandidates,
 } from './candidates.js';
 import type { EventReferenceMeta } from './event-evidence.js';
-import { applyPostGates, type FinalUnit } from './judgment.js';
+import { applyPostGates, trackReferenceAudits, type FinalUnit } from './judgment.js';
 import { validateDimensionAssessment } from './testing/calls.js';
 import { build, type Built } from './testing/scoring.js';
 import { lockedSnapshot } from './testing/world.js';
@@ -300,3 +300,177 @@ function knownOf(built: Built) {
   // the same authoritative facts the build used: rebuild them from the graph's own provenance through the helper world
   return built.known;
 }
+
+describe('A3 (R3): the reference cap never starves the dimension of the requirement it needs', () => {
+  const keys = (n: number) => Array.from({ length: n }, (_, i) => `track${String(i + 1)}`);
+  const lockedWith = (n: number) =>
+    lockedSnapshot({
+      noRubric: true,
+      trackKeys: keys(n),
+      rules: [
+        {
+          statement: 'Every project must be original work created during the event.',
+          certainty: 'explicit',
+        },
+      ],
+      requirements: [
+        {
+          statement: 'Track one projects must use the sponsor API.',
+          certainty: 'explicit',
+          trackKey: 'track1',
+        },
+      ],
+    });
+  const eligibility = (n: number, referenceCap?: number) => {
+    const built = build({
+      locked: lockedWith(n),
+      declaredTrackKeys: keys(n),
+      ...(referenceCap === undefined ? {} : { referenceCap }),
+    });
+    return unitOf(built, TRACK_ELIGIBILITY_DIMENSION);
+  };
+  const refs = (unit: UnitCandidates) => unit.items.filter((item) => item.reference !== null);
+
+  for (const n of [7, 9]) {
+    it(`${String(n)} declared tracks: the explicit requirement and overall rule are in the eligibility candidates, ahead of the track descriptions`, () => {
+      const unit = eligibility(n);
+      const applicabilities = refs(unit).map((item) => item.reference?.applicability);
+      expect(applicabilities.slice(0, 2)).toEqual(['track_specific_requirement', 'overall_rule']);
+      expect(refs(unit)).toHaveLength(8);
+      expect(preGate(unit)).toBeNull();
+      // the cap still bounds the set, and what it left out is counted
+      expect(unit.referenceSelection).toEqual({
+        applicable: n + 2,
+        included: 8,
+        omittedRequired: 0,
+        omittedOther: n + 2 - 8,
+      });
+    });
+
+    it(`${String(n)} tracks: the other Track dimensions still get track definitions first`, () => {
+      const built = build({ locked: lockedWith(n), declaredTrackKeys: keys(n) });
+      const unit = unitOf(built, CENTRALITY);
+      expect(refs(unit)[0]?.reference?.applicability).toBe('declared_track_definition');
+      expect(preGate(unit)).toBeNull();
+    });
+  }
+
+  it('REGRESSION: with nine tracks and definitions-first ordering the eligibility unit lost its requirement (documented failure mode)', () => {
+    // the pre-fix ordering, reproduced explicitly: definitions, then requirements, then rules, capped at eight
+    const unit = eligibility(9);
+    const legacy = refs(unit).sort(
+      (a, b) =>
+        ['declared_track_definition', 'track_specific_requirement', 'overall_rule'].indexOf(
+          a.reference?.applicability ?? '',
+        ) -
+        ['declared_track_definition', 'track_specific_requirement', 'overall_rule'].indexOf(
+          b.reference?.applicability ?? '',
+        ),
+    );
+    expect(
+      legacy.slice(0, 8).some((i) => i.reference?.applicability !== 'declared_track_definition'),
+    ).toBe(true);
+    // (the real set is requirement-first, so it contains them)
+    expect(
+      refs(unit).some((i) => i.reference?.applicability === 'track_specific_requirement'),
+    ).toBe(true);
+  });
+
+  it('an absent requirement stays absent (nothing invented), and is distinguished from one omitted by a limit', () => {
+    const noRequirement = build({
+      locked: lockedSnapshot({ noRubric: true, trackKeys: keys(9) }),
+      declaredTrackKeys: keys(9),
+    });
+    const absent = unitOf(noRequirement, TRACK_ELIGIBILITY_DIMENSION);
+    expect(preGate(absent)).toBe('no_official_requirement_available');
+    expect(absent.referenceSelection.omittedRequired).toBe(0);
+    // a cap of zero leaves the requirement out although it exists: reported as a limit, not as "the event states none"
+    const capped = eligibility(9, 0);
+    expect(refs(capped)).toHaveLength(0);
+    expect(capped.referenceSelection.omittedRequired).toBe(2);
+    expect(preGate(capped)).toBe('official_requirement_omitted_by_limit');
+  });
+});
+
+describe('A4 (R3): structural applicability is not semantic relevance', () => {
+  const locked = lockedSnapshot({
+    noRubric: true,
+    trackKeys: ['health'],
+    rules: [{ statement: 'Do not harass event staff.', certainty: 'explicit' }],
+  });
+  const built = build({ locked, declaredTrackKeys: ['health'] });
+  const eligibility = unitOf(built, TRACK_ELIGIBILITY_DIMENSION);
+
+  it('a structurally applicable but irrelevant overall rule passes the P3 gate: the gate does not claim semantic eligibility', () => {
+    const final = finalOf(eligibility, [
+      { handle: projectCode(eligibility) },
+      { handle: refWith(eligibility, 'overall_rule') },
+    ]);
+    // documented limitation: the structural gate accepts it; only a later critic review can judge relevance
+    expect(final.disposition).toBe('scored');
+  });
+
+  it('every scored Track judgment yields an audit that keeps semanticRelevance not_verified and requires a critic review', () => {
+    const final = finalOf(eligibility, [
+      { handle: projectCode(eligibility) },
+      { handle: refWith(eligibility, 'overall_rule') },
+    ]);
+    const audits = trackReferenceAudits(built.units, [final]);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      dimensionId: TRACK_ELIGIBILITY_DIMENSION,
+      semanticRelevance: 'not_verified',
+      criticReviewRequired: true,
+    });
+    expect(audits[0]?.references).toEqual([
+      expect.objectContaining({
+        applicability: 'overall_rule',
+        trackKey: null,
+        directness: 'indirect',
+        specificity: 'generic',
+        evidenceId: eligibility.byHandle.get(refWith(eligibility, 'overall_rule'))?.evidenceId,
+      }),
+    ]);
+  });
+
+  it('an unscored or non-Track unit produces no audit; the M4 report notice stays not_verified', () => {
+    const insufficient = finalOf(eligibility, [{ handle: projectCode(eligibility) }]);
+    expect(insufficient.disposition).not.toBe('scored');
+    expect(trackReferenceAudits(built.units, [insufficient])).toEqual([]);
+    const official = built.units.find((u) => !u.dimensionId.startsWith('track_prize_alignment.'));
+    expect(
+      trackReferenceAudits(
+        built.units,
+        official
+          ? [{ dimensionId: official.dimensionId, disposition: 'scored', judgment: null }]
+          : [],
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("A4 (R3): the audit keeps each cited reference's code-authored metadata", () => {
+  const built = build({ locked: FULL, declaredTrackKeys: ['health'] });
+  const centrality = unitOf(built, CENTRALITY);
+
+  it('records the applicability and the declared track of every cited reference, with the evidence ids', () => {
+    const final = finalOf(centrality, [
+      { handle: projectCode(centrality) },
+      { handle: refWith(centrality, 'declared_track_definition') },
+      { handle: refWith(centrality, 'track_specific_requirement') },
+    ]);
+    const [audit] = trackReferenceAudits(built.units, [final]);
+    expect(
+      audit?.references.map((r) => [r.applicability, r.trackKey, r.directness, r.specificity]),
+    ).toEqual([
+      ['declared_track_definition', 'health', 'indirect', 'generic'],
+      ['track_specific_requirement', 'health', 'indirect', 'generic'],
+    ]);
+    expect(audit?.references.map((r) => r.evidenceId)).toEqual(
+      [
+        refWith(centrality, 'declared_track_definition'),
+        refWith(centrality, 'track_specific_requirement'),
+      ].map((h) => centrality.byHandle.get(h)?.evidenceId),
+    );
+  });
+});

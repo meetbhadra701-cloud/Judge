@@ -153,6 +153,7 @@ describe('deterministic pre-gates', () => {
       needGroups: null,
       items,
       byHandle: new Map(items.map((i) => [i.handle, i])),
+      referenceSelection: { applicable: 0, included: 0, omittedRequired: 0, omittedOther: 0 },
       ...overrides,
     };
   };

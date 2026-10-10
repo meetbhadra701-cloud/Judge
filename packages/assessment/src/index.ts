@@ -108,6 +108,7 @@ export { GATE_VALUES } from './issues.js';
 export type { DomainIssue, GateId, Rejection } from './issues.js';
 export {
   applyPostGates,
+  trackReferenceAudits,
   buildAssessorJudgments,
   classifyDisposition,
   CRITIC_FLAG_CODES,
@@ -120,6 +121,7 @@ export type {
   CriticFlag,
   DispositionClass,
   FinalUnit,
+  TrackReferenceAudit,
   JudgmentGateResult,
   UnitDisposition,
   ValidatedCitation,
@@ -148,8 +150,11 @@ export {
 } from './commentary.js';
 export type { CommentaryWorld, ProposedContradiction, ProposedUnknown } from './commentary.js';
 export {
+  assertPairSet,
   combineVerifications,
   gateRelations,
+  PairSetError,
+  pairIdentity,
   pairsForVerification,
   resolveVerification,
   MAX_RELATIONS_PER_CLAIM,
@@ -158,6 +163,7 @@ export {
 } from './relations.js';
 export type {
   DroppedRelation,
+  PairRef,
   ProposedRelation,
   RelationBasis,
   RelationClaim,

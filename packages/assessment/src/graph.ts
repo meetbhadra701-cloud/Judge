@@ -587,8 +587,20 @@ function selectMembersUnverified<T extends { id: string }>(
 ): T[] {
   const wanted = new Set(ids);
   if (wanted.size !== ids.length) issues.push(issue('graph', 'member_ids_not_unique', label));
+  // Loaded ids must be unique: a duplicate can stand in for a missing member under a plain count comparison. Never deduplicated.
+  const loaded = new Set<string>();
+  let duplicated = false;
+  for (const record of records) {
+    if (loaded.has(record.id)) duplicated = true;
+    loaded.add(record.id);
+  }
+  if (duplicated) issues.push(issue('graph', 'loaded_record_ids_not_unique', label));
   const found = records.filter((record) => wanted.has(record.id));
-  if (found.length !== wanted.size) issues.push(issue('graph', 'member_missing', label));
+  // Exact set equality between the committed ids and the selected ids (not a count).
+  const foundIds = new Set(found.map((record) => record.id));
+  if (foundIds.size !== wanted.size || [...wanted].some((id) => !foundIds.has(id))) {
+    issues.push(issue('graph', 'member_missing', label));
+  }
   return found;
 }
 

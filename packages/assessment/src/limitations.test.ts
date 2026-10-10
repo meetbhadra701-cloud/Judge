@@ -43,6 +43,7 @@ describe('limitations', () => {
       droppedRelations: [
         {
           pair: 'X-002',
+          identity: 'a'.repeat(64),
           reason: 'verifier_unrelated',
           relation: {
             claim: 'C-001',

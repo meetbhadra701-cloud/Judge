@@ -379,3 +379,73 @@ describe('F3: closure and foreign records', () => {
     expect(noisy.ok && noisy.records.relations.map((r) => r.id)).not.toContain(uid(500));
   });
 });
+
+describe("A1 (R3): duplicate loaded members cannot mask a missing member (the reviewer's counterexample)", () => {
+  // a relation is referenced by no other record, so removing one leaves the rest of the graph closed
+  const removed = built.records.relations.at(-1);
+  const kept = built.records.relations.filter((r) => r.id !== removed?.id);
+  const base = kept[0];
+
+  it('fixture: an unreferenced member and another member to duplicate exist', () => {
+    expect(removed).toBeDefined();
+    expect(base).toBeDefined();
+  });
+
+  it('removing an unreferenced member and inserting a duplicate of another with different text is rejected on its own merits', () => {
+    if (!removed || !base) throw new Error('fixture');
+    const attacked: EvidenceGraphRecords = {
+      ...built.records,
+      relations: [
+        ...kept,
+        {
+          ...base,
+          type: base.type === 'supports' ? 'contradicts' : 'supports',
+        },
+      ],
+    };
+    // same number of records as the genuine set: a count comparison alone is blind to this
+    expect(attacked.relations).toHaveLength(built.records.relations.length);
+    const result = scopeGraph(attacked, input);
+    expect(result.ok).toBe(false);
+    expect(codes(result)).toEqual(
+      expect.arrayContaining(['member_missing', 'loaded_record_ids_not_unique']),
+    );
+  });
+
+  it('the same attack on claims (a duplicate with different text replacing a removed member) is refused', () => {
+    const [first, second, ...rest] = built.records.claims;
+    if (!first || !second) throw new Error('fixture');
+    const attacked: EvidenceGraphRecords = {
+      ...built.records,
+      claims: [second, { ...second, text: 'A different text under the same id.' }, ...rest],
+    };
+    expect(attacked.claims).toHaveLength(built.records.claims.length);
+    const result = scopeGraph(attacked, input);
+    expect(result.ok).toBe(false);
+    expect(codes(result)).toEqual(
+      expect.arrayContaining(['member_missing', 'loaded_record_ids_not_unique']),
+    );
+  });
+
+  it('a plain duplicate of a present member (nothing missing) is also refused, never silently deduplicated', () => {
+    if (!base) throw new Error('fixture');
+    const dup: EvidenceGraphRecords = {
+      ...built.records,
+      relations: [...built.records.relations, { ...base }],
+    };
+    const result = scopeGraph(dup, input);
+    expect(result.ok).toBe(false);
+    expect(codes(result)).toContain('loaded_record_ids_not_unique');
+  });
+
+  it('a substituted record (the id is absent, another id appears) fails as a missing member', () => {
+    if (!removed) throw new Error('fixture');
+    const substituted: EvidenceGraphRecords = {
+      ...built.records,
+      relations: built.records.relations.map((r) =>
+        r.id === removed.id ? { ...r, id: uid(7777) } : r,
+      ),
+    };
+    expect(codes(scopeGraph(substituted, input))).toContain('member_missing');
+  });
+});
