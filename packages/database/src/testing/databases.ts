@@ -121,3 +121,45 @@ export async function expectPgError(
 }
 
 export { sql };
+
+class RollbackProbe extends Error {}
+
+/**
+ * Runs `run` inside a transaction that is ALWAYS rolled back, so only the IMMEDIATE checks (constraints, row triggers) can reject
+ * it: deferred triggers never fire. Resolves 'accepted' when every immediate check passed; rethrows the database's error otherwise.
+ */
+export async function probe(
+  db: JudgeDatabase,
+  run: (tx: JudgeDatabase) => Promise<void>,
+): Promise<'accepted'> {
+  try {
+    await db.transaction(async (tx) => {
+      await run(tx);
+      throw new RollbackProbe();
+    });
+  } catch (error) {
+    if (error instanceof RollbackProbe) return 'accepted';
+    throw error;
+  }
+  throw new Error('unreachable');
+}
+
+/** Asserts the operation is rejected by the database with a message containing `fragment` (searching the cause chain). */
+export async function expectPgMessage(
+  operation: PromiseLike<unknown>,
+  fragment: string,
+): Promise<void> {
+  let error: unknown;
+  try {
+    await operation;
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error, `expected a rejection mentioning "${fragment}"`).toBeInstanceOf(Error);
+  const messages: string[] = [];
+  for (let current = error; current instanceof Error; current = current.cause)
+    messages.push(current.message);
+  expect(messages.join(' | '), `expected the rejection to mention "${fragment}"`).toContain(
+    fragment,
+  );
+}

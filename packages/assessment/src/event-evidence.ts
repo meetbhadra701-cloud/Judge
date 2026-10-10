@@ -2,6 +2,8 @@ import {
   EVIDENCE_GRAPH_LIMITS,
   isStorableGraphText,
   normalizeGraphText,
+  REFERENCE_APPLICABILITY_VALUES,
+  REFERENCE_KIND_VALUES,
   type EventContextLockedSnapshot,
 } from '@judge-copilot/schemas';
 import { codePointCount } from './text.js';
@@ -20,7 +22,8 @@ import { codePointCount } from './text.js';
 
 export const EVENT_REFERENCE_BUILDER = 'event-reference/v1' as const;
 
-export type EventReferenceKind = 'track_definition' | 'rule' | 'submission_requirement';
+export { REFERENCE_APPLICABILITY_VALUES, REFERENCE_KIND_VALUES };
+export type EventReferenceKind = (typeof REFERENCE_KIND_VALUES)[number];
 
 /**
  * What an Event-Context reference item IS, decided by code from the locked document (never by a model, never by a rule's wording):
@@ -28,11 +31,6 @@ export type EventReferenceKind = 'track_definition' | 'rule' | 'submission_requi
  *   track_specific_requirement  an EXPLICIT submission requirement tied to a DECLARED track.
  *   overall_rule                an EXPLICIT rule, or an explicit requirement with no track, that applies to every submission.
  */
-export const REFERENCE_APPLICABILITY_VALUES = [
-  'declared_track_definition',
-  'track_specific_requirement',
-  'overall_rule',
-] as const;
 export type EventReferenceApplicability = (typeof REFERENCE_APPLICABILITY_VALUES)[number];
 
 export interface EventReferenceItem {

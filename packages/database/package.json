@@ -23,7 +23,9 @@
     "db:check": "NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit check"
   },
   "dependencies": {
+    "@judge-copilot/assessment": "workspace:*",
     "@judge-copilot/audit": "workspace:*",
+    "@judge-copilot/context": "workspace:*",
     "@judge-copilot/domain": "workspace:*",
     "@judge-copilot/evidence": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
@@ -32,6 +34,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@judge-copilot/scoring": "workspace:*",
     "drizzle-kit": "^0.31.11"
   }
 }

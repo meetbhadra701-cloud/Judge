@@ -1,6 +1,7 @@
 import { ACTIVE_ANALYSIS_RUN_STATES } from '@judge-copilot/domain';
 import {
   ANALYSIS_RUN_FAILURE_CATEGORY_VALUES,
+  ASSESSMENT_RUN_TYPE,
   ANALYSIS_RUN_STATE_VALUES,
   IDENTIFIER_PATTERN,
 } from '@judge-copilot/schemas';
@@ -13,6 +14,7 @@ import {
   pgTable,
   text,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { eventContextVersions } from './event-context-versions.js';
@@ -62,6 +64,14 @@ export const analysisRuns = pgTable(
     index('analysis_runs_project_id_idx').on(table.projectId),
     index('analysis_runs_state_run_type_idx').on(table.state, table.runType),
     unique('analysis_runs_source_snapshot_id_key').on(table.sourceSnapshotId),
+    // Target for composite references that pin a row to the run's project (M5 assessment tables).
+    unique('analysis_runs_id_project_id_key').on(table.id, table.projectId),
+    // M5: at most ONE active (pending or running) assessment run per project.
+    uniqueIndex('analysis_runs_one_active_assessment_per_project_idx')
+      .on(table.projectId)
+      .where(
+        sql`run_type = '${sql.raw(ASSESSMENT_RUN_TYPE)}' AND state IN (${sqlLiteralList(ACTIVE_ANALYSIS_RUN_STATES)})`,
+      ),
     foreignKey({
       name: 'analysis_runs_snapshot_same_project_fk',
       columns: [table.sourceSnapshotId, table.projectId],
@@ -98,6 +108,14 @@ export const analysisRuns = pgTable(
       sql`state <> 'pending' OR (lease_token IS NULL AND lease_expires_at IS NULL)`,
     ),
     check('analysis_runs_attempt_count_non_negative', sql`attempt_count >= 0`),
+    check(
+      'analysis_runs_assessment_links',
+      sql`run_type <> '${sql.raw(ASSESSMENT_RUN_TYPE)}' OR (event_id IS NOT NULL AND project_id IS NOT NULL AND context_version_id IS NOT NULL AND source_snapshot_id IS NULL)`,
+    ),
+    check(
+      'analysis_runs_budget_exceeded_only_for_assessments',
+      sql`failure_category IS DISTINCT FROM 'budget_exceeded' OR run_type = '${sql.raw(ASSESSMENT_RUN_TYPE)}'`,
+    ),
     check(
       'analysis_runs_capture_links',
       sql`run_type <> 'project_source_capture' OR (event_id IS NOT NULL AND project_id IS NOT NULL AND source_snapshot_id IS NOT NULL)`,

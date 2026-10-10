@@ -7,6 +7,12 @@
   CHECK constraints are generated from `@judge-copilot/schemas` vocabularies.
 - Hand-written trigger migrations: `0001` (append-only audit) and `0003` (frozen Event Context
   versions and children, immutable source rows, same-version provenance references).
+- M5 P4 (assessment persistence; migrations `0010` schema, `0011` integrity): `GraphExtractionStore`
+  (graph + extraction membership in ONE transaction via `EvidenceGraphStore.createGraphInTransaction`),
+  `AssessmentRunStore` (idempotent requests, pins, lease, terminal outcome), `DatabaseRunBudget` (the row-locked
+  local spending guard and call ledger), `LockedContextReader`, `AssessmentInputReader` (one read-only
+  REPEATABLE READ transaction, verified `scopeGraph`) and `AssessmentStore` (one immutable pre-interview assessment).
+  See `docs/milestones/M5-P4-note.md`. No model call, route, worker job or UI exists here.
 - `drizzle/` — committed SQL migrations. Never edit an existing migration; add a new one.
 - `createDatabase(url)` — opens a postgres.js pool only when explicitly called.
 - `createDatabaseAuditSink(db)` — `AuditSink` adapter over `audit_events`.

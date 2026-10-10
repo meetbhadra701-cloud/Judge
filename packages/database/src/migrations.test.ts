@@ -49,7 +49,7 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
     return event.id;
   }
 
-  it('creates exactly the M0 + M1 + M2 + M3 tables (no scoring, assessment, question or interview tables)', async () => {
+  it('creates exactly the M0 + M1 + M2 + M3 + M5-P4 tables (no question, answer, interview, final-score, delta or post-interview tables)', async () => {
     const tables = await rows<{ table_name: string }>(
       db,
       sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
@@ -57,6 +57,15 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
     expect(tables.map((t) => t.table_name)).toEqual([
       'actors',
       'analysis_runs',
+      'assessment_dimension_judgments',
+      'assessment_judgment_citations',
+      'assessment_requests',
+      'assessment_run_budget',
+      'assessment_run_calls',
+      'assessment_run_extractions',
+      'assessment_run_input_snapshots',
+      'assessment_run_inputs',
+      'assessment_run_outcomes',
       'audit_events',
       'claims',
       'contradictions',
@@ -65,6 +74,9 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
       'events',
       'evidence_items',
       'evidence_relations',
+      'graph_extraction_items',
+      'graph_extractions',
+      'pre_interview_assessments',
       'project_sources',
       'project_track_selections',
       'projects',
@@ -240,12 +252,15 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
         .insert(analysisRuns)
         .values({ eventId, runType: 'foundation_check', state: 'running' });
       for (const failureCategory of ANALYSIS_RUN_FAILURE_CATEGORY_VALUES) {
-        await db.insert(analysisRuns).values({
+        const insert = db.insert(analysisRuns).values({
           runType: 'foundation_check',
           state: 'failed',
           finishedAt: new Date(Date.now() + 1000),
           failureCategory,
         });
+        // M5 (migration 0010): `budget_exceeded` belongs to assessment runs only.
+        if (failureCategory === 'budget_exceeded') await expectPgError(insert, CHECK_VIOLATION);
+        else await insert;
       }
     });
 

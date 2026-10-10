@@ -7,7 +7,74 @@ export {
 } from './client.js';
 export { createDatabaseAuditSink } from './audit-sink.js';
 export {
+  AssessmentInputError,
+  AssessmentInputReader,
+  AuthorizedAssessmentInputs,
+  type AssessmentInputErrorCode,
+  type AuthorizedAssessmentData,
+  type AuthorizedExtraction,
+} from './assessment-input-reader.js';
+export {
+  inputsFingerprint,
+  microToNanoUsd,
+  nanoToMicroUsdCeil,
+  trackSelectionSetHash,
+} from './assessment-hashes.js';
+export {
+  AssessmentRunError,
+  AssessmentRunStore,
+  type AssessmentRunStoreOptions,
+  type AssessmentTarget,
+  type FinishRunInput,
+  type PinnedInputs,
+  type RequestAssessmentInput,
+  type RequestAssessmentResult,
+  type RunRecord,
+} from './assessment-run-store.js';
+export {
+  AssessmentPersistError,
+  AssessmentStore,
+  type JudgmentInput,
+  type PersistAssessmentInput,
+  type PersistAssessmentResult,
+  type StoredAssessment,
+} from './assessment-store.js';
+export {
+  ExtractionInputError,
+  GraphExtractionStore,
+  type CreateExtractionInput,
+  type CreatedExtraction,
+  type EvidenceItemMeta,
+  type ExtractionItemRow,
+  type Grounding,
+  type OrderedMembers,
+  type RelationItemMeta,
+  type StoredExtraction,
+} from './extraction-store.js';
+export {
+  LockedContextReader,
+  type LockedContextRead,
+  type LockedContextReadFailure,
+} from './locked-context-reader.js';
+export {
+  BudgetDeniedBackstopError,
+  closedSetHash,
+  DatabaseRunBudget,
+  MAX_RECORDED_RESPONSE_BYTES,
+  reapReservedCalls,
+  type BudgetSnapshotLike,
+  type CallBinding,
+  type CallMetadata,
+  type DatabaseRunBudgetOptions,
+  type LedgerEntryLike,
+  type MeasureUsage,
+  type ReserveOutcomeLike,
+  type ReserveRequestLike,
+  type SettlementLike,
+} from './run-budget-store.js';
+export {
   EVIDENCE_GRAPH_AUDIT_ACTIONS,
+  mapGraphPersistenceError,
   EvidenceGraphStore,
   GraphProjectNotFoundError,
   toClaimRecord,
@@ -20,6 +87,19 @@ export {
   type LoadedProjectGraph,
 } from './evidence-graph-store.js';
 export {
+  ASSESSMENT_TABLE_NAMES,
+  assessmentDimensionJudgments,
+  assessmentJudgmentCitations,
+  assessmentRequests,
+  assessmentRunBudget,
+  assessmentRunCalls,
+  assessmentRunExtractions,
+  assessmentRunInputSnapshots,
+  assessmentRunInputs,
+  assessmentRunOutcomes,
+  graphExtractionItems,
+  graphExtractions,
+  preInterviewAssessments,
   actors,
   analysisRuns,
   auditEvents,

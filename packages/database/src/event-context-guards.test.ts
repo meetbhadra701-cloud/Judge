@@ -145,13 +145,15 @@ describe.each(testDatabaseTargets())('M1 Event Context guards on %s', (_name, op
   });
 
   it('keeps Event Context tables independent of projects, and no score columns exist anywhere', async () => {
-    // M2 added project tables; Event Context tables still have no project or score columns.
+    // M2 added project tables; Event Context tables still have no project or score columns. M5 P4 adds exactly one score
+    // column, the assessor's per-dimension rating of an immutable AI assessment (`assessment_dimension_judgments.score`);
+    // it is never authoritative (invariant 15) and no other table may have one.
     const columns = await rows<{ table_name: string; column_name: string }>(
       db,
       sql`SELECT table_name, column_name FROM information_schema.columns
           WHERE table_schema = 'public'
             AND ((column_name LIKE '%project%' AND table_name IN ('events', 'event_context_versions', 'event_sources', 'tracks', 'rubrics', 'rubric_criteria', 'rubric_anchors'))
-              OR (column_name LIKE '%score%' AND table_name <> 'rubric_anchors'))`,
+              OR (column_name LIKE '%score%' AND table_name NOT IN ('rubric_anchors', 'assessment_dimension_judgments')))`,
     );
     expect(columns).toEqual([]);
   });

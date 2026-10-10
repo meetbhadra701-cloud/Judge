@@ -5,8 +5,9 @@
  * spending guard, replay and scripted providers); PHASE P2 adds only the pure `packages/prompts` renderer
  * (frozen templates, framing of untrusted data); PHASE P3 adds only the pure `packages/assessment` trust boundary
  * (windowing, quote location, gates G1-G7, graph planning, critic policy, report verification) and one additive scoring
- * export (the report-hash verifier): NO vendor SDK or endpoint, NO pipeline orchestration, NO migration, table, route,
- * worker job or UI. Everything from M6 on, and the later M5 phases,
+ * export (the report-hash verifier); PHASE P4 adds only the database persistence of assessments (migrations 0010-0011, the
+ * trusted input reader, the extraction, run, ledger and assessment stores): NO vendor SDK or endpoint, NO pipeline
+ * orchestration, NO route, worker job or UI. Everything from M6 on, and the later M5 phases,
  * must stay unimplemented. Each M5 phase updates this guard together with its own work. The guard inspects implementation
  * surfaces (code, manifests, migrations, routes), not the binding documentation, which discusses
  * those concepts by design. If a later milestone legitimately adds one of these, update this
@@ -73,6 +74,22 @@ const PROVIDER_HOSTS = [
 const LATER_TABLE_PATTERN =
   /(assessment|score|question|answer|interview|embedding|ranking|winner|criterion|dimension|rubric_assessment)/;
 
+/** The only tables M5 phase P4 adds (migration 0010). Nothing else matching the later-milestone pattern may exist. */
+const M5_P4_TABLES = [
+  'assessment_dimension_judgments',
+  'assessment_judgment_citations',
+  'assessment_requests',
+  'assessment_run_budget',
+  'assessment_run_calls',
+  'assessment_run_extractions',
+  'assessment_run_input_snapshots',
+  'assessment_run_inputs',
+  'assessment_run_outcomes',
+  'graph_extraction_items',
+  'graph_extractions',
+  'pre_interview_assessments',
+];
+
 /** The only tables M3 may add. */
 const M3_TABLES = ['claims', 'contradictions', 'evidence_items', 'evidence_relations', 'unknowns'];
 
@@ -112,7 +129,7 @@ function sourceFiles(dir: string, { includeTests = false } = {}): string[] {
 
 const applicationSource = ['apps', 'packages'].flatMap((group) => sourceFiles(join(ROOT, group)));
 
-describe('M5 milestone scope (phase P3)', () => {
+describe('M5 milestone scope (phase P4)', () => {
   it('keeps the later packages as README-only placeholders', () => {
     for (const name of NOT_YET_IMPLEMENTED) {
       const dir = join(ROOT, 'packages', name);
@@ -148,19 +165,26 @@ describe('M5 milestone scope (phase P3)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('creates no scoring, assessment, question or interview tables in any migration, and only the five graph tables in M3', () => {
+  it('creates no question, answer, interview or final-score tables in any migration; M3 adds the five graph tables and M5 P4 the twelve assessment tables', () => {
     const migrations = join(ROOT, 'packages/database/drizzle');
     const graphTables: string[] = [];
+    const laterTables: string[] = [];
     for (const file of readdirSync(migrations).filter((name) => name.endsWith('.sql'))) {
       const created = [
         ...readFileSync(join(migrations, file), 'utf8').matchAll(/CREATE TABLE "([a-z_]+)"/g),
       ].map((match) => match[1] ?? '');
       for (const table of created) {
+        if (M5_P4_TABLES.includes(table)) {
+          laterTables.push(table);
+          continue;
+        }
         expect(LATER_TABLE_PATTERN.test(table), `${file}: ${table}`).toBe(false);
         if (/claim|evidence|contradiction|unknown/.test(table)) graphTables.push(table);
       }
     }
     expect(graphTables.sort()).toEqual(M3_TABLES);
+    // P4 adds exactly the assessment-persistence tables, and no question, answer, interview, final-score or delta table
+    expect(laterTables.sort()).toEqual(M5_P4_TABLES);
   });
 
   it('defines no score, weight, confidence, coverage, rank or accusation column on a graph table', () => {
@@ -239,7 +263,7 @@ describe('M5 milestone scope (phase P3)', () => {
     }
   });
 
-  it('adds no migration yet: the M5 migrations arrive in phase P4', () => {
+  it('adds exactly the two M5 P4 migrations (0010 schema, 0011 integrity) and no other', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -254,20 +278,30 @@ describe('M5 milestone scope (phase P3)', () => {
       '0007_m3_evidence_graph.sql',
       '0008_m3_evidence_graph_integrity.sql',
       '0009_m3_supersession_guard_hardening.sql',
+      '0010_m5_assessment_schema.sql',
+      '0011_m5_assessment_integrity.sql',
     ]);
   });
 
-  it('keeps the scoring engine out of every app and every adapter: only the pure assessment package (M5 P3) uses it', () => {
+  it('keeps the scoring engine out of every app and every adapter: only the pure assessment package uses it (the database package only in its test helpers)', () => {
     const importers = applicationSource.filter(
       (file) =>
         !file.startsWith(join(ROOT, 'packages/scoring')) &&
         !file.startsWith(join(ROOT, 'packages/assessment')) &&
+        !file.startsWith(join(ROOT, 'packages/database/src/testing')) &&
         /@judge-copilot\/scoring/.test(readFileSync(file, 'utf8')),
     );
     expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
     for (const { dir, manifest } of workspaceManifests()) {
       if (dir === join(ROOT, 'packages/scoring') || dir === join(ROOT, 'packages/assessment'))
         continue;
+      if (dir === join(ROOT, 'packages/database')) {
+        // a development-only dependency: production code never scores
+        expect(Object.keys(manifest['dependencies'] ?? {}).includes('@judge-copilot/scoring')).toBe(
+          false,
+        );
+        continue;
+      }
       const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
       expect(deps.includes('@judge-copilot/scoring'), dir).toBe(false);
     }
@@ -378,15 +412,17 @@ describe('M5 milestone scope (phase P3)', () => {
     expect(manifest.devDependencies ?? {}).toEqual({});
   });
 
-  it('has no importer of @judge-copilot/assessment yet: no pipeline, route, worker job or UI uses the gates in P3', () => {
+  it('limits the importers of @judge-copilot/assessment to the database persistence layer: no pipeline, route, worker job or UI yet', () => {
     const importers = applicationSource.filter(
       (file) =>
         !file.startsWith(join(ROOT, 'packages/assessment')) &&
+        !file.startsWith(join(ROOT, 'packages/database')) &&
         /@judge-copilot\/assessment/.test(readFileSync(file, 'utf8')),
     );
     expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
     for (const { dir, manifest } of workspaceManifests()) {
-      if (dir === join(ROOT, 'packages/assessment')) continue;
+      if (dir === join(ROOT, 'packages/assessment') || dir === join(ROOT, 'packages/database'))
+        continue;
       const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
       expect(deps.includes('@judge-copilot/assessment'), dir).toBe(false);
     }
@@ -407,14 +443,21 @@ describe('M5 milestone scope (phase P3)', () => {
     expect(engine).not.toContain('report-hash');
   });
 
-  it('adds no assessment table, route, job type or pipeline in P3', () => {
+  it('adds no assessment route, job type or pipeline in P4 (persistence only)', () => {
     const migrations = join(ROOT, 'packages/database/drizzle');
     const sql = readdirSync(migrations)
       .filter((name) => name.endsWith('.sql'))
       .map((name) => readFileSync(join(migrations, name), 'utf8'))
       .join('\n');
+    // only the twelve tables of migration 0010: nothing about questions, answers, interviews, final scores or deltas
+    const createdAssessmentTables = [
+      ...sql.matchAll(
+        /CREATE TABLE "([a-z_]*(?:assessment|pre_interview|graph_extraction|budget)[a-z_]*)"/gi,
+      ),
+    ].map((match) => match[1] ?? '');
+    expect(createdAssessmentTables.sort()).toEqual(M5_P4_TABLES);
     expect(
-      /CREATE TABLE "[a-z_]*(assessment|pre_interview|graph_extraction|budget)[a-z_]*"/i.test(sql),
+      /CREATE TABLE "[a-z_]*(post_interview|final_score|question|answer|delta)[a-z_]*"/i.test(sql),
     ).toBe(false);
     expect(existsSync(join(ROOT, 'packages/prompts/package.json'))).toBe(true);
     const workerAndApi = [

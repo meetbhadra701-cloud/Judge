@@ -226,6 +226,36 @@ const RACE_ISSUES: Record<string, GraphIssue> = {
   },
 };
 
+type ParsedGraphBatch = ReturnType<typeof EvidenceGraphBatchInput.parse>;
+
+function parseGraphBatch(rawBatch: unknown): ParsedGraphBatch {
+  const parsed = EvidenceGraphBatchInput.safeParse(rawBatch);
+  if (!parsed.success) {
+    throw new EvidenceGraphInputError(
+      parsed.error.issues.slice(0, 50).map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      })),
+    );
+  }
+  return parsed.data;
+}
+
+/** The error mapping of the write path, shared by `createGraph` and `createGraphInTransaction`. Returns the error to throw. */
+export function mapGraphPersistenceError(error: unknown): Error {
+  if (
+    error instanceof EvidenceGraphError ||
+    error instanceof GraphProjectNotFoundError ||
+    error instanceof EvidenceGraphInputError
+  ) {
+    return error;
+  }
+  const { code, constraint } = sqlStateOf(error);
+  const race = code === '23505' && constraint ? RACE_ISSUES[constraint] : undefined;
+  if (race) return new EvidenceGraphError([race]);
+  return new EvidenceGraphPersistenceError(code, constraint);
+}
+
 export class EvidenceGraphStore {
   private readonly db: JudgeDatabase;
   private readonly ids: IdAllocator;
@@ -249,87 +279,94 @@ export class EvidenceGraphStore {
     rawBatch: unknown,
     actorId: string | null,
   ): Promise<CreatedGraph> {
-    const parsed = EvidenceGraphBatchInput.safeParse(rawBatch);
-    if (!parsed.success) {
-      throw new EvidenceGraphInputError(
-        parsed.error.issues.slice(0, 50).map((issue) => ({
-          path: issue.path.join('.'),
-          message: issue.message,
-        })),
-      );
-    }
-    const batch = parsed.data;
-
+    const batch = parseGraphBatch(rawBatch);
     try {
-      return await this.db.transaction(async (tx) => {
-        // The FIRST locking operation: FOR NO KEY UPDATE conflicts with itself, so every
-        // createGraph writer of THIS project serializes here, before it counts the project's
-        // records for the caps or reads any state it is about to extend. (FOR SHARE did not: any
-        // number of writers could hold it at once and all see the same totals.) It does not
-        // conflict with the FOR KEY SHARE lock that inserts into the graph tables take on the
-        // project row through their foreign keys, and writers of other projects never touch
-        // this row, so they stay independent. No other lock is taken before it, so it adds no
-        // new lock-ordering hazard.
-        const [project] = await tx
-          .select({ id: projects.id, eventId: projects.eventId })
-          .from(projects)
-          .where(eq(projects.id, projectId))
-          .for('no key update');
-        if (!project) throw new GraphProjectNotFoundError();
-
-        const context = await this.loadPlanContext(tx, projectId, batch);
-        const plan = planEvidenceGraphBatch(
-          batch,
-          { projectId, eventId: project.eventId },
-          context,
-          this.ids,
-        );
-        if (!plan.ok) throw new EvidenceGraphError(plan.issues);
-
-        const created = await this.insertPlan(tx, plan.graph, actorId);
-        await createDatabaseAuditSink(tx).append(
-          createAuditEvent({
-            actorId,
-            entityType: 'project',
-            entityId: projectId,
-            action: EVIDENCE_GRAPH_AUDIT_ACTIONS.created,
-            // Counts and IDs only: never claim, evidence or excerpt text.
-            metadata: {
-              claimCount: created.claims.length,
-              evidenceCount: created.evidence.length,
-              relationCount: created.relations.length,
-              unknownCount: created.unknowns.length,
-              contradictionCount: created.contradictions.length,
-              claimIds: created.claims.map((claim) => claim.id),
-              evidenceIds: created.evidence.map((item) => item.id),
-              relationIds: created.relations.map((relation) => relation.id),
-              unknownIds: created.unknowns.map((unknown) => unknown.id),
-              contradictionIds: created.contradictions.map((contradiction) => contradiction.id),
-            },
-          }),
-        );
-        return created;
-      });
+      return await this.db.transaction((tx) => this.writeGraph(tx, projectId, batch, actorId));
     } catch (error) {
-      if (
-        error instanceof EvidenceGraphError ||
-        error instanceof GraphProjectNotFoundError ||
-        error instanceof EvidenceGraphInputError
-      ) {
-        throw error;
-      }
-      const { code, constraint } = sqlStateOf(error);
-      const race = code === '23505' && constraint ? RACE_ISSUES[constraint] : undefined;
-      if (race) throw new EvidenceGraphError([race]);
-      throw new EvidenceGraphPersistenceError(code, constraint);
+      throw mapGraphPersistenceError(error);
     }
+  }
+
+  /**
+   * The body of `createGraph`, runnable inside a caller's transaction so a caller can write other rows atomically with the graph
+   * (M5: the extraction membership). It parses and validates exactly like `createGraph`, takes the same project lock first, and
+   * throws the same typed errors AFTER mapping them with `mapGraphPersistenceError`; the CALLER owns the transaction, so any throw
+   * must roll it back. It never opens a savepoint (the extraction completeness trigger relies on that).
+   */
+  async createGraphInTransaction(
+    tx: JudgeDatabase,
+    projectId: string,
+    rawBatch: unknown,
+    actorId: string | null,
+  ): Promise<CreatedGraph> {
+    const batch = parseGraphBatch(rawBatch);
+    try {
+      return await this.writeGraph(tx, projectId, batch, actorId);
+    } catch (error) {
+      throw mapGraphPersistenceError(error);
+    }
+  }
+
+  private async writeGraph(
+    tx: Executor,
+    projectId: string,
+    batch: ParsedGraphBatch,
+    actorId: string | null,
+  ): Promise<CreatedGraph> {
+    // The FIRST locking operation: FOR NO KEY UPDATE conflicts with itself, so every
+    // createGraph writer of THIS project serializes here, before it counts the project's
+    // records for the caps or reads any state it is about to extend. (FOR SHARE did not: any
+    // number of writers could hold it at once and all see the same totals.) It does not
+    // conflict with the FOR KEY SHARE lock that inserts into the graph tables take on the
+    // project row through their foreign keys, and writers of other projects never touch
+    // this row, so they stay independent. No other lock is taken before it, so it adds no
+    // new lock-ordering hazard.
+    const [project] = await tx
+      .select({ id: projects.id, eventId: projects.eventId })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .for('no key update');
+    if (!project) throw new GraphProjectNotFoundError();
+
+    const context = await this.loadPlanContext(tx, projectId, batch);
+    const plan = planEvidenceGraphBatch(
+      batch,
+      { projectId, eventId: project.eventId },
+      context,
+      this.ids,
+    );
+    if (!plan.ok) throw new EvidenceGraphError(plan.issues);
+
+    const created = await this.insertPlan(tx, plan.graph, actorId);
+    await createDatabaseAuditSink(tx).append(
+      createAuditEvent({
+        actorId,
+        entityType: 'project',
+        entityId: projectId,
+        action: EVIDENCE_GRAPH_AUDIT_ACTIONS.created,
+        // Counts and IDs only: never claim, evidence or excerpt text.
+        metadata: {
+          claimCount: created.claims.length,
+          evidenceCount: created.evidence.length,
+          relationCount: created.relations.length,
+          unknownCount: created.unknowns.length,
+          contradictionCount: created.contradictions.length,
+          claimIds: created.claims.map((claim) => claim.id),
+          evidenceIds: created.evidence.map((item) => item.id),
+          relationIds: created.relations.map((relation) => relation.id),
+          unknownIds: created.unknowns.map((unknown) => unknown.id),
+          contradictionIds: created.contradictions.map((contradiction) => contradiction.id),
+        },
+      }),
+    );
+    return created;
   }
 
   /** Reads exactly what the batch can reference (in every project) and what it could collide with. */
   private async loadPlanContext(
     tx: Executor,
     projectId: string,
-    batch: ReturnType<typeof EvidenceGraphBatchInput.parse>,
+    batch: ParsedGraphBatch,
   ): Promise<PlanContext> {
     const mentioned = new Set<string>();
     const mention = (ref: { id?: string } | { ref: string } | undefined) => {

@@ -1,5 +1,6 @@
 import {
   type EvidenceRelationType,
+  type RelationBasis,
   type RelationMatchingOutput,
   type RelationVerificationOutput,
 } from '@judge-copilot/schemas';
@@ -22,7 +23,7 @@ export const MAX_RELATIONS_PER_CLAIM = 5;
 export const MAX_RELATIONS_PER_RUN = 100;
 
 /** How a kept relation is explained to the judge. `source_statement` is code-authored (see statements.ts). */
-export type RelationBasis = 'source_statement' | 'independent_observation' | 'team_restatement';
+export type { RelationBasis };
 
 export interface RelationClaim {
   readonly handle: string;

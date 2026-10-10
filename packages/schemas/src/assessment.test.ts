@@ -395,7 +395,7 @@ describe('validation issues are redacted', () => {
 });
 
 describe('vocabularies and limits', () => {
-  it('keeps the existing analysis-run failure categories unchanged (no migration in P1)', () => {
+  it('pins the analysis-run failure categories: budget_exceeded joined them in the P4 migration', () => {
     expect([...ANALYSIS_RUN_FAILURE_CATEGORY_VALUES]).toEqual([
       'provider_error',
       'schema_validation_failed',
@@ -403,10 +403,10 @@ describe('vocabularies and limits', () => {
       'source_unavailable',
       'timeout',
       'internal_error',
+      'budget_exceeded',
     ]);
     expect([...ASSESSMENT_RUN_FAILURE_CATEGORY_VALUES]).toEqual([
       ...ANALYSIS_RUN_FAILURE_CATEGORY_VALUES,
-      'budget_exceeded',
     ]);
   });
 

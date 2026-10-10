@@ -103,14 +103,10 @@ export const UsageBasis = z.enum(USAGE_BASIS_VALUES);
 export type UsageBasis = z.infer<typeof UsageBasis>;
 
 /**
- * Run failure categories for an assessment run: the six categories `analysis_runs` already enforces,
- * plus `budget_exceeded` (design D6). The database CHECK is extended by the M5 migration (P4); the
- * shared `ANALYSIS_RUN_FAILURE_CATEGORY_VALUES` tuple is deliberately NOT edited before that migration.
+ * Run failure categories for an assessment run. `budget_exceeded` (design D6) joined the shared tuple in migration 0010; a CHECK
+ * restricts it to `pre_interview_assessment` runs. Kept as a separate name for the assessment API.
  */
-export const ASSESSMENT_RUN_FAILURE_CATEGORY_VALUES = [
-  ...ANALYSIS_RUN_FAILURE_CATEGORY_VALUES,
-  'budget_exceeded',
-] as const;
+export const ASSESSMENT_RUN_FAILURE_CATEGORY_VALUES = ANALYSIS_RUN_FAILURE_CATEGORY_VALUES;
 export const AssessmentRunFailureCategory = z.enum(ASSESSMENT_RUN_FAILURE_CATEGORY_VALUES);
 export type AssessmentRunFailureCategory = z.infer<typeof AssessmentRunFailureCategory>;
 
@@ -480,3 +476,67 @@ export const PriceTable = z.strictObject({
   ),
 });
 export type PriceTable = z.infer<typeof PriceTable>;
+
+// -- Persistence vocabularies (P4; shared by the database CHECK constraints) --------------------------------------------
+
+/** The `analysis_runs.run_type` of an assessment run. */
+export const ASSESSMENT_RUN_TYPE = 'pre_interview_assessment' as const;
+
+/** `assess` reuses an equal assessment; `reassess` is an explicit new version (design §8.6). */
+export const ASSESSMENT_REQUEST_MODE_VALUES = ['assess', 'reassess'] as const;
+export const AssessmentRequestMode = z.enum(ASSESSMENT_REQUEST_MODE_VALUES);
+export type AssessmentRequestMode = z.infer<typeof AssessmentRequestMode>;
+
+/** What an extraction holds: the source-derived graph, or the Event-Context reference evidence set. */
+export const EXTRACTION_KIND_VALUES = ['source', 'context_evidence'] as const;
+export const ExtractionKind = z.enum(EXTRACTION_KIND_VALUES);
+export type ExtractionKind = z.infer<typeof ExtractionKind>;
+
+export const GRAPH_RECORD_TYPE_VALUES = [
+  'claim',
+  'evidence',
+  'relation',
+  'unknown',
+  'contradiction',
+] as const;
+export type GraphRecordType = (typeof GRAPH_RECORD_TYPE_VALUES)[number];
+
+/** What an evidence record of an extraction IS (code-authored): a team statement, an interpreted fact, or an Event-Context reference. */
+export const EXTRACTION_EVIDENCE_ROLE_VALUES = [
+  'statement',
+  'interpreted_fact',
+  'event_reference',
+] as const;
+export type ExtractionEvidenceRole = (typeof EXTRACTION_EVIDENCE_ROLE_VALUES)[number];
+
+/** Why a relation exists (design §4.5). */
+export const RELATION_BASIS_VALUES = [
+  'source_statement',
+  'independent_observation',
+  'team_restatement',
+] as const;
+export type RelationBasis = (typeof RELATION_BASIS_VALUES)[number];
+
+/** The kind and applicability of an Event-Context reference item (code-authored from the pinned locked document). */
+export const REFERENCE_KIND_VALUES = [
+  'track_definition',
+  'rule',
+  'submission_requirement',
+] as const;
+export const REFERENCE_APPLICABILITY_VALUES = [
+  'declared_track_definition',
+  'track_specific_requirement',
+  'overall_rule',
+] as const;
+
+/** Whether the bounded model answer was retained in the ledger, and if not why. */
+export const RESPONSE_RECORD_STATE_VALUES = [
+  'stored',
+  'too_large',
+  'unserializable',
+  'none',
+] as const;
+
+/** Where the run ended. Mirrors the terminal `analysis_runs` states. */
+export const ASSESSMENT_RUN_OUTCOME_VALUES = ['succeeded', 'failed', 'cancelled'] as const;
+export type AssessmentRunOutcome = (typeof ASSESSMENT_RUN_OUTCOME_VALUES)[number];

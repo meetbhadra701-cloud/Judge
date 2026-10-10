@@ -136,6 +136,8 @@ export const ANALYSIS_RUN_FAILURE_CATEGORY_VALUES = [
   'source_unavailable',
   'timeout',
   'internal_error',
+  /** Assessment runs only (a CHECK ties it to `pre_interview_assessment`): the local spending guard stopped the run. */
+  'budget_exceeded',
 ] as const;
 export const AnalysisRunFailureCategory = z.enum(ANALYSIS_RUN_FAILURE_CATEGORY_VALUES);
 export type AnalysisRunFailureCategory = z.infer<typeof AnalysisRunFailureCategory>;

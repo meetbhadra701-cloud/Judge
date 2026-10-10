@@ -227,9 +227,15 @@ importers:
 
   packages/database:
     dependencies:
+      '@judge-copilot/assessment':
+        specifier: workspace:*
+        version: link:../assessment
       '@judge-copilot/audit':
         specifier: workspace:*
         version: link:../audit
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../context
       '@judge-copilot/domain':
         specifier: workspace:*
         version: link:../domain
@@ -249,6 +255,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
+      '@judge-copilot/scoring':
+        specifier: workspace:*
+        version: link:../scoring
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11

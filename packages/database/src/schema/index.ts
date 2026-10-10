@@ -16,3 +16,18 @@ export {
   evidenceRelations,
   unknowns,
 } from './evidence-graph.js';
+export {
+  assessmentDimensionJudgments,
+  assessmentJudgmentCitations,
+  assessmentRequests,
+  assessmentRunBudget,
+  assessmentRunCalls,
+  assessmentRunExtractions,
+  assessmentRunInputSnapshots,
+  assessmentRunInputs,
+  assessmentRunOutcomes,
+  ASSESSMENT_TABLE_NAMES,
+  graphExtractionItems,
+  graphExtractions,
+  preInterviewAssessments,
+} from './assessment.js';
