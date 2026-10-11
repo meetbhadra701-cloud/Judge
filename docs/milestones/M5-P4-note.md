@@ -1,5 +1,9 @@
 # M5 phase P4 — assessment persistence (`packages/database`) (note)
 
+> **R4 amendment.** The independent review R4 failed this phase at `62770dc`. The repair is documented in [M5-P4-R4-remediation.md](./M5-P4-R4-remediation.md) and **supersedes** the statements below where they differ:
+> persistence now recomputes the report with the real engine from the authorized inputs (items 4 and 10 of the tables below are narrower than they read); the lock order is run → budget → ledger rows (the run row is taken `FOR SHARE` by reservations);
+> `requestHash`, `pipelineConfigHash`, `assessmentKey` and `extractionKey` are no longer caller input; the closed-set hash covers the whole call binding; a critic review is required only of a _scored_ Track judgment; and migrations `0012`/`0013` were added. The verification section at the end describes the tree at `62770dc`.
+
 Scope delivered (design [M5-design.md](./M5-design.md) §7, §8 and the P4 row of §13), after the R3 corrections to P3 ([M5-P3-r3-corrections.md](./M5-P3-r3-corrections.md)).
 **No** worker pipeline (P5), API route, UI or Anthropic adapter (P6), question, interview or reassessment functionality, **no** provider SDK, credential or model call. Fallback anchors
 remain an unapproved, disabled draft. Existing migrations `0000`–`0009` are untouched.
@@ -10,6 +14,7 @@ remain an unapproved, disabled draft. Existing migrations `0000`–`0009` are un
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Migration `0010_m5_assessment_schema` (generated)                     | twelve tables, the partial unique index (one active assessment run per project), run link CHECKs, `budget_exceeded` (assessment runs only)                                           |
 | Migration `0011_m5_assessment_integrity` (hand-written, as 0005/0008) | immutability, ownership, state machine, deferred completeness, budget backstop, report integrity                                                                                     |
+| Migrations `0012`/`0013` (R4 repair)                                  | frozen assessment identity, derived extraction identity, call binding and ledger allow-lists, run-first lock order, representation checks                                            |
 | `EvidenceGraphStore.createGraphInTransaction`                         | the M3 write body, unchanged, runnable inside a caller's transaction; `createGraph` is now a thin wrapper (same parse-before-transaction, same locks, same errors, same audit event) |
 | `GraphExtractionStore`                                                | graph records + extraction + membership rows in ONE transaction from the ids the database just allocated; reuse by `extraction_key`                                                  |
 | `LockedContextReader`                                                 | read-only reconstruction of a frozen context; recomputes `lockedContentHash` from the rows it read                                                                                   |
@@ -57,7 +62,7 @@ outside an extraction while also creating an extraction is refused: the extracti
 
 ## Transactions and locks
 
-Every operation is one short transaction; none spans a model call (there is no model code in this package). Lock order, identical everywhere: **project row (`FOR NO KEY UPDATE`) → pinned `event_context_versions` row (`FOR SHARE`) → run row (`FOR UPDATE`) → budget row (`FOR UPDATE`)**.
+Every operation is one short transaction; none spans a model call (there is no model code in this package). Lock order, identical everywhere (R4: now also in the ledger path): **project row (`FOR NO KEY UPDATE`) → pinned `event_context_versions` row (`FOR SHARE`) → run row (`FOR UPDATE`, or `FOR SHARE` for a reservation/settlement) → budget row (`FOR UPDATE`) → ledger rows**.
 M1's lock/supersede takes event → version rows and never a project or run row, so the orders cannot cycle (20 interleavings tested without a deadlock). The reader takes no row lock. `createGraphInTransaction` takes the project lock first (a test shows the writer blocked on it before anything is read or written).
 
 ## Idempotency and recovery (§8.6)
@@ -67,7 +72,7 @@ failure returns the recorded outcome and never starts a run; `assess` with an eq
 
 ## Not in this phase / prerequisites for P5
 
-- The worker orchestrator (S0–S14), lease heartbeats on a timer, the model-output → `JudgmentInput` mapping, the critic loop and the failure matrix; `assessmentKey` composition from the real extraction keys; the API `Idempotency-Key` plumbing (P6).
+- The worker orchestrator (S0–S14), lease heartbeats on a timer, the model-output → `JudgmentInput` mapping (a judgment stores exactly what the scorer was handed, R4), the critic loop and the failure matrix; the API `Idempotency-Key` plumbing (P6); the pending-run expiry loop (policy in the R4 remediation, F10).
 - P5 must read each call's closed set from the ledger (`bindingOf`) when validating its answer, must not persist a scored Track judgment before its critic review completed (the database refuses it), and must call `AssessmentInputReader.read` for every scoring step (it is the only source of `AuthorizedAssessmentInputs`).
 - Residual risks: a database superuser can still edit rows (outside the single-judge threat model; the reader re-verifies hashes and provenance, which detects most such edits); `report_text_sha256` and the jsonb mirror are verified by the database, the M4 `outputHash` only by `verifyStoredAssessment` (the database cannot recompute canonical JSON hashes).
 

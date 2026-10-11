@@ -369,7 +369,9 @@ capture    → domain, schemas
 evidence   → domain, schemas
 scoring    → context, evidence, schemas
 llm        → context, schemas   (M5 P1; nothing imports it yet)
-database   → audit, domain, evidence, schemas
+assessment → context, evidence, schemas, scoring   (M5 P3; pure)
+database   → assessment, audit, context, domain, evidence, schemas, scoring
+             (scoring only in packages/database/src/trusted-rescoring.ts: persistence re-runs the real engine, M5 P4 R4)
 auth       → domain, schemas
 safe-http  → capture, schemas
 github     → capture, schemas
