@@ -112,12 +112,18 @@ importers:
 
   apps/worker:
     dependencies:
+      '@judge-copilot/assessment':
+        specifier: workspace:*
+        version: link:../../packages/assessment
       '@judge-copilot/audit':
         specifier: workspace:*
         version: link:../../packages/audit
       '@judge-copilot/capture':
         specifier: workspace:*
         version: link:../../packages/capture
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../../packages/context
       '@judge-copilot/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -130,9 +136,18 @@ importers:
       '@judge-copilot/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@judge-copilot/evidence':
+        specifier: workspace:*
+        version: link:../../packages/evidence
       '@judge-copilot/github':
         specifier: workspace:*
         version: link:../../packages/github
+      '@judge-copilot/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+      '@judge-copilot/prompts':
+        specifier: workspace:*
+        version: link:../../packages/prompts
       '@judge-copilot/safe-http':
         specifier: workspace:*
         version: link:../../packages/safe-http
@@ -155,9 +170,6 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
-      '@judge-copilot/evidence':
-        specifier: workspace:*
-        version: link:../../packages/evidence
       postgres:
         specifier: ^3.4.9
         version: 3.4.9

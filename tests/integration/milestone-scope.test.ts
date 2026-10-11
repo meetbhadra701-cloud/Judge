@@ -6,9 +6,10 @@
  * (frozen templates, framing of untrusted data); PHASE P3 adds only the pure `packages/assessment` trust boundary
  * (windowing, quote location, gates G1-G7, graph planning, critic policy, report verification) and one additive scoring
  * export (the report-hash verifier); PHASE P4 adds only the database persistence of assessments (migrations 0010-0011, the
- * trusted input reader, the extraction, run, ledger and assessment stores): NO vendor SDK or endpoint, NO pipeline
- * orchestration, NO route, worker job or UI. Everything from M6 on, and the later M5 phases,
- * must stay unimplemented. Each M5 phase updates this guard together with its own work. The guard inspects implementation
+ * trusted input reader, the extraction, run, ledger and assessment stores); PHASE P5 adds only the OFFLINE worker orchestration of the
+ * pipeline (apps/worker/src/assessment: S0-S14, lease and heartbeat, the spending-guard wiring, the assessment loop) over the
+ * scripted and replay providers: NO vendor SDK or endpoint, NO live provider, NO API route, NO UI. Everything from M6 on, and the later
+ * M5 phases (P6 API/UI/adapter, P7), must stay unimplemented. Each M5 phase updates this guard together with its own work. The guard inspects implementation
  * surfaces (code, manifests, migrations, routes), not the binding documentation, which discusses
  * those concepts by design. If a later milestone legitimately adds one of these, update this
  * test in that milestone together with its milestone report.
@@ -129,7 +130,7 @@ function sourceFiles(dir: string, { includeTests = false } = {}): string[] {
 
 const applicationSource = ['apps', 'packages'].flatMap((group) => sourceFiles(join(ROOT, group)));
 
-describe('M5 milestone scope (phase P4)', () => {
+describe('M5 milestone scope (phase P5)', () => {
   it('keeps the later packages as README-only placeholders', () => {
     for (const name of NOT_YET_IMPLEMENTED) {
       const dir = join(ROOT, 'packages', name);
@@ -351,15 +352,16 @@ describe('M5 milestone scope (phase P4)', () => {
     expect(manifest.devDependencies ?? {}).toEqual({});
   });
 
-  it('has no importer of @judge-copilot/llm yet: no pipeline, route, worker job or UI uses a provider in P1', () => {
+  it('limits the importers of @judge-copilot/llm to the worker pipeline: no route, UI or persistence layer uses a provider', () => {
     const importers = applicationSource.filter(
       (file) =>
         !file.startsWith(join(ROOT, 'packages/llm')) &&
         /@judge-copilot\/llm/.test(readFileSync(file, 'utf8')),
     );
-    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    expect(importers.every((file) => file.startsWith(join(ROOT, 'apps/worker/src')))).toBe(true);
+    expect(importers.length).toBeGreaterThan(0);
     for (const { dir, manifest } of workspaceManifests()) {
-      if (dir === join(ROOT, 'packages/llm')) continue;
+      if (dir === join(ROOT, 'packages/llm') || dir === join(ROOT, 'apps/worker')) continue;
       const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
       expect(deps.includes('@judge-copilot/llm'), dir).toBe(false);
     }
@@ -380,15 +382,16 @@ describe('M5 milestone scope (phase P4)', () => {
     expect(manifest.devDependencies ?? {}).toEqual({});
   });
 
-  it('has no importer of @judge-copilot/prompts yet: no pipeline, route, worker job or UI renders a prompt in P2', () => {
+  it('limits the importers of @judge-copilot/prompts to the worker pipeline: no route, UI or persistence layer renders a prompt', () => {
     const importers = applicationSource.filter(
       (file) =>
         !file.startsWith(join(ROOT, 'packages/prompts')) &&
         /@judge-copilot\/prompts/.test(readFileSync(file, 'utf8')),
     );
-    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    expect(importers.every((file) => file.startsWith(join(ROOT, 'apps/worker/src')))).toBe(true);
+    expect(importers.length).toBeGreaterThan(0);
     for (const { dir, manifest } of workspaceManifests()) {
-      if (dir === join(ROOT, 'packages/prompts')) continue;
+      if (dir === join(ROOT, 'packages/prompts') || dir === join(ROOT, 'apps/worker')) continue;
       const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
       expect(deps.includes('@judge-copilot/prompts'), dir).toBe(false);
     }
@@ -417,17 +420,22 @@ describe('M5 milestone scope (phase P4)', () => {
     expect(manifest.devDependencies ?? {}).toEqual({});
   });
 
-  it('limits the importers of @judge-copilot/assessment to the database persistence layer: no pipeline, route, worker job or UI yet', () => {
+  it('limits the importers of @judge-copilot/assessment to the database persistence layer and the worker pipeline: no route or UI', () => {
     const importers = applicationSource.filter(
       (file) =>
         !file.startsWith(join(ROOT, 'packages/assessment')) &&
         !file.startsWith(join(ROOT, 'packages/database')) &&
         /@judge-copilot\/assessment/.test(readFileSync(file, 'utf8')),
     );
-    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    expect(importers.every((file) => file.startsWith(join(ROOT, 'apps/worker/src')))).toBe(true);
     for (const { dir, manifest } of workspaceManifests()) {
-      if (dir === join(ROOT, 'packages/assessment') || dir === join(ROOT, 'packages/database'))
+      if (
+        dir === join(ROOT, 'packages/assessment') ||
+        dir === join(ROOT, 'packages/database') ||
+        dir === join(ROOT, 'apps/worker')
+      ) {
         continue;
+      }
       const deps = Object.keys({ ...manifest['dependencies'], ...manifest['devDependencies'] });
       expect(deps.includes('@judge-copilot/assessment'), dir).toBe(false);
     }
@@ -448,7 +456,7 @@ describe('M5 milestone scope (phase P4)', () => {
     expect(engine).not.toContain('report-hash');
   });
 
-  it('adds no assessment route, job type or pipeline in P4 (persistence only)', () => {
+  it('adds no assessment route or UI in P5: the offline worker pipeline is the only consumer of the assessment run type', () => {
     const migrations = join(ROOT, 'packages/database/drizzle');
     const sql = readdirSync(migrations)
       .filter((name) => name.endsWith('.sql'))
@@ -465,16 +473,23 @@ describe('M5 milestone scope (phase P4)', () => {
       /CREATE TABLE "[a-z_]*(post_interview|final_score|question|answer|delta)[a-z_]*"/i.test(sql),
     ).toBe(false);
     expect(existsSync(join(ROOT, 'packages/prompts/package.json'))).toBe(true);
-    const workerAndApi = [
+    // the API and the web UI know nothing of the assessment run type (P6 adds them); only the worker's assessment loop does
+    for (const file of [
       ...sourceFiles(join(ROOT, 'apps/api/src')),
-      ...sourceFiles(join(ROOT, 'apps/worker/src')),
-    ];
-    for (const file of workerAndApi) {
+      ...sourceFiles(join(ROOT, 'apps/web')),
+    ]) {
       expect(
         /pre_interview_assessment|assessment_run/i.test(readFileSync(file, 'utf8')),
         relative(ROOT, file),
       ).toBe(false);
     }
+    const worker = sourceFiles(join(ROOT, 'apps/worker/src')).filter((file) =>
+      /pre_interview_assessment|assessment_run/i.test(readFileSync(file, 'utf8')),
+    );
+    expect(worker.every((file) => relative(ROOT, file).startsWith('apps/worker/src/'))).toBe(true);
+    // no live provider: the only selectable assessment providers are `none` and the offline `replay`
+    const env = readFileSync(join(ROOT, 'apps/worker/src/env.ts'), 'utf8');
+    expect(env).toContain("ASSESSMENT_PROVIDER: z.enum(['none', 'replay'])");
   });
 
   it('exposes no score, analysis, assessment, question, ranking or winner HTTP routes', () => {

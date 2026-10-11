@@ -2,6 +2,7 @@ import { createDatabase } from '@judge-copilot/database';
 import { createFixtureNetwork, createSafeHttpClient } from '@judge-copilot/safe-http';
 import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { createAdapterRegistry } from './adapters.js';
+import { createAssessmentRuntime } from './assessment/runtime.js';
 import { createCaptureLoop } from './capture/loop.js';
 import { CaptureQueue } from './capture/queue.js';
 import { loadWorkerEnv } from './env.js';
@@ -13,7 +14,13 @@ const logger = createLogger({ service: SERVICE_NAME, level: env.LOG_LEVEL });
 
 // No connection is opened until the first query.
 const database = env.DATABASE_URL
-  ? createDatabase(env.DATABASE_URL, { maxConnections: env.CAPTURE_CONCURRENCY + 2 })
+  ? createDatabase(env.DATABASE_URL, {
+      // capture jobs, plus (when the offline assessment loop is on) a run's pipeline, its heartbeat and its stores
+      maxConnections:
+        env.CAPTURE_CONCURRENCY +
+        2 +
+        (env.ASSESSMENT_PROVIDER === 'none' ? 0 : env.ASSESSMENT_CONCURRENCY * 3),
+    })
   : null;
 
 let captureLoop = null;
@@ -37,7 +44,12 @@ if (database) {
   });
 }
 
-const worker = createWorker({ logger, captureLoop });
+// The assessment loop exists only when a database AND an offline provider are configured; otherwise no prompt is ever rendered.
+const assessmentLoop = database
+  ? await createAssessmentRuntime({ db: database.db, env, logger })
+  : null;
+
+const worker = createWorker({ logger, captureLoop, assessmentLoop });
 
 handleShutdownSignals(
   async () => {

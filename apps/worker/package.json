@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Judge Copilot background worker. M0: boots and shuts down cleanly; no job handlers exist yet.",
+  "description": "Judge Copilot background worker: source capture jobs (M2) and the offline pre-interview assessment pipeline (M5 P5).",
   "scripts": {
     "dev": "tsx watch --conditions=@judge-copilot/source src/main.ts",
     "build": "tsc -p tsconfig.build.json",
@@ -11,13 +11,18 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@judge-copilot/assessment": "workspace:*",
     "@judge-copilot/audit": "workspace:*",
     "@judge-copilot/capture": "workspace:*",
+    "@judge-copilot/context": "workspace:*",
     "@judge-copilot/database": "workspace:*",
     "@judge-copilot/deployment": "workspace:*",
     "@judge-copilot/devpost": "workspace:*",
     "@judge-copilot/domain": "workspace:*",
+    "@judge-copilot/evidence": "workspace:*",
     "@judge-copilot/github": "workspace:*",
+    "@judge-copilot/llm": "workspace:*",
+    "@judge-copilot/prompts": "workspace:*",
     "@judge-copilot/safe-http": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
     "@judge-copilot/shared": "workspace:*",
@@ -27,7 +32,6 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
-    "@judge-copilot/evidence": "workspace:*",
     "postgres": "^3.4.9"
   }
 }

@@ -368,7 +368,8 @@ context    → schemas
 capture    → domain, schemas
 evidence   → domain, schemas
 scoring    → context, evidence, schemas
-llm        → context, schemas   (M5 P1; nothing imports it yet)
+llm        → context, schemas   (M5 P1; imported only by the worker pipeline, M5 P5)
+prompts    → context, schemas   (M5 P2; imported only by the worker pipeline, M5 P5)
 assessment → context, evidence, schemas, scoring   (M5 P3; pure)
 database   → assessment, audit, context, domain, evidence, schemas, scoring
              (scoring only in packages/database/src/trusted-rescoring.ts: persistence re-runs the real engine, M5 P4 R4)
@@ -379,7 +380,8 @@ devpost    → capture, schemas
 deployment → capture, schemas
 video      → capture, schemas
 api        → audit, auth, capture, context, database, domain, evidence, schemas, shared
-worker     → audit, capture, database, deployment, devpost, domain, github, safe-http, schemas, shared, video
+worker     → assessment, audit, capture, context, database, deployment, devpost, domain, evidence, github, llm, prompts,
+             safe-http, schemas, shared, video   (assessment, context, evidence, llm, prompts: the offline assessment pipeline, M5 P5)
 web        → context, schemas
 ```
 
@@ -430,7 +432,11 @@ its own migrations; existing migrations are never edited after being committed.
   `503 DATABASE_NOT_CONFIGURED`. It closes cleanly on SIGINT/SIGTERM.
 - **worker** without `DATABASE_URL` idles with `jobHandlers: 0` and contacts nothing. With a
   database it runs the project-source capture loop (§10) with bounded concurrency and stops
-  cleanly on SIGINT/SIGTERM.
+  cleanly on SIGINT/SIGTERM. With a database **and** `ASSESSMENT_PROVIDER=replay` (development and
+  tests only; the default `none` leaves the loop off) it also runs the offline pre-interview assessment
+  loop (M5 P5, `apps/worker/src/assessment`, [M5-P5-report](./milestones/M5-P5-report.md)): lease and
+  heartbeat per run, the S0–S14 pipeline over the scripted/replay providers, the durable spending guard,
+  pending-run expiry (default 15 minutes) and crash recovery. No live provider exists yet.
 - **web** renders the M1 Event Context views and the M2 project, source and snapshot views using
   server components and server actions that call the API server-side (`JUDGE_API_URL`,
   `JUDGE_API_TOKEN`). It binds **127.0.0.1** explicitly (its scripts pass `--hostname 127.0.0.1`): it
