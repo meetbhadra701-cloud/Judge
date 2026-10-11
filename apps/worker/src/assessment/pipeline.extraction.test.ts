@@ -10,7 +10,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CLAIM_QUOTES, EVIDENCE_QUOTE } from '../testing/assessment-world.js';
-import { DEFAULTS, FakeModel, ok } from '../testing/fake-model.js';
+import { FakeModel, ok } from '../testing/fake-model.js';
 import { testDatabaseTargets, type TestDatabase } from '../testing/harness.js';
 import { execute, expectNoAssessment } from '../testing/run.js';
 
@@ -280,7 +280,6 @@ describe.each(testDatabaseTargets())('extraction stages S2-S6 on %s', (_name, op
       expect(
         await db.select().from(claims).where(eq(claims.projectId, run.world.project.id)),
       ).toHaveLength(0);
-      void DEFAULTS;
     });
   });
 });
