@@ -217,3 +217,176 @@ describe('ModelCaller', () => {
     expect(outage.base.requests).toHaveLength(3);
   });
 });
+
+/*
+ * Source-review fix 2: the stored closed set must equal the one the prompt offered in EVERY part. Each case below stores a binding that
+ * differs from the offered set in exactly one list (the others, and the unit, stay identical), and the answer must be refused before the
+ * validator, the first thing that reads handles, ever sees it.
+ */
+describe('closed-set correspondence is exact in every list', () => {
+  const EMPTY = { passages: [], claims: [], evidence: [], pairs: [], items: [], unit: null };
+  const claim = (n: number) => ({ handle: `C-00${String(n)}`, text: `Claim ${String(n)}.` });
+  const evidence = (n: number) => ({
+    handle: `E-00${String(n)}`,
+    text: `Evidence ${String(n)}.`,
+    quote: null,
+  });
+
+  /** One stage per list, with the offered closed set the real renderer produces for it. */
+  const CASES = {
+    passages: {
+      stage: 'claim_extraction' as const,
+      role: 'extraction' as const,
+      input: { passages: [PASSAGE, { ...PASSAGE, handle: 'P-0002' }] },
+      offered: { ...EMPTY, passages: ['P-0001', 'P-0002'] },
+    },
+    claims: {
+      stage: 'relation_matching' as const,
+      role: 'extraction' as const,
+      input: { claims: [claim(1), claim(2)], evidence: [evidence(1)] },
+      offered: { ...EMPTY, claims: ['C-001', 'C-002'], evidence: ['E-001'] },
+    },
+    evidence: {
+      stage: 'relation_matching' as const,
+      role: 'extraction' as const,
+      input: { claims: [claim(1)], evidence: [evidence(1), evidence(2)] },
+      offered: { ...EMPTY, claims: ['C-001'], evidence: ['E-001', 'E-002'] },
+    },
+    pairs: {
+      stage: 'relation_verification' as const,
+      role: 'extraction' as const,
+      input: {
+        pairs: [
+          {
+            handle: 'X-001',
+            claim: 'A claim.',
+            evidence: 'Some evidence.',
+            evidenceQuote: 'quote',
+          },
+          {
+            handle: 'X-002',
+            claim: 'Another.',
+            evidence: 'More evidence.',
+            evidenceQuote: 'quote',
+          },
+        ],
+      },
+      offered: { ...EMPTY, pairs: ['X-001', 'X-002'] },
+    },
+    items: {
+      stage: 'fidelity_review' as const,
+      role: 'extraction' as const,
+      input: {
+        items: [
+          { handle: 'C-001', assertion: 'A claim.', quote: 'quote one' },
+          { handle: 'E-001', assertion: 'Some evidence.', quote: 'quote two' },
+        ],
+      },
+      offered: { ...EMPTY, items: ['C-001', 'E-001'] },
+    },
+  };
+  type Field = keyof typeof CASES;
+
+  /** The single-list tampering of an offered list of two handles. */
+  const TAMPERING: Record<string, (offered: readonly string[]) => string[]> = {
+    'a missing entry': (list) => list.slice(0, 1),
+    'a substituted handle': (list) => [list[0] ?? '', 'Z-999'],
+    'a reordered list': (list) => [...list].reverse(),
+    'an extra handle': (list) => [...list, 'Z-999'],
+    'an emptied list': () => [],
+  };
+
+  const call = async (field: Field, stored: Record<string, unknown>) => {
+    const seen: BoundClosedSet[] = [];
+    const c = CASES[field];
+    const { caller } = setup([ok({ any: 'answer' })], (callId, digest) => ({
+      ...bindingFor(stored)(callId, digest),
+      stage: c.stage,
+    }));
+    const outcome = caller.call({
+      stage: c.stage,
+      role: c.role,
+      input: c.input,
+      validate: (json: unknown, closed: BoundClosedSet) => {
+        seen.push(closed);
+        return { ok: true, value: json } as const;
+      },
+    } as never);
+    return { outcome, seen };
+  };
+
+  it.each(Object.keys(CASES) as Field[])(
+    '%s: the exact stored set is accepted (control)',
+    async (field) => {
+      const { outcome, seen } = await call(field, CASES[field].offered);
+      expect(await outcome).toMatchObject({ kind: 'ok' });
+      expect(seen).toEqual([CASES[field].offered]);
+    },
+  );
+
+  describe.each(Object.keys(CASES) as Field[])('%s', (field) => {
+    it.each(Object.keys(TAMPERING))(
+      'stored list with %s is refused before the validator',
+      async (name) => {
+        const tamper = TAMPERING[name];
+        const offered = CASES[field].offered;
+        const stored = { ...offered, [field]: tamper?.(offered[field]) ?? [] };
+        // everything except this one list is identical to the offered set
+        for (const other of Object.keys(offered) as (keyof typeof offered)[]) {
+          if (other !== field) expect(stored[other]).toEqual(offered[other]);
+        }
+        const { outcome, seen } = await call(field, stored);
+        await expect(outcome).rejects.toMatchObject({
+          stop: {
+            kind: 'fail',
+            category: 'internal_error',
+            code: 'closed_set_differs_from_prompt',
+          },
+        });
+        expect(seen).toHaveLength(0);
+      },
+    );
+  });
+
+  it('a stored unit that differs from the offered unit is refused (all lists identical)', async () => {
+    const { outcome, seen } = await call('claims', { ...CASES.claims.offered, unit: 'novelty' });
+    await expect(outcome).rejects.toMatchObject({
+      stop: { code: 'closed_set_differs_from_prompt' },
+    });
+    expect(seen).toHaveLength(0);
+  });
+
+  // The three adversarial bindings of the review: they differ ONLY in claims, pairs or items; passages, evidence and unit are identical.
+  it('adversarial binding differing only in claims', async () => {
+    const stored = { ...CASES.claims.offered, claims: ['C-001', 'C-777'] };
+    expect(stored.evidence).toEqual(CASES.claims.offered.evidence);
+    expect(stored.passages).toEqual([]);
+    const { outcome, seen } = await call('claims', stored);
+    await expect(outcome).rejects.toMatchObject({
+      stop: { code: 'closed_set_differs_from_prompt' },
+    });
+    expect(seen).toHaveLength(0);
+  });
+
+  it('adversarial binding differing only in pairs', async () => {
+    const stored = { ...CASES.pairs.offered, pairs: ['X-001', 'X-777'] };
+    expect(stored.evidence).toEqual([]);
+    expect(stored.passages).toEqual([]);
+    const { outcome, seen } = await call('pairs', stored);
+    await expect(outcome).rejects.toMatchObject({
+      stop: { code: 'closed_set_differs_from_prompt' },
+    });
+    expect(seen).toHaveLength(0);
+  });
+
+  it('adversarial binding differing only in items', async () => {
+    const stored = { ...CASES.items.offered, items: ['C-001', 'E-777'] };
+    expect(stored.evidence).toEqual([]);
+    expect(stored.passages).toEqual([]);
+    const { outcome, seen } = await call('items', stored);
+    await expect(outcome).rejects.toMatchObject({
+      stop: { code: 'closed_set_differs_from_prompt' },
+    });
+    expect(seen).toHaveLength(0);
+  });
+});

@@ -110,6 +110,25 @@ function schemaFor(stage: AssessmentStage): Record<string, unknown> {
 
 const STRING_LIST_KEYS = ['passages', 'claims', 'evidence', 'pairs', 'items'] as const;
 
+const sameList = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((entry, index) => entry === b[index]);
+
+/**
+ * True only if `stored` equals `offered` in every part of the closed set: the five handle lists (`passages`, `claims`, `evidence`,
+ * `pairs`, `items`), each element by element and IN ORDER (no missing entry, no substituted handle, no reordering, no extra handle),
+ * and the unit. Adding a field to `ClosedSet` without extending this comparison is a type error.
+ */
+export function sameClosedSet(stored: BoundClosedSet, offered: BoundClosedSet): boolean {
+  return (
+    sameList(stored.passages, offered.passages) &&
+    sameList(stored.claims, offered.claims) &&
+    sameList(stored.evidence, offered.evidence) &&
+    sameList(stored.pairs, offered.pairs) &&
+    sameList(stored.items, offered.items) &&
+    stored.unit === offered.unit
+  );
+}
+
 /** Reads the stored closed set back into its typed form; anything malformed is an internal error, never a fallback. */
 export function asClosedSet(stored: Record<string, unknown>): BoundClosedSet {
   const lists: Record<string, readonly string[]> = {};
@@ -311,13 +330,9 @@ export class ModelCaller {
       return failRun('internal_error', 'closed_set_wrong_dimension', spec.stage);
     }
     const closedSet = asClosedSet(binding.closedSet);
-    // the stored set must be the one this prompt actually offered; a mismatch means the binding is not about this request
-    const offered = this.rendered(spec).closedSet;
-    if (
-      JSON.stringify([...closedSet.evidence]) !== JSON.stringify([...offered.evidence]) ||
-      JSON.stringify([...closedSet.passages]) !== JSON.stringify([...offered.passages]) ||
-      closedSet.unit !== offered.unit
-    ) {
+    // the stored set must be EXACTLY the one this prompt offered (all five handle lists, in order, and the unit); a mismatch means
+    // the binding is not about this request, and the answer never reaches the domain gate
+    if (!sameClosedSet(closedSet, this.rendered(spec).closedSet)) {
       return failRun('internal_error', 'closed_set_differs_from_prompt', spec.stage);
     }
     return { kind: 'answer', json: result.json, closedSet };

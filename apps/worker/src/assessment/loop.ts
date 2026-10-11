@@ -1,9 +1,4 @@
-import {
-  analysisRuns,
-  AssessmentRunError,
-  type AssessmentRunStore,
-  type JudgeDatabase,
-} from '@judge-copilot/database';
+import { analysisRuns, type AssessmentRunStore, type JudgeDatabase } from '@judge-copilot/database';
 import { ASSESSMENT_RUN_TYPE } from '@judge-copilot/schemas';
 import type { Logger } from '@judge-copilot/shared';
 import { and, asc, eq, lt } from 'drizzle-orm';
@@ -16,7 +11,9 @@ import { runAssessment, type PipelineDeps, type RunOutcome } from './pipeline.js
  *   claim      a pending `pre_interview_assessment` run is the durable work item. `claimRun` locks the run row and re-checks that it is
  *              still `pending`, so two workers (or two loops) can never both own one run; the loser simply moves on.
  *   pending    a run nobody claimed within `pendingMaxAgeMs` (the request handler died before a worker started: default 15 minutes) is
- *              CANCELLED `pending_expired`. A pending run cannot own a ledger row, so nothing was spent; the project is free again.
+ *              CANCELLED `pending_expired` by `expirePendingRun`, which re-checks `pending` and the age under the run row lock and cancels in
+ *              the same transaction: a run a worker claimed in the meantime is never touched. A pending run cannot own a ledger row, so
+ *              nothing was spent; the project is free again.
  *   expired    a running run whose lease expired (a crashed worker) is failed `internal_error / worker_lease_expired` and its in-flight
  *              attempts are counted at their worst case. Nothing is re-run automatically.
  *   shutdown   `stop()` waits a grace period for in-flight runs, then aborts them: each cancels its provider call and ends `cancelled`
@@ -85,18 +82,9 @@ export function createAssessmentLoop(options: AssessmentLoopOptions): Assessment
       );
     const expired: string[] = [];
     for (const { id } of stale) {
-      try {
-        await runs.finishRun({
-          runId: id,
-          state: 'cancelled',
-          failureCode: 'pending_expired',
-          stageReached: 'pending',
-        });
-        expired.push(id);
-      } catch (error) {
-        // a worker claimed it, or it ended, between the list and the cancel: idempotent, nothing to do
-        if (!(error instanceof AssessmentRunError)) throw error;
-      }
+      // The list above is only a hint: `expirePendingRun` re-checks `pending` and the age under the run row lock and cancels in the
+      // same transaction, so a run that a worker claimed (or is claiming) in the meantime is left alone. It never ends a running run.
+      if (await runs.expirePendingRun(id, cutoff)) expired.push(id);
     }
     return expired;
   }

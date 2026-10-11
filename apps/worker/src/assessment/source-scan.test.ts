@@ -75,6 +75,15 @@ describe('assessment pipeline structure', () => {
     expect(where(/\.read\(runId\)|reader\.read\(/)).toEqual(['assessment/assess.ts']);
   });
 
+  it('a worker ends a running run only with its lease token; the pending-expiry pass uses the lock-checked store operation', () => {
+    // `finishRun` without a token may end a running run (an administrative P4 path); no worker code uses it that way
+    expect(where(/\.finishRun\(/)).toEqual(['assessment/pipeline.ts']);
+    const pipeline = code(join(WORKER_SRC, 'assessment/pipeline.ts'));
+    expect(pipeline).toMatch(/const ending = \{[^}]*\bleaseToken\b/s);
+    expect(where(/\.expirePendingRun\(/)).toEqual(['assessment/loop.ts']);
+    expect(where(/\.expirePendingRun\(/, [join(WORKER_SRC, 'assessment/loop.ts')])).toHaveLength(1);
+  });
+
   it('assigns no privileged verification level and mentions none in code', () => {
     expect(where(/repo_corroborated|machine_verified|judge_verified|live_verified/)).toEqual([]);
     expect(where(/verificationLevel/)).toEqual([]);

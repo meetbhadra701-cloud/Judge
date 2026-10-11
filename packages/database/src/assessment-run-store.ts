@@ -164,6 +164,11 @@ export interface AssessmentRunStoreOptions {
    * It lets a test hold the run lock to force an interleaving; it has no production use.
    */
   readonly afterRunLocked?: (operation: 'finish' | 'recover') => Promise<void>;
+  /**
+   * Test seam, awaited by `expirePendingRun` right after the run row is locked and the pending/age checks passed, before anything is
+   * written. Separate from `afterRunLocked` so that hooks written against its two operations keep their types.
+   */
+  readonly afterPendingLocked?: () => Promise<void>;
 }
 
 const ACTIVE = ['pending', 'running'] as const;
@@ -192,11 +197,13 @@ export class AssessmentRunStore {
   private readonly db: JudgeDatabase;
   private readonly now: () => Date;
   private readonly afterRunLocked: AssessmentRunStoreOptions['afterRunLocked'];
+  private readonly afterPendingLocked: AssessmentRunStoreOptions['afterPendingLocked'];
 
   constructor(options: AssessmentRunStoreOptions) {
     this.db = options.db;
     this.now = options.now ?? (() => new Date());
     this.afterRunLocked = options.afterRunLocked;
+    this.afterPendingLocked = options.afterPendingLocked;
   }
 
   // -- S0: request, idempotency and pin ------------------------------------------------------------------------------------
@@ -809,6 +816,41 @@ export class AssessmentRunStore {
           failureCategory: 'internal_error',
           failureCode: 'worker_lease_expired',
         },
+      );
+      return true;
+    });
+  }
+
+  /**
+   * Cancels ONE abandoned pending run (`cancelled / pending_expired`), re-checking UNDER THE RUN ROW LOCK that the run is still
+   * `pending` and was created before `createdBefore`. The cancellation is written in the same transaction as those checks, through
+   * the same terminal path as every other end (`terminalize`: ledger reaped, outcome row written).
+   *
+   * A list of expired pending runs is only a hint. A worker that claimed the run first (it is `running` now) or that is claiming it
+   * right now wins: this returns false and changes nothing, so a pending-expiry pass can never end a running run. If this locks
+   * first and commits, a later `claimRun` finds the run `cancelled` and is refused. Safe to call repeatedly and concurrently
+   * (idempotent). Lock order: run -> budget -> ledger rows, as in `finishRun`.
+   */
+  async expirePendingRun(runId: string, createdBefore: Date): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const [run] = await tx
+        .select()
+        .from(analysisRuns)
+        .where(eq(analysisRuns.id, runId))
+        .for('update');
+      if (
+        !run?.projectId ||
+        run.runType !== ASSESSMENT_RUN_TYPE ||
+        run.state !== 'pending' ||
+        run.createdAt.getTime() >= createdBefore.getTime()
+      ) {
+        return false;
+      }
+      await this.afterPendingLocked?.();
+      await this.terminalize(
+        tx,
+        { ...run, projectId: run.projectId },
+        { state: 'cancelled', failureCode: 'pending_expired', stageReached: 'pending' },
       );
       return true;
     });
