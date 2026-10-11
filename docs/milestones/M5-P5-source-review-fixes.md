@@ -33,14 +33,14 @@ outcome row `cancelled / pending_expired / pending`, totals from the ledger). Ot
 order is unchanged (run → budget → ledger rows). `finishRun`, `claimRun`, `heartbeat`, `recoverRun`/`recoverExpiredRuns` are
 unchanged; the explicit lease-recovery path still ends only a running run whose lease has expired, re-checked under the lock.
 
-| Interleaving | Result |
-| --- | --- |
-| A. expiry lists R, worker claims (and heartbeats), expiry resumes | `expirePendingRun` sees `running`, returns false; R stays running with its lease; no outcome row |
-| A2. worker holds R's lock while claiming, expiry starts meanwhile | expiry blocks on the row lock, re-reads after the grant, sees `running`, returns false |
-| B. expiry locks R first and cancels, worker then claims | the claim waits for the lock, then finds `cancelled` and returns `null`; nothing is spent |
-| C. heartbeats, recovery and expiry passes racing on a claimed run | all expiry/recovery calls return false, heartbeats return true, run stays `running` |
-| D. two expiry processes on one abandoned run | exactly one cancels; one outcome row; repeated calls are no-ops |
-| 12 rounds of claim ‖ expiry on separate connections | every run ends either `running` with the claimer's token or `cancelled` with one outcome, never both |
+| Interleaving                                                      | Result                                                                                               |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| A. expiry lists R, worker claims (and heartbeats), expiry resumes | `expirePendingRun` sees `running`, returns false; R stays running with its lease; no outcome row     |
+| A2. worker holds R's lock while claiming, expiry starts meanwhile | expiry blocks on the row lock, re-reads after the grant, sees `running`, returns false               |
+| B. expiry locks R first and cancels, worker then claims           | the claim waits for the lock, then finds `cancelled` and returns `null`; nothing is spent            |
+| C. heartbeats, recovery and expiry passes racing on a claimed run | all expiry/recovery calls return false, heartbeats return true, run stays `running`                  |
+| D. two expiry processes on one abandoned run                      | exactly one cancels; one outcome row; repeated calls are no-ops                                      |
+| 12 rounds of claim ‖ expiry on separate connections               | every run ends either `running` with the claimer's token or `cancelled` with one outcome, never both |
 
 The loop now calls `expirePendingRun(id, cutoff)` and no longer calls `finishRun` at all. Every worker-originated `finishRun`
 (pipeline `terminate`) carries the lease token; a source scan pins both facts (`finishRun` appears only in `pipeline.ts`, built from
@@ -55,21 +55,21 @@ hold the run lock after the pending/age checks.
 
 ### Tests
 
-* `packages/database/src/assessment-pending-expiry.test.ts`: semantics on PGlite and PostgreSQL (D idempotent, E no ledger rows and
+- `packages/database/src/assessment-pending-expiry.test.ts`: semantics on PGlite and PostgreSQL (D idempotent, E no ledger rows and
   zero totals, age re-check, running run untouched, claim refused after expiry, terminal/unknown runs untouched, F lease recovery
   unchanged) and the forced interleavings A, A2, B, C, D and the 12-round race on **two independent PostgreSQL pools**.
-* `apps/worker/src/assessment/loop.expiry-race.test.ts`: the same race through the real loop and the real `runAssessment` (A with a
+- `apps/worker/src/assessment/loop.expiry-race.test.ts`: the same race through the real loop and the real `runAssessment` (A with a
   paused expiry, A with a full pipeline run, B no model call and no ledger row, D/E idempotent and no fabricated outcome).
-* F: the R4 terminalization and reservation-race suites (`assessment-reservation-race`, `assessment-run-store`,
+- F: the R4 terminalization and reservation-race suites (`assessment-reservation-race`, `assessment-run-store`,
   `assessment-concurrency`, …) pass unchanged.
 
 ### Mutation proof (killed)
 
-| Id | Defect | Killed by |
-| --- | --- | --- |
-| S01 | the under-lock `state = pending` check removed | the tests of `assessment-pending-expiry.test.ts` and `loop.expiry-race.test.ts` |
-| S02 | the under-lock age check removed | the tests of `assessment-pending-expiry.test.ts` |
-| S03 | the loop ends pending runs through a tokenless `finishRun` again (the original defect) | `loop.expiry-race.test.ts`, `source-scan.test.ts` |
+| Id  | Defect                                                                                 | Killed by                                                                       |
+| --- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| S01 | the under-lock `state = pending` check removed                                         | the tests of `assessment-pending-expiry.test.ts` and `loop.expiry-race.test.ts` |
+| S02 | the under-lock age check removed                                                       | the tests of `assessment-pending-expiry.test.ts`                                |
+| S03 | the loop ends pending runs through a tokenless `finishRun` again (the original defect) | `loop.expiry-race.test.ts`, `source-scan.test.ts`                               |
 
 ## 2. Complete closed-set correspondence
 
@@ -89,10 +89,10 @@ checks of the request digest, stage and dimension are unchanged and run first.
 
 ### Tests (`model-call.test.ts`, +34)
 
-* A control per list (exact set accepted): passages, claims, evidence, pairs, items.
-* For every list, five tamperings that change only that list: missing entry, substituted handle, reordered list, extra handle, emptied
+- A control per list (exact set accepted): passages, claims, evidence, pairs, items.
+- For every list, five tamperings that change only that list: missing entry, substituted handle, reordered list, extra handle, emptied
   list, plus a differing unit; each asserts the validator was never called.
-* The three required adversarial bindings that differ **only** in `claims`, `pairs` or `items` while `evidence`, `passages` and `unit`
+- The three required adversarial bindings that differ **only** in `claims`, `pairs` or `items` while `evidence`, `passages` and `unit`
   are identical.
 
 ### Mutation proof (killed)
@@ -106,19 +106,19 @@ Today: the loop lists pending ids with a plain `SELECT … ORDER BY created_at, 
 which does `SELECT … FOR UPDATE` on that one row and re-checks `pending` before the `UPDATE`. The approved design (§10.3) names
 `FOR UPDATE SKIP LOCKED`; the capture queue uses it.
 
-* **Non-duplicate execution: equivalent.** The row lock plus the state re-check make the claim exclusive. Verified on PostgreSQL with
+- **Non-duplicate execution: equivalent.** The row lock plus the state re-check make the claim exclusive. Verified on PostgreSQL with
   three independent pools sweeping the same ordered list: every run is claimed exactly once with `attemptCount = 1`
   (`assessment-claim-queue.test.ts`).
-* **Blocking: not equivalent, but bounded.** A blocking `FOR UPDATE` waits instead of skipping. Only holders of that same row can
+- **Blocking: not equivalent, but bounded.** A blocking `FOR UPDATE` waits instead of skipping. Only holders of that same row can
   delay it, and they are short transactions (claim, heartbeat, finish/recover/expire). The test shows the wait is row-scoped: while a
   lock on run X is held, a claim of run Y proceeds immediately, and the waiting claim resolves when the holder ends. Because
   `launch` is not awaited, a blocked claim occupies one of the worker's (at most two) concurrency slots, not the loop.
-* **Residual cost.** Every worker contends first for the same oldest pending ids (herding), and a pathological stuck lock holder on a
+- **Residual cost.** Every worker contends first for the same oldest pending ids (herding), and a pathological stuck lock holder on a
   head-of-queue row would stall one slot until it ends. With ≤ 2 slots per worker and a few workers this is acceptable for P5.
-* **Smallest correction, if the owner wants the design's semantics exactly.** One additive operation in the same store, no migration:
+- **Smallest correction, if the owner wants the design's semantics exactly.** One additive operation in the same store, no migration:
   `claimNextRun(leaseMs): Promise<{ runId: string; leaseToken: string } | null>` that, in one transaction, runs
   `SELECT id FROM analysis_runs WHERE run_type = 'pre_interview_assessment' AND state = 'pending' ORDER BY created_at, id FOR UPDATE
-  SKIP LOCKED LIMIT 1` and applies the same update as `claimRun`. The loop would call it instead of list + `claimRun`; `claimRun(id)`
+SKIP LOCKED LIMIT 1` and applies the same update as `claimRun`. The loop would call it instead of list + `claimRun`; `claimRun(id)`
   stays. It is **not** implemented here because it is a second P4 API addition beyond the one authorized, and the worker may not run
   that query itself (no transaction in the worker, no second state-transition mechanism).
 
@@ -134,18 +134,25 @@ which does `SELECT … FOR UPDATE` on that one row and re-checks `pending` befor
 
 ## 5. Validation
 
-Counts are in the delivery message and repeated here after the final run.
-
-* Focused (affected files): PGlite 201 passed, 29 skipped (PostgreSQL-only); PostgreSQL 16.15, files sequential, 343 passed (22
+- Focused (affected files): PGlite 201 passed, 29 skipped (PostgreSQL-only); PostgreSQL 16.15, files sequential, 343 passed (22
   files).
-* Full PostgreSQL 16 suite, `pnpm check`, `pnpm db:generate` ("No schema changes"), `git diff --check`: see the section below.
+- Full PostgreSQL 16 suite, `pnpm check`, `pnpm db:generate` ("No schema changes"), `git diff --check`: see the section below.
 
-FINAL_COUNTS_PLACEHOLDER
+Final runs on the corrected tree:
+
+- `pnpm check` (format, lint, typecheck, db:check, test, build): **exit 0**. PGlite run: **160 test files passed, 4 skipped (164);
+  2631 tests passed, 47 skipped (2678)** (the skips are PostgreSQL-only suites).
+- Full suite on **PostgreSQL 16.15**, files sequential: **164 files passed (164); 3268 tests passed, 1 skipped (3269)**. The only
+  edits after that run were lint-only changes to `model-call.test.ts` (no database use), re-run on PGlite inside `pnpm check`.
+- `pnpm db:generate`: "No schema changes, nothing to migrate". `pnpm db:check`: passes.
+- `git diff --check 027e75e`: clean. Under `packages/` only `database/src/assessment-run-store.ts` (the additive operation and its
+  test seam) and two new database test files changed; no migration, no scoring or M3/M4 change.
+- Mutation proofs of this round: 11/11 killed (S01-S03, C01-C08).
 
 ## 6. Remaining risks
 
-* `finishRun` without a token on a running run is still permitted for administrators; only the worker's use is constrained.
-* Claim herding and slot occupation by a blocked claim (§3) until `claimNextRun` is approved.
-* Same-digest re-ask and the empty-context failure remain until their separate decisions.
-* The age check uses the worker's clock for the cutoff and the database's `created_at`; skew between them shifts the 15-minute
+- `finishRun` without a token on a running run is still permitted for administrators; only the worker's use is constrained.
+- Claim herding and slot occupation by a blocked claim (§3) until `claimNextRun` is approved.
+- Same-digest re-ask and the empty-context failure remain until their separate decisions.
+- The age check uses the worker's clock for the cutoff and the database's `created_at`; skew between them shifts the 15-minute
   window by the skew, never the state check.

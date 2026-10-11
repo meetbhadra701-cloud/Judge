@@ -296,14 +296,14 @@ describe('closed-set correspondence is exact in every list', () => {
     'an emptied list': () => [],
   };
 
-  const call = async (field: Field, stored: Record<string, unknown>) => {
+  const call = (field: Field, stored: Record<string, unknown>) => {
     const seen: BoundClosedSet[] = [];
     const c = CASES[field];
     const { caller } = setup([ok({ any: 'answer' })], (callId, digest) => ({
       ...bindingFor(stored)(callId, digest),
       stage: c.stage,
     }));
-    const outcome = caller.call({
+    const outcome: Promise<unknown> = caller.call({
       stage: c.stage,
       role: c.role,
       input: c.input,
@@ -311,14 +311,14 @@ describe('closed-set correspondence is exact in every list', () => {
         seen.push(closed);
         return { ok: true, value: json } as const;
       },
-    } as never);
+    });
     return { outcome, seen };
   };
 
   it.each(Object.keys(CASES) as Field[])(
     '%s: the exact stored set is accepted (control)',
     async (field) => {
-      const { outcome, seen } = await call(field, CASES[field].offered);
+      const { outcome, seen } = call(field, CASES[field].offered);
       expect(await outcome).toMatchObject({ kind: 'ok' });
       expect(seen).toEqual([CASES[field].offered]);
     },
@@ -335,7 +335,7 @@ describe('closed-set correspondence is exact in every list', () => {
         for (const other of Object.keys(offered) as (keyof typeof offered)[]) {
           if (other !== field) expect(stored[other]).toEqual(offered[other]);
         }
-        const { outcome, seen } = await call(field, stored);
+        const { outcome, seen } = call(field, stored);
         await expect(outcome).rejects.toMatchObject({
           stop: {
             kind: 'fail',
@@ -349,7 +349,7 @@ describe('closed-set correspondence is exact in every list', () => {
   });
 
   it('a stored unit that differs from the offered unit is refused (all lists identical)', async () => {
-    const { outcome, seen } = await call('claims', { ...CASES.claims.offered, unit: 'novelty' });
+    const { outcome, seen } = call('claims', { ...CASES.claims.offered, unit: 'novelty' });
     await expect(outcome).rejects.toMatchObject({
       stop: { code: 'closed_set_differs_from_prompt' },
     });
@@ -361,7 +361,7 @@ describe('closed-set correspondence is exact in every list', () => {
     const stored = { ...CASES.claims.offered, claims: ['C-001', 'C-777'] };
     expect(stored.evidence).toEqual(CASES.claims.offered.evidence);
     expect(stored.passages).toEqual([]);
-    const { outcome, seen } = await call('claims', stored);
+    const { outcome, seen } = call('claims', stored);
     await expect(outcome).rejects.toMatchObject({
       stop: { code: 'closed_set_differs_from_prompt' },
     });
@@ -372,7 +372,7 @@ describe('closed-set correspondence is exact in every list', () => {
     const stored = { ...CASES.pairs.offered, pairs: ['X-001', 'X-777'] };
     expect(stored.evidence).toEqual([]);
     expect(stored.passages).toEqual([]);
-    const { outcome, seen } = await call('pairs', stored);
+    const { outcome, seen } = call('pairs', stored);
     await expect(outcome).rejects.toMatchObject({
       stop: { code: 'closed_set_differs_from_prompt' },
     });
@@ -383,7 +383,7 @@ describe('closed-set correspondence is exact in every list', () => {
     const stored = { ...CASES.items.offered, items: ['C-001', 'E-777'] };
     expect(stored.evidence).toEqual([]);
     expect(stored.passages).toEqual([]);
-    const { outcome, seen } = await call('items', stored);
+    const { outcome, seen } = call('items', stored);
     await expect(outcome).rejects.toMatchObject({
       stop: { code: 'closed_set_differs_from_prompt' },
     });
