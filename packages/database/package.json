@@ -29,12 +29,12 @@
     "@judge-copilot/domain": "workspace:*",
     "@judge-copilot/evidence": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
+    "@judge-copilot/scoring": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
-    "@judge-copilot/scoring": "workspace:*",
     "drizzle-kit": "^0.31.11"
   }
 }

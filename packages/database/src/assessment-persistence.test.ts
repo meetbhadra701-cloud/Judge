@@ -255,23 +255,17 @@ describe.each(testDatabaseTargets())(
         expect((await store.listVersions(w.project.id)).map((v) => v.versionNumber)).toEqual([
           1, 2,
         ]);
-        // an equal assessment key cannot be recorded twice
-        await expect(
-          (async () => {
-            const third = await startRun(db, w, { mode: 'reassess' });
-            await extractAndBind(w, third, { source: sha256('src-1'), context: sha256('ctx-1') });
-            const again = await scoreRun(db, w, third, {
-              assessmentKey: first.scored.persist.assessmentKey,
-            });
-            return store.persist(again.persist);
-          })(),
-        ).rejects.toBeInstanceOf(AssessmentPersistError);
+        // an explicit reassessment is salted with its request id: its frozen assessment key is never equal to an earlier one
+        const keys = await rows<{ assessment_key: string }>(
+          db,
+          sql`SELECT assessment_key FROM pre_interview_assessments WHERE project_id = ${w.project.id} ORDER BY version_number`,
+        );
+        expect(new Set(keys.map((row) => row.assessment_key)).size).toBe(2);
       });
 
       it('the idempotency matrix after success: same-key retry, equal assess, explicit reassess (and no spend)', async () => {
         const w = await newWorld();
-        const keyOf = (_pins: unknown, salt: string) => sha256(`K${salt}`);
-        const first = requestInput(w, { assessmentKey: keyOf });
+        const first = requestInput(w);
         const runStore = newRunStore(db);
         const created = await runStore.requestAssessment(first);
         if (created.kind !== 'run_created') throw new Error('not created');
@@ -292,7 +286,7 @@ describe.each(testDatabaseTargets())(
           }),
         };
         await extractAndBind(w, full);
-        const scored = await scoreRun(db, w, full, { assessmentKey: sha256('K') });
+        const scored = await scoreRun(db, w, full);
         const persisted = await store.persist(scored.persist);
         if (persisted.kind !== 'persisted') throw new Error('not persisted');
         const runs = await count('analysis_runs', `project_id = '${w.project.id}'`);
@@ -304,16 +298,14 @@ describe.each(testDatabaseTargets())(
           replayed: true,
         });
         // 2. a NEW key with mode=assess finds the equal assessment: no run, no spend
-        const equal = await runStore.requestAssessment(requestInput(w, { assessmentKey: keyOf }));
+        const equal = await runStore.requestAssessment(requestInput(w));
         expect(equal).toMatchObject({
           kind: 'already_assessed',
           assessmentId: persisted.assessmentId,
           replayed: false,
         });
         // 3. an explicit reassess is a new run, salted with its request id (a different assessment key)
-        const reassess = await runStore.requestAssessment(
-          requestInput(w, { mode: 'reassess', assessmentKey: keyOf }),
-        );
+        const reassess = await runStore.requestAssessment(requestInput(w, { mode: 'reassess' }));
         expect(reassess.kind).toBe('run_created');
         expect(await count('analysis_runs', `project_id = '${w.project.id}'`)).toBe(runs + 1);
       });
@@ -353,14 +345,14 @@ describe.each(testDatabaseTargets())(
         await noAssessmentFor(run.runId);
       });
 
-      it('a missing judgment (the report has a dimension no judgment covers) fails at COMMIT and rolls everything back', async () => {
+      it('a missing judgment (the report has a dimension no judgment covers) is refused by the engine recomputation and writes nothing', async () => {
         const { run, scored } = await prepared();
         const error = await persistError({
           ...scored.persist,
           judgments: scored.persist.judgments.slice(1),
         });
-        expect(error.code).toBe('persistence_failed');
-        expect(error.sqlState).toBe(CHECK_VIOLATION);
+        expect(error.code).toBe('scorer_input_invalid');
+        expect(error.message).toContain('JUDGMENT_MISSING');
         await noAssessmentFor(run.runId);
         expect(await count('assessment_run_outcomes', `run_id = '${run.runId}'`)).toBe(0);
         expect(
@@ -370,22 +362,32 @@ describe.each(testDatabaseTargets())(
         expect((await store.persist(scored.persist)).kind).toBe('persisted');
       });
 
-      it('an extra judgment for a dimension the report does not contain fails', async () => {
+      it('an extra judgment for a dimension the report does not contain is refused by the engine recomputation', async () => {
         const { run, scored } = await prepared();
         const extra = {
           ...(scored.persist.judgments[0] ?? ({} as never)),
           dimensionId: 'official.invented',
+          outcomeKind: 'insufficient_evidence' as const,
+          score: null,
           citations: [],
         };
         const error = await persistError({
           ...scored.persist,
-          judgments: [...scored.persist.judgments, { ...extra, assessorCallSeqs: [] }],
+          judgments: [
+            ...scored.persist.judgments,
+            {
+              ...extra,
+              assessorCallSeqs: [],
+              assessorAttempts: 0,
+              disposition: 'no_candidate_evidence',
+            },
+          ],
         });
-        expect(error.sqlState).toBe(CHECK_VIOLATION);
+        expect(error.code).toBe('scorer_input_invalid');
         await noAssessmentFor(run.runId);
       });
 
-      it('a citation of evidence that is not a member of the run extractions is refused', async () => {
+      it('a citation of evidence that is not a member of the run extractions is refused (the engine does not know it)', async () => {
         const { run, scored } = await prepared();
         const other = await prepared();
         const foreignEvidence = other.bound.source.members.evidenceIds[0] ?? '';
@@ -408,24 +410,48 @@ describe.each(testDatabaseTargets())(
             : j,
         );
         const error = await persistError({ ...scored.persist, judgments });
-        expect(error.sqlState).toMatch(/23514|23503/);
+        expect(error.code).toBe('scorer_input_invalid');
+        expect(error.message).toContain('CITATION_UNKNOWN_EVIDENCE');
         await noAssessmentFor(run.runId);
       });
 
-      it('ledger references must be real settled calls of THIS run and of the right stage', async () => {
+      it('ledger references must be real finished calls of THIS run, of the right stage and for the right dimension', async () => {
         const { run, scored } = await prepared();
-        const judgments = scored.persist.judgments.map((j, i) =>
-          i === 0 ? { ...j, criticCallSeqs: j.assessorCallSeqs } : j,
+        const at = scored.persist.judgments.findIndex((j) => j.assessorCallSeqs.length > 0);
+        expect(at).toBeGreaterThanOrEqual(0);
+        const mutate = (patch: Partial<(typeof scored.persist.judgments)[number]>) =>
+          scored.persist.judgments.map((j, i) => (i === at ? { ...j, ...patch } : j));
+        const target = scored.persist.judgments[at];
+        // an assessor call presented as a critic call
+        const crossed = await persistError({
+          ...scored.persist,
+          judgments: mutate({
+            criticCallSeqs: target?.assessorCallSeqs ?? [],
+            criticAttempts: target?.assessorCallSeqs.length ?? 0,
+            assessorCallSeqs: [],
+            assessorAttempts: 0,
+          }),
+        });
+        expect(crossed.code).toBe('call_binding_invalid');
+        // a call that does not exist
+        const ghost = await persistError({
+          ...scored.persist,
+          judgments: mutate({ assessorCallSeqs: [9_999] }),
+        });
+        expect(ghost.code).toBe('call_binding_invalid');
+        expect(ghost.message).toContain('call_not_found');
+        // another dimension's call
+        const other = scored.persist.judgments.find(
+          (j, i) => i !== at && j.assessorCallSeqs.length > 0,
         );
-        expect((await persistError({ ...scored.persist, judgments })).sqlState).toBe(
-          CHECK_VIOLATION,
-        );
-        const ghost = scored.persist.judgments.map((j, i) =>
-          i === 0 ? { ...j, assessorCallSeqs: [9_999] } : j,
-        );
-        expect((await persistError({ ...scored.persist, judgments: ghost })).sqlState).toBe(
-          CHECK_VIOLATION,
-        );
+        if (other) {
+          const swapped = await persistError({
+            ...scored.persist,
+            judgments: mutate({ assessorCallSeqs: other.assessorCallSeqs }),
+          });
+          expect(swapped.code).toBe('call_binding_invalid');
+          expect(swapped.message).toContain('call_wrong_dimension');
+        }
         await noAssessmentFor(run.runId);
       });
 
@@ -466,7 +492,7 @@ describe.each(testDatabaseTargets())(
              extraction_id, context_extraction_id, target_kind, engine_version, parameters_hash, rubric_fingerprint, rubric_source,
              input_fingerprint, graph_fingerprint, output_hash, report_canonical, report_text_sha256, report, limitations,
              pipeline_config_hash, provider_mode)
-            SELECT p.id, p.event_id, ${base.runId}, 1, ${sha256('forged')}, i.context_version_id, i.locked_content_hash,
+            SELECT p.id, p.event_id, ${base.runId}, 1, i.assessment_key, i.context_version_id, i.locked_content_hash,
                    (SELECT array_agg(snapshot_id ORDER BY snapshot_id) FROM assessment_run_input_snapshots WHERE run_id = ${base.runId}),
                    (SELECT extraction_id FROM assessment_run_extractions WHERE run_id = ${base.runId} AND kind = 'source'),
                    (SELECT extraction_id FROM assessment_run_extractions WHERE run_id = ${base.runId} AND kind = 'context_evidence'),
@@ -496,15 +522,6 @@ describe.each(testDatabaseTargets())(
           .from(assessmentRunOutcomes)
           .where(eq(assessmentRunOutcomes.runId, run.runId));
         expect(outcome).toMatchObject({ outcome: 'cancelled', failureCode: 'context_superseded' });
-      });
-
-      it('the membership the report was computed from must still be the committed one', async () => {
-        const { scored } = await prepared();
-        const error = await persistError({
-          ...scored.persist,
-          expected: { ...scored.persist.expected, sourceMembersHash: sha256('another membership') },
-        });
-        expect(error.code).toBe('members_changed');
       });
 
       it('a wrong or stale lease cannot persist', async () => {

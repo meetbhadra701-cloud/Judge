@@ -32,6 +32,28 @@ export {
   type RunRecord,
 } from './assessment-run-store.js';
 export {
+  assessmentIdentityOf,
+  callBindingOf,
+  contentFingerprintOf,
+  extractionIdentityOf,
+  requestIdentityOf,
+  type Identity,
+} from './assessment-identity.js';
+export {
+  checkJudgmentCalls,
+  isValidResponse,
+  type CallIssue,
+  type LedgerCallView,
+} from './judgment-calls.js';
+export {
+  reportDifferences,
+  rescore,
+  scorerInputOf,
+  scoringContextOf,
+  validateJudgmentRecords,
+  type JudgmentRecordIssue,
+} from './trusted-rescoring.js';
+export {
   AssessmentPersistError,
   AssessmentStore,
   type JudgmentInput,
@@ -58,9 +80,12 @@ export {
 } from './locked-context-reader.js';
 export {
   BudgetDeniedBackstopError,
-  closedSetHash,
+  CallNotReservedError,
   DatabaseRunBudget,
+  InvalidCallMetadataError,
+  invalidCallMetadata,
   MAX_RECORDED_RESPONSE_BYTES,
+  RunNotRunningError,
   reapReservedCalls,
   type BudgetSnapshotLike,
   type CallBinding,

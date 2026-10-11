@@ -61,6 +61,8 @@ describe.each(testDatabaseTargets())(
       contextExtraction?: string;
       runId?: string;
       pins?: unknown;
+      key?: string;
+      fallback?: string;
     };
     /** Writes an assessment row by hand (no store), as an attacker with SQL access would. */
     function insertAssessment(
@@ -74,15 +76,15 @@ describe.each(testDatabaseTargets())(
       (project_id, event_id, run_id, version_number, assessment_key, context_version_id, locked_content_hash, pinned_snapshot_ids,
        extraction_id, context_extraction_id, target_kind, engine_version, parameters_hash, rubric_fingerprint, rubric_source,
        input_fingerprint, graph_fingerprint, output_hash, report_canonical, report_text_sha256, report, limitations,
-       pipeline_config_hash, provider_mode)
-      SELECT p.id, p.event_id, ${overrides.runId ?? run.runId}, 1, ${sha256(`forged-${String(Math.random())}`)}, i.context_version_id, i.locked_content_hash,
+       pipeline_config_hash, provider_mode, fallback_anchors_version)
+      SELECT p.id, p.event_id, ${overrides.runId ?? run.runId}, 1, ${overrides.key ?? sql`i.assessment_key`}, i.context_version_id, i.locked_content_hash,
              ${overrides.pins ?? sql`(SELECT array_agg(snapshot_id ORDER BY snapshot_id) FROM assessment_run_input_snapshots WHERE run_id = ${run.runId})`},
              ${overrides.extraction ?? sql`(SELECT extraction_id FROM assessment_run_extractions WHERE run_id = ${run.runId} AND kind = 'source')`},
              ${overrides.contextExtraction ?? sql`(SELECT extraction_id FROM assessment_run_extractions WHERE run_id = ${run.runId} AND kind = 'context_evidence')`},
              i.target_kind, ${scored.report.engineVersion}, ${scored.report.parametersHash}, ${scored.report.rubric.fingerprint},
              ${scored.report.rubric.source}, ${scored.report.inputFingerprint}, ${scored.report.graphFingerprint},
              ${overrides.output ?? scored.report.outputHash}, ${stored.reportCanonical}, ${overrides.hash ?? stored.reportTextSha256},
-             ${overrides.mirror ?? stored.reportCanonical}::jsonb, '[]'::jsonb, i.pipeline_config_hash, 'scripted'
+             ${overrides.mirror ?? stored.reportCanonical}::jsonb, '[]'::jsonb, i.pipeline_config_hash, 'scripted', ${overrides.fallback ?? null}
       FROM assessment_run_inputs i JOIN projects p ON p.id = i.project_id WHERE i.run_id = ${run.runId}`);
     }
 
@@ -90,6 +92,18 @@ describe.each(testDatabaseTargets())(
       const { run, scored } = await ready();
       expect(await probe(db, (tx) => insertAssessment(tx, scored, run).then(() => undefined))).toBe(
         'accepted',
+      );
+    });
+
+    it('fallback anchors are not approved: no assessment can name a fallback-anchor version', async () => {
+      const { run, scored } = await ready();
+      await expectPgMessage(
+        probe(db, (tx) =>
+          insertAssessment(tx, scored, run, { fallback: 'fallback-anchors/v1' }).then(
+            () => undefined,
+          ),
+        ),
+        'fallback anchors are not approved',
       );
     });
 
@@ -172,7 +186,7 @@ describe.each(testDatabaseTargets())(
     });
 
     it("a citation must name evidence of the assessment's OWN extractions, even when it is evidence of the same project", async () => {
-      const { w, scored } = await ready();
+      const { w, run, scored } = await ready();
       const standalone = await new EvidenceGraphStore({ db }).createGraph(
         w.project.id,
         {
@@ -210,14 +224,27 @@ describe.each(testDatabaseTargets())(
             }
           : j,
       );
-      let caught: unknown;
-      try {
-        await new AssessmentStore(db).persist({ ...scored.persist, judgments });
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBeInstanceOf(AssessmentPersistError);
-      expect((caught as AssessmentPersistError).detail).toContain('own extractions');
+      // the engine recomputation refuses the foreign id before anything is written ...
+      const error = await new AssessmentStore(db)
+        .persist({ ...scored.persist, judgments })
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AssessmentPersistError);
+      expect((error as AssessmentPersistError).code).toBe('scorer_input_invalid');
+      // ... and the database refuses it too when written by hand
+      await expectPgMessage(
+        probe(db, async (tx) => {
+          await insertAssessment(tx, scored, run);
+          await tx.execute(sql`INSERT INTO assessment_dimension_judgments
+            (assessment_id, project_id, dimension_id, position, outcome_kind, score, disposition, assessor_attempts, critic_attempts, critic_review_required, critic_reviewed)
+            SELECT a.id, a.project_id, 'official.invented', 0, 'insufficient_evidence', NULL, 'no_candidate_evidence', 0, 0, false, false
+              FROM pre_interview_assessments a WHERE a.run_id = ${run.runId}`);
+          await tx.execute(sql`INSERT INTO assessment_judgment_citations
+            (assessment_id, project_id, dimension_id, position, evidence_id, directness, specificity)
+            SELECT a.id, a.project_id, 'official.invented', 0, ${outsider}, 'direct', 'exact'
+              FROM pre_interview_assessments a WHERE a.run_id = ${run.runId}`);
+        }),
+        'own extractions',
+      );
     });
 
     it('a run cannot end while a model call is still reserved (the in-flight attempt must be settled or reaped first)', async () => {

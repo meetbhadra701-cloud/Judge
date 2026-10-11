@@ -16,7 +16,7 @@ import {
 } from '@judge-copilot/assessment';
 import { deterministicIdAllocator } from '@judge-copilot/evidence';
 import { createTrustedScoringContext, scoreProject } from '@judge-copilot/scoring';
-import type { ScoreReport } from '@judge-copilot/schemas';
+import type { EvidenceDirectness, EvidenceSpecificity, ScoreReport } from '@judge-copilot/schemas';
 import type { JudgeDatabase } from '../client.js';
 import {
   AssessmentInputReader,
@@ -76,10 +76,13 @@ export async function startRun(
 export async function extractAndBind(
   w: AssessmentWorld,
   run: PreparedRun,
-  keys: { source?: string; context?: string } = {},
+  keys: { source?: string; context?: string; withAbsence?: boolean } = {},
 ) {
   const source = await run.extractions.createExtraction({
-    ...sourceExtraction(w, keys.source === undefined ? {} : { key: keys.source }),
+    ...sourceExtraction(w, {
+      ...(keys.source === undefined ? {} : { key: keys.source }),
+      ...(keys.withAbsence === undefined ? {} : { withAbsence: keys.withAbsence }),
+    }),
     runId: run.runId,
   });
   const context = await run.extractions.createExtraction({
@@ -96,6 +99,51 @@ export async function extractAndBind(
   return { source, context };
 }
 
+/**
+ * An INDEPENDENT oracle: the report the unchanged M4 engine returns for `judgments` over the authorized inputs, built without any
+ * production persistence code. Tests use it to forge reports that are internally consistent (valid hashes) but wrong for the run.
+ */
+export function oracleScore(
+  authorized: AuthorizedAssessmentInputs,
+  judgments: readonly JudgmentInput[],
+): ScoreReport {
+  const data = authorized.data;
+  const context = createTrustedScoringContext({
+    projectId: data.projectId,
+    eventId: data.eventId,
+    graph: data.graph,
+    known: data.known,
+    locked: data.locked,
+    target:
+      data.target.kind === 'overall'
+        ? { kind: 'overall' }
+        : { kind: 'track', trackKey: data.target.trackKey ?? '' },
+    declaredTrackKeys: [...data.declaredTrackKeys],
+  });
+  if (!context.ok) throw new Error(`oracle context rejected: ${JSON.stringify(context.issues)}`);
+  const result = scoreProject(context.context, {
+    engineVersion: 'scoring-engine/v1',
+    judgments: [...judgments]
+      .sort((a, b) => (a.dimensionId < b.dimensionId ? -1 : 1))
+      .map((j) => ({
+        dimensionId: j.dimensionId,
+        outcome:
+          j.outcomeKind === 'scored'
+            ? { kind: 'scored' as const, score: j.score ?? 0 }
+            : { kind: 'insufficient_evidence' as const },
+        citations: [...j.citations]
+          .sort((a, b) => (a.evidenceId < b.evidenceId ? -1 : 1))
+          .map((c) => ({
+            evidenceId: c.evidenceId,
+            directness: c.directness as EvidenceDirectness,
+            specificity: c.specificity as EvidenceSpecificity,
+          })),
+      })),
+  });
+  if (!result.ok) throw new Error(`oracle score rejected: ${JSON.stringify(result.issues)}`);
+  return result.report;
+}
+
 export interface ScoredRun {
   readonly authorized: AuthorizedAssessmentInputs;
   readonly units: UnitCandidates[];
@@ -109,7 +157,7 @@ export async function scoreRun(
   db: JudgeDatabase,
   w: AssessmentWorld,
   run: PreparedRun,
-  options: { assessmentKey?: string; scoredUnits?: number; citeReference?: boolean } = {},
+  options: { scoredUnits?: number; citeReference?: boolean } = {},
 ): Promise<ScoredRun> {
   const authorized = await new AssessmentInputReader(db).read(run.runId);
   const data = authorized.data;
@@ -186,10 +234,12 @@ export async function scoreRun(
     finals.push(applyPostGates(gated.judgment, unit));
     if (wantScore) scored += 1;
     // one settled assessor call per judged unit, in the ledger of the run
+    const digest = sha256(`assess:${unit.dimensionId}:${run.runId}`);
+    run.budget.register(digest, { dimensionId: unit.dimensionId });
     const reserved = await run.budget.reserve({
       stage: 'dimension_assessment',
       model: 'claude-haiku-5-5',
-      requestDigest: sha256(`assess:${unit.dimensionId}:${run.runId}`),
+      requestDigest: digest,
       bounds: { inputTokens: 100, outputTokens: 50, costNanoUsd: 1_000 },
     });
     if (!reserved.ok) throw new Error('budget denied');
@@ -225,14 +275,16 @@ export async function scoreRun(
       criticCallSeqs: [],
       criticReviewRequired: audit !== undefined,
       criticReviewed: false,
-      citations: isScored
-        ? (final.judgment?.citations ?? []).map((c) => ({
-            evidenceId: c.evidenceId,
-            directness: c.directness,
-            specificity: c.specificity,
-            note: c.note,
-          }))
-        : [],
+      // exactly what the scorer was handed: a gate-downgraded unit stores none, the assessor's own insufficiency keeps its citations
+      citations:
+        final.disposition === 'scored' || final.disposition === 'assessor_reported_insufficient'
+          ? (final.judgment?.citations ?? []).map((c) => ({
+              evidenceId: c.evidenceId,
+              directness: c.directness,
+              specificity: c.specificity,
+              note: c.note,
+            }))
+          : [],
     };
   });
   return {
@@ -244,17 +296,11 @@ export async function scoreRun(
       runId: run.runId,
       leaseToken: run.leaseToken,
       actorId: w.actor.id,
-      assessmentKey: options.assessmentKey ?? sha256(`assessment:${run.runId}`),
       report: result.report,
       limitations: [],
       judgments,
       providerMode: 'scripted',
       fallbackAnchorsVersion: null,
-      expected: {
-        sourceMembersHash: data.source.extraction.membersHash,
-        contextMembersHash: data.context.extraction.membersHash,
-        lockedContentHash: data.locked.lockedContentHash,
-      },
     },
   };
 }

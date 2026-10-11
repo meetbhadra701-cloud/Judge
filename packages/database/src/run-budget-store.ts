@@ -1,13 +1,15 @@
-import { canonicalJson, sha256Hex } from '@judge-copilot/context';
-import type {
-  AssessmentRunLimits,
-  AssessmentStage,
-  BudgetDenialReason,
-  CallState,
-  ProviderMode,
-  UsageBasis,
+import { canonicalJson } from '@judge-copilot/context';
+import {
+  ASSESSMENT_STAGE_VALUES,
+  type AssessmentRunLimits,
+  type AssessmentStage,
+  type BudgetDenialReason,
+  type CallState,
+  type ProviderMode,
+  type UsageBasis,
 } from '@judge-copilot/schemas';
 import { and, asc, eq, sql } from 'drizzle-orm';
+import { callBindingOf } from './assessment-identity.js';
 import type { JudgeDatabase } from './client.js';
 import { analysisRuns, assessmentRunBudget, assessmentRunCalls } from './schema/index.js';
 
@@ -16,9 +18,14 @@ import { analysisRuns, assessmentRunBudget, assessmentRunCalls } from './schema/
  * `packages/llm`'s in-memory ledger (structurally: the contract tests in tests/integration run the llm suite against this class), and
  * it is a software guard in this application, NOT a provider billing limit.
  *
- *   reserve   one short transaction: `SELECT ... FOR UPDATE` on the run's budget row serializes every reserve/settle of the run, the
- *             counted totals are DERIVED from the ledger rows under that lock, the first crossed limit denies, otherwise the attempt
- *             is inserted `reserved` (the insert trigger re-checks the same limits as a backstop). Nothing is held while a model runs.
+ * Lock order (R4 F3), identical to every terminal path: run row (FOR SHARE here; FOR UPDATE where the run state changes) -> budget row
+ * (FOR UPDATE) -> ledger rows. Taking the run row first means a reservation and the terminalization of the run serialize on it: a run
+ * that ended can never gain a reserved call, and a run cannot end while a reservation is being written.
+ *
+ *   reserve   one short transaction: locks the run (and checks it is `running`), then `SELECT ... FOR UPDATE` on the run's budget row
+ *             serializes every reserve/settle of the run, the counted totals are DERIVED from the ledger rows under that lock, the first
+ *             crossed limit denies, otherwise the attempt is inserted `reserved` (the insert trigger re-checks the run state and the
+ *             same limits as a backstop). Nothing is held while a model runs.
  *   settle    `reserved` -> `settled` (the provider's MEASURED usage), `released` (provably never sent: tokens and cost are freed but
  *             the attempt still counts) or `unknown` (ambiguous: the FULL reservation stays counted).
  *
@@ -69,6 +76,7 @@ export interface LedgerEntryLike {
   readonly stage: string;
   readonly model: string;
   readonly requestDigest: string;
+  readonly dimensionId: string | null;
   readonly attempt: number;
   readonly state: CallState;
   readonly reservation: ReservationBoundsLike;
@@ -111,11 +119,14 @@ export type MeasureUsage = (
 export interface CallMetadata {
   readonly provider?: string;
   readonly providerMode?: ProviderMode;
+  /** The one dimension an assessor or critic request is about (required to cite the call for a dimension). */
+  readonly dimensionId?: string;
   readonly promptId?: string;
   readonly promptVersion?: string;
   readonly promptTemplateHash?: string;
   readonly schemaId?: string;
   readonly schemaVersion?: string;
+  /** Only the persisted allow-list is accepted: `effort`, `maxOutputTokens`, `timeoutMs`. */
   readonly generationSettings?: Record<string, unknown>;
   /** The closed set the renderer returned for this exact request (handles only). */
   readonly closedSet?: Record<string, unknown>;
@@ -125,8 +136,33 @@ export interface CallBinding {
   readonly callId: number;
   readonly stage: AssessmentStage;
   readonly requestDigest: string;
+  readonly dimensionId: string | null;
   readonly closedSet: Record<string, unknown>;
   readonly closedSetHash: string;
+}
+
+/** The metadata of a request is outside the persisted allow-list. Nothing was reserved. */
+export class InvalidCallMetadataError extends Error {
+  constructor(readonly field: string) {
+    super(`invalid call metadata: ${field}`);
+    this.name = 'InvalidCallMetadataError';
+  }
+}
+
+/** The run is not `running`: no new call can be reserved for it. */
+export class RunNotRunningError extends Error {
+  constructor(readonly state: string) {
+    super(`the run is ${state}: no model call can be reserved`);
+    this.name = 'RunNotRunningError';
+  }
+}
+
+/** The call is not (or no longer) `reserved`: it was settled, or the run ended and conservatively counted it as unknown. */
+export class CallNotReservedError extends Error {
+  constructor() {
+    super('settlement of a call that is not reserved');
+    this.name = 'CallNotReservedError';
+  }
 }
 
 export interface DatabaseRunBudgetOptions {
@@ -141,9 +177,71 @@ export interface DatabaseRunBudgetOptions {
 
 type Executor = JudgeDatabase;
 
-/** The binding digest of a call's closed set: the stage, the exact request digest and the handles together. */
-export function closedSetHash(stage: string, requestDigest: string, closedSet: unknown): string {
-  return sha256Hex(canonicalJson({ stage, requestDigest, closedSet }));
+const HANDLE = /^[A-Z]-[0-9]{3,6}$/;
+const DOTTED = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
+const SHORT_ID = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/;
+const SHORT_VERSION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const SETTING_KEYS = new Set(['effort', 'maxOutputTokens', 'timeoutMs']);
+
+/**
+ * The structural allow-list of the metadata a call may persist (R4 F9): identifiers and versions of fixed shape, a closed set of
+ * handles, and the three generation settings the port defines. Free text, prompts and credentials have no field. This is data
+ * minimization, not a secret scanner. The database enforces the same shapes (migration 0012/0013).
+ */
+export function invalidCallMetadata(
+  stage: string,
+  model: string,
+  meta: CallMetadata,
+): string | null {
+  if (!(ASSESSMENT_STAGE_VALUES as readonly string[]).includes(stage)) return 'stage';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(model)) return 'model';
+  if (meta.provider !== undefined && !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(meta.provider))
+    return 'provider';
+  if (meta.promptId !== undefined && !SHORT_ID.test(meta.promptId)) return 'promptId';
+  if (meta.schemaId !== undefined && !SHORT_ID.test(meta.schemaId)) return 'schemaId';
+  if (meta.promptVersion !== undefined && !SHORT_VERSION.test(meta.promptVersion))
+    return 'promptVersion';
+  if (meta.schemaVersion !== undefined && !SHORT_VERSION.test(meta.schemaVersion))
+    return 'schemaVersion';
+  if (meta.promptTemplateHash !== undefined && !/^[0-9a-f]{64}$/.test(meta.promptTemplateHash))
+    return 'promptTemplateHash';
+  if (meta.dimensionId !== undefined) {
+    if (stage !== 'dimension_assessment' && stage !== 'critic') return 'dimensionId (stage)';
+    if (meta.dimensionId.length > 128 || !DOTTED.test(meta.dimensionId)) return 'dimensionId';
+  }
+  const settings = meta.generationSettings;
+  if (settings !== undefined) {
+    for (const [key, value] of Object.entries(settings)) {
+      if (!SETTING_KEYS.has(key)) return `generationSettings.${key}`;
+      if (key === 'effort' && value !== 'low' && value !== 'medium' && value !== 'high')
+        return 'generationSettings.effort';
+      if (
+        key !== 'effort' &&
+        !(typeof value === 'number' && Number.isInteger(value) && value >= 1 && value < 1e9)
+      ) {
+        return `generationSettings.${key}`;
+      }
+    }
+  }
+  const set = meta.closedSet;
+  if (set !== undefined) {
+    const keys = Object.keys(set).sort();
+    if (keys.join(',') !== 'claims,evidence,items,pairs,passages,unit') return 'closedSet (keys)';
+    for (const key of ['passages', 'claims', 'evidence', 'pairs', 'items'] as const) {
+      const list = set[key];
+      if (
+        !Array.isArray(list) ||
+        list.length > 4096 ||
+        list.some((handle) => typeof handle !== 'string' || !HANDLE.test(handle))
+      ) {
+        return `closedSet.${key}`;
+      }
+    }
+    const unit = set['unit'];
+    if (unit !== null && !(typeof unit === 'string' && unit.length <= 128 && DOTTED.test(unit)))
+      return 'closedSet.unit';
+  }
+  return null;
 }
 
 export class BudgetDeniedBackstopError extends Error {
@@ -187,14 +285,35 @@ export class DatabaseRunBudget {
   }
 
   async reserve(request: ReserveRequestLike): Promise<ReserveOutcomeLike> {
+    const meta = this.metadata.get(request.requestDigest);
+    const invalid = invalidCallMetadata(request.stage, request.model, meta ?? {});
+    if (invalid !== null) throw new InvalidCallMetadataError(invalid);
     return this.db.transaction(async (tx) => {
       const limits = await this.lockBudget(tx);
+      // the run row is locked FOR SHARE by lockBudget: the state read here cannot change until this transaction ends
+      if (limits.runState !== 'running') throw new RunNotRunningError(limits.runState);
       const totals = await this.totals(tx);
       const denial = this.denialFor(limits, totals, request.bounds);
       await this.between?.();
       if (denial) return { ok: false, denial } as const;
-      const meta = this.metadata.get(request.requestDigest);
       const closedSet = meta?.closedSet ?? null;
+      const binding =
+        closedSet === null
+          ? null
+          : callBindingOf({
+              stage: request.stage,
+              requestDigest: request.requestDigest,
+              dimensionId: meta?.dimensionId ?? null,
+              provider: meta?.provider ?? null,
+              providerMode: meta?.providerMode ?? null,
+              model: request.model,
+              promptId: meta?.promptId ?? null,
+              promptVersion: meta?.promptVersion ?? null,
+              promptTemplateHash: meta?.promptTemplateHash ?? null,
+              schemaId: meta?.schemaId ?? null,
+              schemaVersion: meta?.schemaVersion ?? null,
+              closedSet,
+            });
       try {
         const [row] = await tx
           .insert(assessmentRunCalls)
@@ -207,6 +326,7 @@ export class DatabaseRunBudget {
             provider: meta?.provider ?? null,
             providerMode: meta?.providerMode ?? null,
             requestDigest: request.requestDigest,
+            dimensionId: meta?.dimensionId ?? null,
             promptId: meta?.promptId ?? null,
             promptVersion: meta?.promptVersion ?? null,
             promptTemplateHash: meta?.promptTemplateHash ?? null,
@@ -214,10 +334,8 @@ export class DatabaseRunBudget {
             schemaVersion: meta?.schemaVersion ?? null,
             generationSettings: meta?.generationSettings ?? null,
             closedSet,
-            closedSetHash:
-              closedSet === null
-                ? null
-                : closedSetHash(request.stage, request.requestDigest, closedSet),
+            closedSetHash: binding?.key ?? null,
+            bindingCanonical: binding?.canonical ?? null,
             reservedInputTokens: request.bounds.inputTokens,
             reservedOutputTokens: request.bounds.outputTokens,
             reservedCostNanoUsd: request.bounds.costNanoUsd,
@@ -243,7 +361,7 @@ export class DatabaseRunBudget {
         .where(and(eq(assessmentRunCalls.runId, this.runId), eq(assessmentRunCalls.seq, callId)))
         .for('update');
       if (row?.state !== 'reserved') {
-        throw new Error('settlement of a call that is not reserved');
+        throw new CallNotReservedError();
       }
       const unknown = () =>
         tx
@@ -355,6 +473,7 @@ export class DatabaseRunBudget {
       stage: row.stage,
       model: row.model,
       requestDigest: row.requestDigest,
+      dimensionId: row.dimensionId,
       attempt: row.attempt,
       state: row.state,
       reservation: {
@@ -395,14 +514,30 @@ export class DatabaseRunBudget {
       .select()
       .from(assessmentRunCalls)
       .where(and(eq(assessmentRunCalls.runId, this.runId), eq(assessmentRunCalls.seq, callId)));
-    if (!row?.closedSet || !row.closedSetHash) return null;
-    if (closedSetHash(row.stage, row.requestDigest, row.closedSet) !== row.closedSetHash) {
+    if (!row?.closedSet || !row.closedSetHash || !row.bindingCanonical) return null;
+    // recomputed from the columns, not only compared with the stored text: the hash must cover exactly this call
+    const recomputed = callBindingOf({
+      stage: row.stage,
+      requestDigest: row.requestDigest,
+      dimensionId: row.dimensionId,
+      provider: row.provider,
+      providerMode: row.providerMode,
+      model: row.model,
+      promptId: row.promptId,
+      promptVersion: row.promptVersion,
+      promptTemplateHash: row.promptTemplateHash,
+      schemaId: row.schemaId,
+      schemaVersion: row.schemaVersion,
+      closedSet: row.closedSet,
+    });
+    if (recomputed.key !== row.closedSetHash || recomputed.canonical !== row.bindingCanonical) {
       throw new Error('internal: a stored closed set does not match its binding hash');
     }
     return {
       callId,
       stage: row.stage,
       requestDigest: row.requestDigest,
+      dimensionId: row.dimensionId,
       closedSet: row.closedSet,
       closedSetHash: row.closedSetHash,
     };
@@ -410,18 +545,26 @@ export class DatabaseRunBudget {
 
   // -- internals -----------------------------------------------------------------------------------------------------------
 
-  private async lockBudget(tx: Executor): Promise<AssessmentRunLimits & { startedAtMs: number }> {
+  /**
+   * Locks the run row FOR SHARE and then the budget row FOR UPDATE (the documented order). While this transaction lives the run cannot
+   * change state: a concurrent finish/persist/recovery waits for it, and a transaction that already ended the run was seen by the read
+   * (FOR SHARE re-reads the latest committed row after waiting).
+   */
+  private async lockBudget(
+    tx: Executor,
+  ): Promise<AssessmentRunLimits & { startedAtMs: number; runState: string }> {
+    const [run] = await tx
+      .select({ state: analysisRuns.state, startedAt: analysisRuns.startedAt })
+      .from(analysisRuns)
+      .where(eq(analysisRuns.id, this.runId))
+      .for('share');
+    if (!run) throw new Error('the run does not exist');
     const [budget] = await tx
       .select()
       .from(assessmentRunBudget)
       .where(eq(assessmentRunBudget.runId, this.runId))
       .for('update');
     if (!budget) throw new Error('the run has no budget row');
-    // the wall clock runs from the moment the run was CLAIMED, not from when it was queued
-    const [run] = await tx
-      .select({ startedAt: analysisRuns.startedAt })
-      .from(analysisRuns)
-      .where(eq(analysisRuns.id, this.runId));
     return {
       maxCalls: budget.maxCalls,
       maxInputTokens: budget.maxInputTokens,
@@ -429,7 +572,9 @@ export class DatabaseRunBudget {
       maxCostNanoUsd: budget.maxCostNanoUsd,
       maxReservedInputTokensPerCall: budget.maxReservedInputTokensPerCall,
       runWallClockMs: budget.runWallClockMs,
-      startedAtMs: (run?.startedAt ?? new Date()).getTime(),
+      // the wall clock runs from the moment the run was CLAIMED, not from when it was queued
+      startedAtMs: (run.startedAt ?? new Date()).getTime(),
+      runState: run.state,
     };
   }
 
@@ -477,12 +622,20 @@ export class DatabaseRunBudget {
   }
 }
 
-/** Reaps every reserved row of a run (caller holds the budget lock or the run lock). Returns how many. */
+/**
+ * Reaps every reserved row of a run. The caller holds the RUN row lock (FOR SHARE or FOR UPDATE); the budget row is locked here, so
+ * the order run -> budget -> ledger rows is kept by every path that changes ledger rows. Returns how many.
+ */
 export async function reapReservedCalls(
   tx: Executor,
   runId: string,
   outcomeCode: string,
 ): Promise<number> {
+  await tx
+    .select({ runId: assessmentRunBudget.runId })
+    .from(assessmentRunBudget)
+    .where(eq(assessmentRunBudget.runId, runId))
+    .for('update');
   const reaped = await tx
     .update(assessmentRunCalls)
     .set({

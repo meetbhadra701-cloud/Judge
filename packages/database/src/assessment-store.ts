@@ -1,19 +1,24 @@
 import { storedFormOf, verifyStoredAssessment } from '@judge-copilot/assessment';
-import type { EventReferenceMeta } from '@judge-copilot/assessment';
 import type { ProviderMode, ScoreReport } from '@judge-copilot/schemas';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
+import { AssessmentInputError, AssessmentInputReader } from './assessment-input-reader.js';
 import { AssessmentRunStore } from './assessment-run-store.js';
 import type { JudgeDatabase } from './client.js';
+import {
+  canonicalReportText,
+  reportDifferences,
+  rescore,
+  scorerInputOf,
+  validateJudgmentRecords,
+} from './trusted-rescoring.js';
+import { checkJudgmentCalls } from './judgment-calls.js';
 import {
   analysisRuns,
   assessmentDimensionJudgments,
   assessmentJudgmentCitations,
-  assessmentRunExtractions,
+  assessmentRunCalls,
   assessmentRunInputs,
-  assessmentRunInputSnapshots,
   eventContextVersions,
-  graphExtractionItems,
-  graphExtractions,
   preInterviewAssessments,
   projects,
 } from './schema/index.js';
@@ -49,23 +54,29 @@ export interface JudgmentInput {
   }[];
 }
 
+/**
+ * Everything the caller supplies. Deliberately NOT here: the assessment key (frozen when the run was requested), the extraction ids,
+ * the pinned snapshots, the locked context and any hash of them. Those are read from the database inside the persistence
+ * transaction, under the locks, through the trusted input reader.
+ */
 export interface PersistAssessmentInput {
   readonly runId: string;
   readonly leaseToken: string;
   readonly actorId: string | null;
-  readonly assessmentKey: string;
-  /** The complete M4 report exactly as the engine returned it. */
+  /**
+   * The complete M4 report. It is NOT trusted: persistence recomputes it with the real engine from the authorized inputs and the
+   * `judgments` below and refuses anything that is not byte-identical.
+   */
   readonly report: ScoreReport;
   readonly limitations: readonly unknown[];
+  /**
+   * The finalized judgments. For every dimension the outcome, the score and the classified citations are EXACTLY what the scorer was
+   * handed (R4 F1): a dimension downgraded by a gate stores `insufficient_evidence` and no citations; a dimension the assessor itself
+   * reported insufficient keeps the citations it gave.
+   */
   readonly judgments: readonly JudgmentInput[];
   readonly providerMode: ProviderMode;
   readonly fallbackAnchorsVersion: string | null;
-  /** The committed hashes the report was computed from (from the authorized inputs); re-compared under the lock. */
-  readonly expected: {
-    readonly sourceMembersHash: string;
-    readonly contextMembersHash: string;
-    readonly lockedContentHash: string;
-  };
 }
 
 export type PersistAssessmentResult =
@@ -77,7 +88,11 @@ export class AssessmentPersistError extends Error {
     readonly code:
       | 'report_not_verifiable'
       | 'report_unstorable'
-      | 'members_changed'
+      | 'judgments_invalid'
+      | 'scorer_input_invalid'
+      | 'inputs_rejected'
+      | 'report_mismatch'
+      | 'call_binding_invalid'
       | 'run_not_persistable'
       | 'persistence_failed',
     message: string,
@@ -144,19 +159,28 @@ function sqlStateOf(error: unknown): {
 
 export class AssessmentStore {
   private readonly runs: AssessmentRunStore;
+  private readonly reader: AssessmentInputReader;
+
+  private readonly afterRunLocked: (() => Promise<void>) | undefined;
 
   constructor(
     private readonly db: JudgeDatabase,
-    options: { now?: () => Date } = {},
+    options: {
+      now?: () => Date;
+      /** Test seam: awaited right after the run row is locked by `persist`, to force an interleaving. */
+      afterRunLocked?: () => Promise<void>;
+    } = {},
   ) {
+    this.afterRunLocked = options.afterRunLocked;
     this.runs = new AssessmentRunStore({
       db,
       ...(options.now === undefined ? {} : { now: options.now }),
     });
+    this.reader = new AssessmentInputReader(db);
   }
 
   async persist(input: PersistAssessmentInput): Promise<PersistAssessmentResult> {
-    // Pure checks first: no transaction is opened for a report that cannot be stored.
+    // Pure checks first: no transaction is opened for input that can never be stored.
     const stored = storedFormOf(input.report);
     const verification = verifyStoredAssessment(stored);
     if (!verification.ok) {
@@ -167,9 +191,36 @@ export class AssessmentStore {
     }
     if (
       stored.reportCanonical.includes('\\u0000') ||
-      input.judgments.some((j) => (j.rationale ?? '').includes('\u0000'))
+      input.judgments.some(
+        (j) =>
+          (j.rationale ?? '').includes('\u0000') ||
+          j.citations.some((c) => (c.note ?? '').includes('\u0000')),
+      )
     ) {
       throw new AssessmentPersistError('report_unstorable', 'text contains a NUL character');
+    }
+    if (input.fallbackAnchorsVersion !== null) {
+      throw new AssessmentPersistError(
+        'judgments_invalid',
+        'fallback anchors are not approved: fallbackAnchorsVersion must be null',
+      );
+    }
+    const recordIssues = validateJudgmentRecords(input.judgments);
+    if (recordIssues.length > 0) {
+      throw new AssessmentPersistError(
+        'judgments_invalid',
+        `the judgment records are inconsistent: ${recordIssues
+          .slice(0, 10)
+          .map((issue) => `${issue.code}@${issue.dimensionId}`)
+          .join(', ')}`,
+      );
+    }
+    const scorerInput = scorerInputOf(input.judgments);
+    if (!scorerInput.ok) {
+      throw new AssessmentPersistError(
+        'scorer_input_invalid',
+        `the judgments are not a valid scorer input: ${scorerInput.issues.slice(0, 5).join(', ')}`,
+      );
     }
     try {
       return await this.db.transaction(async (tx) => {
@@ -181,7 +232,7 @@ export class AssessmentStore {
           throw new AssessmentPersistError('run_not_persistable', 'run not found');
         }
         const projectId = run.projectId;
-        // lock order: project -> version -> run
+        // lock order: project -> version -> run -> budget
         const [project] = await tx
           .select({ id: projects.id, eventId: projects.eventId })
           .from(projects)
@@ -210,6 +261,7 @@ export class AssessmentStore {
               error instanceof Error ? error.message : 'run',
             );
           });
+        await this.afterRunLocked?.();
 
         if (version?.status !== 'locked' || version.hash !== inputs.lockedContentHash) {
           // The pinned version is no longer the event's locked version: cancel, never complete under a superseded context (D3).
@@ -230,37 +282,78 @@ export class AssessmentStore {
           });
           return { kind: 'cancelled', reason: 'context_superseded' } as const;
         }
-        if (inputs.lockedContentHash !== input.expected.lockedContentHash) {
+        if (inputs.assessmentKey === null) {
           throw new AssessmentPersistError(
-            'members_changed',
-            'the report was computed from another context',
+            'run_not_persistable',
+            'the run has no frozen assessment identity',
           );
         }
 
-        const bindings = await tx
-          .select()
-          .from(assessmentRunExtractions)
-          .where(eq(assessmentRunExtractions.runId, input.runId));
-        const sourceId = bindings.find((b) => b.kind === 'source')?.extractionId;
-        const contextId = bindings.find((b) => b.kind === 'context_evidence')?.extractionId;
-        if (!sourceId || !contextId) {
+        // (R4 F1/F2) the authoritative inputs, read inside this transaction under the locks above: every pinned input is immutable or
+        // locked here (the project row serializes graph writers, the version row is FOR SHARE, the run row is FOR UPDATE), so the
+        // statements of the reader see one consistent state without a second snapshot.
+        const authorized = await this.reader
+          .readInTransaction(tx, input.runId, ['running'])
+          .catch((error: unknown) => {
+            if (error instanceof AssessmentInputError) {
+              throw new AssessmentPersistError(
+                'inputs_rejected',
+                `the run's inputs were rejected: ${error.code}`,
+                null,
+                null,
+                error.message,
+              );
+            }
+            throw error;
+          });
+        const data = authorized.data;
+
+        // (R4 F1/F2) recompute the report with the real, unchanged M4 engine and require byte equality with the supplied one.
+        const recomputed = rescore(authorized, input.judgments);
+        if (!recomputed.ok) {
           throw new AssessmentPersistError(
-            'run_not_persistable',
-            'the run has no bound extractions',
+            'scorer_input_invalid',
+            `the engine rejected the judgments (${recomputed.stage}): ${recomputed.issues.slice(0, 5).join(', ')}`,
           );
         }
-        const hashRows = await tx
-          .select({ id: graphExtractions.id, hash: graphExtractions.membersHash })
-          .from(graphExtractions)
-          .where(eq(graphExtractions.projectId, projectId));
-        const hashOf = (id: string) => hashRows.find((row) => row.id === id)?.hash;
-        if (
-          hashOf(sourceId) !== input.expected.sourceMembersHash ||
-          hashOf(contextId) !== input.expected.contextMembersHash
-        ) {
+        if (canonicalReportText(recomputed.report) !== stored.reportCanonical) {
           throw new AssessmentPersistError(
-            'members_changed',
-            'the extraction membership changed since the report was computed',
+            'report_mismatch',
+            `the report is not the engine's result for these inputs and judgments (differs in: ${reportDifferences(recomputed.report, input.report).join(', ')})`,
+          );
+        }
+
+        // (R4 F7) every cited call belongs to this run and this dimension and proves what the row claims. In-flight calls become
+        // `unknown` first (conservative); the budget row is locked by the reap, completing run -> budget -> ledger.
+        await this.runs.reapReserved(tx, input.runId, 'run_ended');
+        const calls = await tx
+          .select()
+          .from(assessmentRunCalls)
+          .where(eq(assessmentRunCalls.runId, input.runId));
+        const callIssues = checkJudgmentCalls(
+          input.judgments,
+          calls.map((call) => ({
+            seq: call.seq,
+            stage: call.stage,
+            dimensionId: call.dimensionId,
+            state: call.state,
+            responseRecord: call.responseRecord,
+            outcomeCode: call.outcomeCode,
+            boundViolation: call.boundViolation,
+            providerMode: call.providerMode,
+          })),
+          input.providerMode,
+        );
+        if (callIssues.length > 0) {
+          throw new AssessmentPersistError(
+            'call_binding_invalid',
+            `the cited model calls do not support the judgments: ${callIssues
+              .slice(0, 10)
+              .map(
+                (issue) =>
+                  `${issue.code}@${issue.dimensionId}${issue.seq === undefined ? '' : `#${String(issue.seq)}`}`,
+              )
+              .join(', ')}`,
           );
         }
 
@@ -271,22 +364,22 @@ export class AssessmentStore {
             eventId: project.eventId,
             runId: input.runId,
             versionNumber: 1, // the insert trigger assigns the gapless number under the project lock
-            assessmentKey: input.assessmentKey,
+            assessmentKey: inputs.assessmentKey, // frozen when the run was requested; the database refuses any other
             contextVersionId: inputs.contextVersionId,
             lockedContentHash: inputs.lockedContentHash,
-            pinnedSnapshotIds: await this.pinnedSnapshotIds(tx, input.runId),
-            extractionId: sourceId,
-            contextExtractionId: contextId,
+            pinnedSnapshotIds: data.pinnedSnapshots.map((pin) => pin.snapshotId),
+            extractionId: data.source.extraction.id,
+            contextExtractionId: data.context.extraction.id,
             targetKind: inputs.targetKind,
             trackKey: inputs.targetTrackKey,
-            fallbackAnchorsVersion: input.fallbackAnchorsVersion,
-            engineVersion: input.report.engineVersion,
-            parametersHash: input.report.parametersHash,
-            rubricFingerprint: input.report.rubric.fingerprint,
-            rubricSource: input.report.rubric.source,
-            inputFingerprint: input.report.inputFingerprint,
-            graphFingerprint: input.report.graphFingerprint,
-            outputHash: input.report.outputHash,
+            fallbackAnchorsVersion: null,
+            engineVersion: recomputed.report.engineVersion,
+            parametersHash: recomputed.report.parametersHash,
+            rubricFingerprint: recomputed.report.rubric.fingerprint,
+            rubricSource: recomputed.report.rubric.source,
+            inputFingerprint: recomputed.report.inputFingerprint,
+            graphFingerprint: recomputed.report.graphFingerprint,
+            outputHash: recomputed.report.outputHash,
             reportCanonical: stored.reportCanonical,
             reportTextSha256: stored.reportTextSha256,
             report: JSON.parse(stored.reportCanonical) as Record<string, unknown>,
@@ -301,7 +394,6 @@ export class AssessmentStore {
           });
         if (!assessment) throw new Error('internal: the assessment insert returned no row');
 
-        const referenceOf = await this.referenceMetadata(tx, [sourceId, contextId]);
         for (const [position, judgment] of input.judgments.entries()) {
           await tx.insert(assessmentDimensionJudgments).values({
             assessmentId: assessment.id,
@@ -323,7 +415,8 @@ export class AssessmentStore {
           if (judgment.citations.length > 0) {
             await tx.insert(assessmentJudgmentCitations).values(
               judgment.citations.map((citation, index) => {
-                const reference = referenceOf.get(citation.evidenceId);
+                // the code-authored classification of Event-Context evidence, taken from the VERIFIED reader result
+                const reference = data.eventReferences.get(citation.evidenceId);
                 return {
                   assessmentId: assessment.id,
                   projectId,
@@ -445,39 +538,5 @@ export class AssessmentStore {
       .from(preInterviewAssessments)
       .where(eq(preInterviewAssessments.projectId, projectId))
       .orderBy(asc(preInterviewAssessments.versionNumber));
-  }
-
-  private async pinnedSnapshotIds(tx: JudgeDatabase, runId: string): Promise<string[]> {
-    const rows = await tx
-      .select({ id: assessmentRunInputSnapshots.snapshotId })
-      .from(assessmentRunInputSnapshots)
-      .where(eq(assessmentRunInputSnapshots.runId, runId))
-      .orderBy(asc(assessmentRunInputSnapshots.snapshotId));
-    return rows.map((row) => row.id);
-  }
-
-  /** The code-authored metadata of the reference evidence of the given extractions, keyed by evidence id. */
-  private async referenceMetadata(tx: JudgeDatabase, extractionIds: readonly string[]) {
-    const map = new Map<string, Pick<EventReferenceMeta, 'applicability' | 'trackKey'>>();
-    for (const extractionId of extractionIds) {
-      const rows = await tx
-        .select()
-        .from(graphExtractionItems)
-        .where(
-          and(
-            eq(graphExtractionItems.extractionId, extractionId),
-            eq(graphExtractionItems.recordType, 'evidence'),
-          ),
-        );
-      for (const row of rows) {
-        if (row.referenceApplicability !== null) {
-          map.set(row.recordId, {
-            applicability: row.referenceApplicability,
-            trackKey: row.referenceTrackKey,
-          });
-        }
-      }
-    }
-    return map;
   }
 }

@@ -2,7 +2,8 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { microToNanoUsd, nanoToMicroUsdCeil } from './assessment-hashes.js';
 import { assessmentRunCalls, assessmentRunOutcomes, type JudgeDatabase } from './index.js';
-import { backstopReason, closedSetHash, DatabaseRunBudget } from './run-budget-store.js';
+import { callBindingOf } from './assessment-identity.js';
+import { backstopReason, DatabaseRunBudget } from './run-budget-store.js';
 import { createdRunId, newRunStore, requestInput } from './testing/assessment-fixtures.js';
 import { seedAssessmentWorld, type AssessmentWorld } from './testing/assessment-world.js';
 import {
@@ -349,17 +350,28 @@ describe.each(testDatabaseTargets())('M5 P4 call ledger: database guards on %s',
 
   describe('closed-set binding (R3 A5.3)', () => {
     it('a call stores the closed set of ITS request, bound to the stage and the digest', async () => {
-      const setA = { passages: ['P-0001', 'P-0002'] };
-      const setB = { passages: ['P-0003'] };
-      budget.register(sha256('A'), {
-        closedSet: setA,
+      const set = (passages: string[]) => ({
+        passages,
+        claims: [],
+        evidence: [],
+        pairs: [],
+        items: [],
+        unit: null,
+      });
+      const setA = set(['P-0001', 'P-0002']);
+      const setB = set(['P-0003']);
+      const meta = {
         promptId: 'claim-extraction',
         promptVersion: 'v2',
         provider: 'scripted',
-        providerMode: 'scripted',
+        providerMode: 'scripted' as const,
         schemaId: 's',
         schemaVersion: 'v1',
         promptTemplateHash: sha256('tpl'),
+      };
+      budget.register(sha256('A'), {
+        ...meta,
+        closedSet: setA,
         generationSettings: { effort: 'low', maxOutputTokens: 1000 },
       });
       budget.register(sha256('B'), { closedSet: setB });
@@ -374,12 +386,23 @@ describe.each(testDatabaseTargets())('M5 P4 call ledger: database guards on %s',
         closedSet: setA,
       });
       expect(bindingB?.closedSet).toEqual(setB);
-      expect(bindingA?.closedSetHash).toBe(closedSetHash('claim_extraction', sha256('A'), setA));
-      // the same handles under another stage or digest hash differently: they cannot be moved to another call
-      expect(closedSetHash('critic', sha256('A'), setA)).not.toBe(bindingA?.closedSetHash);
-      expect(closedSetHash('claim_extraction', sha256('B'), setA)).not.toBe(
-        bindingA?.closedSetHash,
-      );
+      const expected = (over: Record<string, unknown> = {}) =>
+        callBindingOf({
+          stage: 'claim_extraction',
+          requestDigest: sha256('A'),
+          dimensionId: null,
+          model: 'm',
+          closedSet: setA,
+          ...meta,
+          ...over,
+        }).key;
+      expect(bindingA?.closedSetHash).toBe(expected());
+      // the same handles under another stage, digest, model, prompt or dimension hash differently: they cannot be moved to another call
+      expect(expected({ stage: 'critic' })).not.toBe(bindingA?.closedSetHash);
+      expect(expected({ requestDigest: sha256('B') })).not.toBe(bindingA?.closedSetHash);
+      expect(expected({ model: 'other' })).not.toBe(bindingA?.closedSetHash);
+      expect(expected({ promptVersion: 'v3' })).not.toBe(bindingA?.closedSetHash);
+      expect(expected({ dimensionId: 'problem_fit.clarity' })).not.toBe(bindingA?.closedSetHash);
       // and the stored row is immutable
       await expectPgError(
         db.execute(

@@ -7,10 +7,23 @@ import type {
   RelationBasis,
 } from '@judge-copilot/schemas';
 import type { FIDELITY_DISPOSITION_VALUES } from '@judge-copilot/assessment';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  contentFingerprintOf,
+  extractionIdentityOf,
+  type Identity,
+} from './assessment-identity.js';
 import type { JudgeDatabase } from './client.js';
+import { referenceSetMismatch } from './context-reference-check.js';
 import type { CreatedGraph, EvidenceGraphStore } from './evidence-graph-store.js';
-import { graphExtractionItems, graphExtractions, projects } from './schema/index.js';
+import { LockedContextReader } from './locked-context-reader.js';
+import {
+  eventContextVersions,
+  graphExtractionItems,
+  graphExtractions,
+  projects,
+  sourceSnapshots,
+} from './schema/index.js';
 
 /*
  * Atomic extraction persistence (M5 P4, design §8.5, §8.7). ONE transaction takes the project lock, writes the M3 graph through
@@ -36,23 +49,43 @@ export interface RelationItemMeta {
   readonly basis: RelationBasis;
 }
 
-export interface CreateExtractionInput {
+/**
+ * The inputs that DEFINE an extraction (R4 F6). The extraction key is derived from them by this store, from the snapshot content
+ * hashes and the locked version hash it reads from the database; a caller cannot choose a key.
+ */
+export interface ExtractionIdentityInput {
   readonly projectId: string;
+  readonly kind: ExtractionKind;
+  /** SHA-256 of the extractor configuration (prompt versions, models, limits). */
+  readonly configHash: string;
+  /** Source extractions: every snapshot it covers. */
+  readonly snapshotIds: readonly string[];
+  /** Context extractions: the locked (or superseded) version and the tracks the reference set is built for. */
+  readonly contextVersionId: string | null;
+  readonly declaredTrackKeys?: readonly string[];
+}
+
+export interface CreateExtractionInput extends ExtractionIdentityInput {
   readonly actorId: string | null;
   /** The running assessment run that produced it (null for a standalone extraction). */
   readonly runId: string | null;
-  readonly kind: ExtractionKind;
-  /** SHA-256 hex of everything that determines the extraction (kind, project, snapshot hashes or version, configuration). */
-  readonly extractionKey: string;
-  readonly configHash: string;
-  readonly snapshotIds: readonly string[];
-  readonly contextVersionId: string | null;
   /** The M3 batch (`EvidenceGraphBatchInput`): batch-local refs only, validated again by the M3 planner. */
   readonly batch: unknown;
   /** Per batch-local ref (claims: grounding; evidence: role/grounding/reference). */
   readonly claimGrounding?: Readonly<Record<string, Grounding>>;
   readonly evidence: Readonly<Record<string, EvidenceItemMeta>>;
   readonly relations?: readonly RelationItemMeta[];
+}
+
+/**
+ * The derived key already names an extraction whose stored identity or content is not what the caller presented (R4 F6). Nothing was
+ * written. To reuse an extraction after a crash, look it up by its identity (`lookup`) instead of re-extracting.
+ */
+export class ExtractionConflictError extends Error {
+  constructor(readonly reason: 'identity' | 'content') {
+    super(`extraction key conflict: ${reason}`);
+    this.name = 'ExtractionConflictError';
+  }
 }
 
 /** A caller's metadata does not fit the batch it describes. Nothing was written. */
@@ -71,6 +104,7 @@ export interface StoredExtraction {
   readonly configHash: string;
   readonly snapshotIds: readonly string[];
   readonly contextVersionId: string | null;
+  readonly declaredTrackKeys: readonly string[];
   readonly membersHash: string;
   readonly createdByRunId: string | null;
 }
@@ -102,6 +136,12 @@ export interface CreatedExtraction {
 
 type Executor = JudgeDatabase;
 
+const sameList = (a: readonly string[], b: readonly string[]): boolean => {
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+};
+
 const toStored = (row: typeof graphExtractions.$inferSelect): StoredExtraction => ({
   id: row.id,
   projectId: row.projectId,
@@ -110,6 +150,7 @@ const toStored = (row: typeof graphExtractions.$inferSelect): StoredExtraction =
   configHash: row.configHash,
   snapshotIds: [...row.snapshotIds],
   contextVersionId: row.contextVersionId,
+  declaredTrackKeys: [...row.declaredTrackKeys],
   membersHash: row.membersHash,
   createdByRunId: row.createdByRunId,
 });
@@ -134,13 +175,35 @@ export class GraphExtractionStore {
         .for('no key update');
       if (!project) throw new ExtractionInputError('the project does not exist');
 
+      // The key is DERIVED from the key-defining inputs, read from the database (never taken from the caller).
+      const identity = await this.identityOf(tx, input, project.eventId);
+      const contentFingerprint = contentFingerprintOf({
+        batch: input.batch,
+        claimGrounding: input.claimGrounding ?? {},
+        evidence: input.evidence,
+        relations: input.relations ?? [],
+      });
+
       const [existing] = await tx
         .select()
         .from(graphExtractions)
-        .where(eq(graphExtractions.extractionKey, input.extractionKey));
+        .where(eq(graphExtractions.extractionKey, identity.key));
       if (existing) {
-        if (existing.projectId !== input.projectId || existing.kind !== input.kind) {
-          throw new ExtractionInputError('the extraction key belongs to another project or kind');
+        // The key is a hash of the identity, so a different identity cannot reach this row except by a hash collision or a forged row:
+        // every key-defining column is compared anyway, and so is the content the key was first used for.
+        if (
+          existing.projectId !== input.projectId ||
+          existing.kind !== input.kind ||
+          existing.configHash !== input.configHash ||
+          existing.identityCanonical !== identity.canonical ||
+          !sameList(existing.snapshotIds, input.snapshotIds) ||
+          existing.contextVersionId !== input.contextVersionId ||
+          !sameList(existing.declaredTrackKeys, [...(input.declaredTrackKeys ?? [])].sort())
+        ) {
+          throw new ExtractionConflictError('identity');
+        }
+        if (existing.contentFingerprint !== contentFingerprint) {
+          throw new ExtractionConflictError('content');
         }
         return {
           extraction: toStored(existing),
@@ -157,6 +220,9 @@ export class GraphExtractionStore {
         input.actorId,
       );
       const items = this.itemsFor(input, graph);
+      if (input.kind === 'context_evidence') {
+        await this.assertReferenceSet(tx, project.eventId, input, items, graph);
+      }
       const members = membersOfItems(items);
       const hash = membersHash(members);
       const [row] = await tx
@@ -165,10 +231,13 @@ export class GraphExtractionStore {
           projectId: input.projectId,
           eventId: project.eventId,
           kind: input.kind,
-          extractionKey: input.extractionKey,
+          extractionKey: identity.key,
           snapshotIds: [...input.snapshotIds],
           contextVersionId: input.contextVersionId,
+          declaredTrackKeys: [...(input.declaredTrackKeys ?? [])].sort(),
           configHash: input.configHash,
+          identityCanonical: identity.canonical,
+          contentFingerprint,
           claimCount: members.claimIds.length,
           evidenceCount: members.evidenceIds.length,
           relationCount: members.relationIds.length,
@@ -199,6 +268,123 @@ export class GraphExtractionStore {
       }
       return { extraction: toStored(row), created: true, graph, members };
     });
+  }
+
+  /**
+   * The committed extraction with exactly these key-defining inputs, or null. Its key is derived the same way `createExtraction`
+   * derives it, so after a crash a caller finds what was already extracted (and skips the model calls) without presenting content.
+   */
+  async lookup(input: ExtractionIdentityInput): Promise<StoredExtraction | null> {
+    return this.db.transaction(async (tx) => {
+      const [project] = await tx
+        .select({ eventId: projects.eventId })
+        .from(projects)
+        .where(eq(projects.id, input.projectId));
+      if (!project) return null;
+      const identity = await this.identityOf(tx, input, project.eventId);
+      const [row] = await tx
+        .select()
+        .from(graphExtractions)
+        .where(eq(graphExtractions.extractionKey, identity.key));
+      if (!row || row.identityCanonical !== identity.canonical) return null;
+      return toStored(row);
+    });
+  }
+
+  /** The canonical identity of an extraction, from the inputs and the stored state of what they name. */
+  private async identityOf(
+    tx: Executor,
+    input: ExtractionIdentityInput,
+    eventId: string,
+  ): Promise<Identity> {
+    if (input.kind === 'source') {
+      if (
+        input.contextVersionId !== null ||
+        (input.declaredTrackKeys ?? []).length > 0 ||
+        input.snapshotIds.length === 0 ||
+        new Set(input.snapshotIds).size !== input.snapshotIds.length
+      ) {
+        throw new ExtractionInputError('a source extraction names distinct snapshots only');
+      }
+      const rows = await tx
+        .select({ id: sourceSnapshots.id, contentHash: sourceSnapshots.contentHash })
+        .from(sourceSnapshots)
+        .where(
+          and(
+            eq(sourceSnapshots.projectId, input.projectId),
+            inArray(sourceSnapshots.id, [...input.snapshotIds]),
+            inArray(sourceSnapshots.status, ['captured', 'partial']),
+          ),
+        );
+      if (
+        rows.length !== input.snapshotIds.length ||
+        rows.some((row) => row.contentHash === null)
+      ) {
+        throw new ExtractionInputError(
+          'every snapshot must be a content-bearing snapshot of the project',
+        );
+      }
+      return extractionIdentityOf({
+        kind: 'source',
+        projectId: input.projectId,
+        configHash: input.configHash,
+        snapshots: rows.map((row) => ({ snapshotId: row.id, contentHash: row.contentHash ?? '' })),
+      });
+    }
+    if (input.contextVersionId === null || input.snapshotIds.length > 0) {
+      throw new ExtractionInputError('a context extraction names a context version only');
+    }
+    const declared = [...(input.declaredTrackKeys ?? [])].sort();
+    if (new Set(declared).size !== declared.length) {
+      throw new ExtractionInputError('declared track keys must be distinct');
+    }
+    const [version] = await tx
+      .select({
+        status: eventContextVersions.status,
+        hash: eventContextVersions.lockedContentHash,
+      })
+      .from(eventContextVersions)
+      .where(
+        and(
+          eq(eventContextVersions.id, input.contextVersionId),
+          eq(eventContextVersions.eventId, eventId),
+        ),
+      );
+    if (!version?.hash || (version.status !== 'locked' && version.status !== 'superseded')) {
+      throw new ExtractionInputError('the context version must be a frozen version of the event');
+    }
+    return extractionIdentityOf({
+      kind: 'context_evidence',
+      projectId: input.projectId,
+      configHash: input.configHash,
+      contextVersionId: input.contextVersionId,
+      lockedContentHash: version.hash,
+      declaredTrackKeys: declared,
+    });
+  }
+
+  /** A context extraction must be exactly the reference set of the locked document for the tracks it declares (R4 F8). */
+  private async assertReferenceSet(
+    tx: Executor,
+    eventId: string,
+    input: CreateExtractionInput,
+    items: readonly ExtractionItemRow[],
+    graph: CreatedGraph,
+  ): Promise<void> {
+    const read = await new LockedContextReader().read(tx, eventId, input.contextVersionId ?? '');
+    if (!read.ok)
+      throw new ExtractionInputError(`the context version is unreadable: ${read.failure}`);
+    const mismatch = referenceSetMismatch({
+      locked: read.snapshot,
+      declaredTrackKeys: [...(input.declaredTrackKeys ?? [])].sort(),
+      items,
+      textById: new Map(graph.evidence.map((evidence) => [evidence.id, evidence.text])),
+    });
+    if (mismatch !== null) {
+      throw new ExtractionInputError(
+        `the context extraction is not the reference set of the locked document (${mismatch})`,
+      );
+    }
   }
 
   /** The metadata rows of an extraction, in creation order. */

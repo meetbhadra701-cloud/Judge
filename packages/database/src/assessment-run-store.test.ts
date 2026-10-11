@@ -122,7 +122,7 @@ describe.each(testDatabaseTargets())(
         await store.requestAssessment(input);
         const other = await store.requestAssessment({
           ...input,
-          requestHash: sha256('another body'),
+          pipelineConfig: { pipeline: 'another/v2' },
         });
         expect(other.kind).toBe('key_reused');
         const modeChanged = await store.requestAssessment({ ...input, mode: 'reassess' });

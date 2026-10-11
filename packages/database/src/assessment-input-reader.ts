@@ -1,7 +1,5 @@
 import {
-  buildEventReferenceItems,
   membersHash,
-  referenceMetaOf,
   scopeGraph,
   type EventReferenceMeta,
   type VerifiedScopeInput,
@@ -32,6 +30,7 @@ import {
   toUnknownRecord,
 } from './evidence-graph-store.js';
 import type { ExtractionItemRow, OrderedMembers, StoredExtraction } from './extraction-store.js';
+import { referenceSetMismatch } from './context-reference-check.js';
 import { LockedContextReader } from './locked-context-reader.js';
 import {
   analysisRuns,
@@ -139,6 +138,8 @@ export class AssessmentInputError extends Error {
 }
 
 type Executor = JudgeDatabase;
+const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((value) => b.includes(value));
 const fail = (code: AssessmentInputErrorCode, ...detail: string[]): never => {
   throw new AssessmentInputError(code, detail);
 };
@@ -151,6 +152,7 @@ const toStored = (row: typeof graphExtractions.$inferSelect): StoredExtraction =
   configHash: row.configHash,
   snapshotIds: [...row.snapshotIds],
   contextVersionId: row.contextVersionId,
+  declaredTrackKeys: [...row.declaredTrackKeys],
   membersHash: row.membersHash,
   createdByRunId: row.createdByRunId,
 });
@@ -312,7 +314,9 @@ export class AssessmentInputReader {
     const pinnedIds = new Set(pinnedSnapshots.map((pin) => pin.snapshotId));
     if (
       source.extraction.snapshotIds.some((id) => !pinnedIds.has(id)) ||
-      contextExtraction.extraction.contextVersionId !== inputs.contextVersionId
+      pinnedSnapshots.some((pin) => !source.extraction.snapshotIds.includes(pin.snapshotId)) ||
+      contextExtraction.extraction.contextVersionId !== inputs.contextVersionId ||
+      !sameSet(contextExtraction.extraction.declaredTrackKeys, inputs.declaredTrackKeys)
     ) {
       return fail('extraction_mismatch', 'not the pinned inputs');
     }
@@ -489,27 +493,16 @@ export class AssessmentInputReader {
     };
 
     // -- reference metadata, recomputed from the pinned locked document ----------------------------------------------------------
-    const expectedReferences = buildEventReferenceItems(locked, inputs.declaredTrackKeys).items;
     const contextEvidence = contextExtraction.items.filter(
       (item) => item.recordType === 'evidence',
     );
-    const textById = new Map(scopedContext.records.evidence.map((e) => [e.id, e.text]));
-    if (
-      contextEvidence.length !== expectedReferences.length ||
-      contextEvidence.some((item, index) => {
-        const expected = expectedReferences[index];
-        if (!expected || item.role !== 'event_reference' || !item.reference) return true;
-        const meta = referenceMetaOf(expected);
-        return (
-          textById.get(item.recordId) !== expected.text ||
-          item.reference.kind !== meta.kind ||
-          item.reference.applicability !== meta.applicability ||
-          item.reference.trackKey !== meta.trackKey
-        );
-      })
-    ) {
-      return fail('reference_meta_mismatch');
-    }
+    const mismatch = referenceSetMismatch({
+      locked,
+      declaredTrackKeys: inputs.declaredTrackKeys,
+      items: contextExtraction.items,
+      textById: new Map(scopedContext.records.evidence.map((e) => [e.id, e.text])),
+    });
+    if (mismatch !== null) return fail('reference_meta_mismatch', mismatch);
     const eventReferences = new Map<string, EventReferenceMeta>(
       contextEvidence.flatMap((item) =>
         item.reference ? [[item.recordId, item.reference] as const] : [],

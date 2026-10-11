@@ -50,6 +50,8 @@ const fact = (
 });
 
 export interface ContextOptions {
+  /** Test knob: the two official criterion weights (default 0.5 / 0.5); used to build a foreign rubric. */
+  rubricWeights?: [number, number];
   trackKeys?: string[];
   rules?: { statement: string; certainty: 'explicit' | 'interpreted' | 'unclear' }[];
   requirements?: {
@@ -100,7 +102,7 @@ export function contextDocument(options: ContextOptions = {}): EventContextDocum
             key: 'problem_fit',
             name: 'Problem fit',
             description: 'Published description of problem fit.',
-            weight: 0.5,
+            weight: options.rubricWeights?.[0] ?? 0.5,
             anchors: [
               { score: 0, description: 'No coherent problem.' },
               { score: 10, description: 'A precisely defined problem that is clearly solved.' },
@@ -113,7 +115,7 @@ export function contextDocument(options: ContextOptions = {}): EventContextDocum
             key: 'usability',
             name: 'Usability',
             description: 'Published description of usability.',
-            weight: 0.5,
+            weight: options.rubricWeights?.[1] ?? 0.5,
             anchors: [],
             sourceIds: [],
             origin: 'human',
@@ -339,7 +341,7 @@ export function lockedSnapshotOf(
 /** A genuine two-statement-plus-one-fact source extraction: every quote is an exact span of the stored artifact text. */
 export function sourceExtraction(
   world: AssessmentWorld,
-  overrides: { key?: string } = {},
+  overrides: { key?: string; withAbsence?: boolean } = {},
 ): CreateExtractionInput {
   const devpost = world.snapshots.devpost;
   const github = world.snapshots.github;
@@ -357,8 +359,8 @@ export function sourceExtraction(
     actorId: null,
     runId: null,
     kind: 'source',
-    extractionKey: overrides.key ?? sha256(`source:${world.project.id}:${String(next())}`),
-    configHash: sha256('config'),
+    // the extraction key is DERIVED from its inputs; a different `key` here means a different extractor configuration
+    configHash: sha256(`config:source:${overrides.key ?? String(next())}`),
     snapshotIds: [devpost.snapshot.id, github.snapshot.id],
     contextVersionId: null,
     batch: {
@@ -410,6 +412,18 @@ export function sourceExtraction(
             excerpt: q3,
           },
         },
+        ...(overrides.withAbsence === true
+          ? [
+              {
+                ref: 'e4',
+                kind: 'absence' as const,
+                origin: 'github' as const,
+                verificationLevel: 'unverified' as const,
+                text: 'No LICENSE file was found in the repository tree.',
+                provenance: { snapshotId: github.snapshot.id },
+              },
+            ]
+          : []),
       ],
       relations: [
         { claim: { ref: 'c1' }, evidence: { ref: 'e1' }, type: 'supports' },
@@ -431,6 +445,9 @@ export function sourceExtraction(
       e1: { role: 'statement', grounding: 'exact_text' },
       e2: { role: 'statement', grounding: 'exact_text' },
       e3: { role: 'interpreted_fact', grounding: 'exact_text' },
+      ...(overrides.withAbsence === true
+        ? { e4: { role: 'statement' as const, grounding: 'exact_text' as const } }
+        : {}),
     },
     relations: [
       { claimRef: 'c1', evidenceRef: 'e1', basis: 'source_statement' },
@@ -459,10 +476,10 @@ export function contextExtraction(
       actorId: null,
       runId: null,
       kind: 'context_evidence',
-      extractionKey: overrides.key ?? sha256(`context:${world.project.id}:${String(next())}`),
-      configHash: sha256('config'),
+      configHash: sha256(`config:context:${overrides.key ?? String(next())}`),
       snapshotIds: [],
       contextVersionId: world.context.versionId,
+      declaredTrackKeys: [...world.declared].sort(),
       batch: assembleContextBatch(items, world.context.versionId),
       evidence,
     },

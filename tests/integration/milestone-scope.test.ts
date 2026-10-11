@@ -263,7 +263,7 @@ describe('M5 milestone scope (phase P4)', () => {
     }
   });
 
-  it('adds exactly the two M5 P4 migrations (0010 schema, 0011 integrity) and no other', () => {
+  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013) and no other', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -280,10 +280,12 @@ describe('M5 milestone scope (phase P4)', () => {
       '0009_m3_supersession_guard_hardening.sql',
       '0010_m5_assessment_schema.sql',
       '0011_m5_assessment_integrity.sql',
+      '0012_r4_assessment_identity.sql',
+      '0013_r4_assessment_integrity.sql',
     ]);
   });
 
-  it('keeps the scoring engine out of every app and every adapter: only the pure assessment package uses it (the database package only in its test helpers)', () => {
+  it('keeps the scoring engine out of every app and every adapter: only the pure assessment package uses it, and the database package in exactly ONE trusted recomputation module (R4 F1/F2)', () => {
     const importers = applicationSource.filter(
       (file) =>
         !file.startsWith(join(ROOT, 'packages/scoring')) &&
@@ -291,14 +293,17 @@ describe('M5 milestone scope (phase P4)', () => {
         !file.startsWith(join(ROOT, 'packages/database/src/testing')) &&
         /@judge-copilot\/scoring/.test(readFileSync(file, 'utf8')),
     );
-    expect(importers.map((file) => relative(ROOT, file))).toEqual([]);
+    // the one place persistence re-runs the real engine to refuse a report that is not the recomputation of its inputs
+    expect(importers.map((file) => relative(ROOT, file)).sort()).toEqual([
+      'packages/database/src/trusted-rescoring.ts',
+    ]);
     for (const { dir, manifest } of workspaceManifests()) {
       if (dir === join(ROOT, 'packages/scoring') || dir === join(ROOT, 'packages/assessment'))
         continue;
       if (dir === join(ROOT, 'packages/database')) {
-        // a development-only dependency: production code never scores
+        // a runtime dependency since R4 (F1/F2), declared once for the trusted recomputation boundary of persistence
         expect(Object.keys(manifest['dependencies'] ?? {}).includes('@judge-copilot/scoring')).toBe(
-          false,
+          true,
         );
         continue;
       }

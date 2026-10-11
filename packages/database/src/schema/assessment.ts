@@ -85,6 +85,13 @@ export const assessmentRunInputs = pgTable(
     inputsFingerprint: text('inputs_fingerprint').notNull(),
     pipelineConfig: jsonb('pipeline_config').$type<Record<string, unknown>>().notNull(),
     pipelineConfigHash: text('pipeline_config_hash').notNull(),
+    /**
+     * R4 F5: the intended assessment identity, frozen when the run is created: `assessment_key` is the SHA-256 of
+     * `assessment_identity_canonical` (the canonical text of what the assessment is about, including the reassess salt). The
+     * persisted assessment must carry this key. Null only for a row written before migration 0012.
+     */
+    assessmentKey: text('assessment_key'),
+    assessmentIdentityCanonical: text('assessment_identity_canonical'),
     requestedByActorId: uuid('requested_by_actor_id').references(() => actors.id, {
       onDelete: 'restrict',
     }),
@@ -120,6 +127,11 @@ export const assessmentRunInputs = pgTable(
       sql`cardinality(declared_track_keys) = cardinality(track_selection_ids) AND array_position(declared_track_keys, NULL) IS NULL AND array_position(track_selection_ids, NULL) IS NULL`,
     ),
     check('assessment_run_inputs_config_is_object', sql`jsonb_typeof(pipeline_config) = 'object'`),
+    check(
+      'assessment_run_inputs_identity_shape',
+      sql`(assessment_key IS NULL) = (assessment_identity_canonical IS NULL)
+        AND (assessment_key IS NULL OR (assessment_key ~ ${HEX64} AND octet_length(assessment_identity_canonical) BETWEEN 2 AND 65536))`,
+    ),
   ],
 );
 
@@ -202,6 +214,11 @@ export const assessmentRunCalls = pgTable(
     provider: text('provider'),
     providerMode: text('provider_mode', { enum: PROVIDER_MODE_VALUES }),
     requestDigest: text('request_digest').notNull(),
+    /**
+     * R4 F7: the one dimension an assessor or critic call is about (null for the other stages). Part of the signed binding, so a call
+     * made for dimension A cannot be cited as a call about dimension B.
+     */
+    dimensionId: text('dimension_id'),
     promptId: text('prompt_id'),
     promptVersion: text('prompt_version'),
     promptTemplateHash: text('prompt_template_hash'),
@@ -210,6 +227,11 @@ export const assessmentRunCalls = pgTable(
     generationSettings: jsonb('generation_settings').$type<Record<string, unknown>>(),
     closedSet: jsonb('closed_set').$type<Record<string, unknown>>(),
     closedSetHash: text('closed_set_hash'),
+    /**
+     * R4 F9: the canonical text the closed-set hash covers: stage, request digest, dimension, model, prompt and schema identity
+     * and the closed set. `closed_set_hash` is its SHA-256; migration 0013 verifies it and that every field equals its column.
+     */
+    bindingCanonical: text('binding_canonical'),
     reservedInputTokens: safeBigint('reserved_input_tokens').notNull(),
     reservedOutputTokens: safeBigint('reserved_output_tokens').notNull(),
     reservedCostNanoUsd: safeBigint('reserved_cost_nano_usd').notNull(),
@@ -282,6 +304,27 @@ export const assessmentRunCalls = pgTable(
     check(
       'assessment_run_calls_closed_set_shape',
       sql`(closed_set IS NULL) = (closed_set_hash IS NULL) AND (closed_set IS NULL OR (jsonb_typeof(closed_set) = 'object' AND pg_column_size(closed_set) <= 524288))`,
+    ),
+    check(
+      'assessment_run_calls_stage_valid',
+      sql`stage IN (${sqlLiteralList(ASSESSMENT_STAGE_VALUES)})`,
+    ),
+    check(
+      'assessment_run_calls_dimension_format',
+      sql`dimension_id IS NULL OR (length(dimension_id) <= 128 AND dimension_id ~ '^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$')`,
+    ),
+    check(
+      'assessment_run_calls_metadata_formats',
+      sql`model ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$'
+        AND (provider IS NULL OR provider ~ '^[a-z0-9][a-z0-9._-]{0,63}$')
+        AND (prompt_id IS NULL OR prompt_id ~ '^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$')
+        AND (prompt_version IS NULL OR prompt_version ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+        AND (schema_id IS NULL OR schema_id ~ '^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$')
+        AND (schema_version IS NULL OR schema_version ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')`,
+    ),
+    check(
+      'assessment_run_calls_binding_shape',
+      sql`(closed_set IS NOT NULL OR binding_canonical IS NULL) AND (binding_canonical IS NULL OR octet_length(binding_canonical) BETWEEN 2 AND 1048576)`,
     ),
     check(
       'assessment_run_calls_settings_shape',
@@ -365,7 +408,19 @@ export const graphExtractions = pgTable(
       .notNull()
       .default(sql`'{}'::uuid[]`),
     contextVersionId: uuid('context_version_id'),
+    /** R4 F6: the declared tracks the context reference set was built for (context extractions only; sorted, distinct). */
+    declaredTrackKeys: text('declared_track_keys')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     configHash: text('config_hash').notNull(),
+    /**
+     * R4 F6: the key is DERIVED, not chosen. `identity_canonical` is the canonical text of every key-defining input (kind, project,
+     * the pinned snapshots with their content hashes or the locked version with its hash and declared tracks, the configuration);
+     * `extraction_key` is its SHA-256. `content_fingerprint` is the SHA-256 of the canonical extraction content the key was reused for.
+     */
+    identityCanonical: text('identity_canonical'),
+    contentFingerprint: text('content_fingerprint'),
     claimCount: integer('claim_count').notNull(),
     evidenceCount: integer('evidence_count').notNull(),
     relationCount: integer('relation_count').notNull(),
@@ -395,6 +450,12 @@ export const graphExtractions = pgTable(
     check('graph_extractions_key_hex', sql`extraction_key ~ ${HEX64}`),
     check('graph_extractions_config_hash_hex', sql`config_hash ~ ${HEX64}`),
     check('graph_extractions_members_hash_hex', sql`members_hash ~ ${HEX64}`),
+    check(
+      'graph_extractions_identity_shape',
+      sql`(identity_canonical IS NULL) = (content_fingerprint IS NULL)
+        AND (content_fingerprint IS NULL OR (content_fingerprint ~ ${HEX64} AND octet_length(identity_canonical) BETWEEN 2 AND 262144))
+        AND (kind = 'context_evidence' OR cardinality(declared_track_keys) = 0)`,
+    ),
     check(
       'graph_extractions_kind_shape',
       sql`(kind = 'source' AND context_version_id IS NULL AND cardinality(snapshot_ids) >= 1) OR (kind = 'context_evidence' AND context_version_id IS NOT NULL AND cardinality(snapshot_ids) = 0)`,
@@ -734,7 +795,7 @@ export const assessmentDimensionJudgments = pgTable(
     ),
     check(
       'assessment_dimension_judgments_review_completed',
-      sql`(NOT critic_review_required OR critic_reviewed) AND (NOT critic_reviewed OR cardinality(critic_call_seqs) > 0)`,
+      sql`(outcome_kind <> 'scored' OR NOT critic_review_required OR critic_reviewed) AND (NOT critic_reviewed OR cardinality(critic_call_seqs) > 0)`,
     ),
     check(
       'assessment_dimension_judgments_disposition_valid',

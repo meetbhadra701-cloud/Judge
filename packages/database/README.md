@@ -12,7 +12,9 @@
   `AssessmentRunStore` (idempotent requests, pins, lease, terminal outcome), `DatabaseRunBudget` (the row-locked
   local spending guard and call ledger), `LockedContextReader`, `AssessmentInputReader` (one read-only
   REPEATABLE READ transaction, verified `scopeGraph`) and `AssessmentStore` (one immutable pre-interview assessment).
-  See `docs/milestones/M5-P4-note.md`. No model call, route, worker job or UI exists here.
+  See `docs/milestones/M5-P4-note.md`. R4 repair (migrations `0012`/`0013`): persistence recomputes the M4 report with the real engine
+  from the authorized inputs (`trusted-rescoring.ts`), identities are derived here and frozen with the run, and every path takes the
+  run row before the budget row; see `docs/milestones/M5-P4-R4-remediation.md`. No model call, route, worker job or UI exists here.
 - `drizzle/` — committed SQL migrations. Never edit an existing migration; add a new one.
 - `createDatabase(url)` — opens a postgres.js pool only when explicitly called.
 - `createDatabaseAuditSink(db)` — `AuditSink` adapter over `audit_events`.

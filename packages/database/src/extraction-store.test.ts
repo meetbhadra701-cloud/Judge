@@ -3,6 +3,7 @@ import { deterministicIdAllocator, EvidenceGraphError } from '@judge-copilot/evi
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { EvidenceGraphStore } from './evidence-graph-store.js';
+import { extractionIdentityOf } from './assessment-identity.js';
 import { ExtractionInputError, GraphExtractionStore } from './extraction-store.js';
 import {
   auditEvents,
@@ -173,7 +174,7 @@ describe.each(testDatabaseTargets())('M5 P4 atomic extraction on %s', (_name, op
     it('a database rejection of the membership rows (e.g. a forged snapshot id) rolls the graph back too', async () => {
       const input = sourceExtraction(w);
       const before = await snapshot();
-      await expectPgError(
+      await expect(
         store().createExtraction({
           ...input,
           snapshotIds: [
@@ -181,9 +182,7 @@ describe.each(testDatabaseTargets())('M5 P4 atomic extraction on %s', (_name, op
             sha256('x').slice(0, 8) + '-0000-4000-8000-000000000000',
           ],
         }),
-        CHECK_VIOLATION,
-        '23503',
-      );
+      ).rejects.toBeInstanceOf(ExtractionInputError);
       expect(await snapshot()).toEqual(before);
     });
 
@@ -217,6 +216,25 @@ describe.each(testDatabaseTargets())('M5 P4 atomic extraction on %s', (_name, op
         await attack(tx, created, extractionId);
       });
     }
+    /** A well-formed derived identity, so a raw row reaches the DEFERRED completeness check and only that one can reject it. */
+    const attackIdentity = (id: string) => {
+      const configHash = sha256(`c:${id}`);
+      const identity = extractionIdentityOf({
+        kind: 'source',
+        projectId: w.project.id,
+        configHash,
+        snapshots: [w.snapshots.devpost.snapshot, w.snapshots.github.snapshot].map((s) => ({
+          snapshotId: s.id,
+          contentHash: sha256(s.id),
+        })),
+      });
+      return {
+        extractionKey: identity.key,
+        configHash,
+        identityCanonical: identity.canonical,
+        contentFingerprint: sha256(`content:${id}`),
+      };
+    };
     const extractionRow = (
       id: string,
       created: {
@@ -232,9 +250,8 @@ describe.each(testDatabaseTargets())('M5 P4 atomic extraction on %s', (_name, op
       projectId: w.project.id,
       eventId: w.event.id,
       kind: 'source' as const,
-      extractionKey: sha256(`attack:${id}`),
+      ...attackIdentity(id),
       snapshotIds: [w.snapshots.devpost.snapshot.id, w.snapshots.github.snapshot.id],
-      configHash: sha256('c'),
       claimCount: created.claims.length,
       evidenceCount: created.evidence.length,
       relationCount: created.relations.length,

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { canonicalJson, sha256Hex } from '@judge-copilot/context';
 import {
   ASSESSMENT_RUN_TYPE,
   type AssessmentRequestMode,
@@ -8,8 +9,12 @@ import {
   type ProviderMode,
 } from '@judge-copilot/schemas';
 import { and, asc, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm';
+import type { EventReferenceMeta } from '@judge-copilot/assessment';
 import { inputsFingerprint, trackSelectionSetHash } from './assessment-hashes.js';
+import { assessmentIdentityOf, requestIdentityOf } from './assessment-identity.js';
 import type { JudgeDatabase } from './client.js';
+import { referenceSetMismatch } from './context-reference-check.js';
+import { LockedContextReader } from './locked-context-reader.js';
 import { reapReservedCalls } from './run-budget-store.js';
 import {
   analysisRuns,
@@ -21,6 +26,9 @@ import {
   assessmentRunInputSnapshots,
   assessmentRunOutcomes,
   eventContextVersions,
+  evidenceItems,
+  graphExtractionItems,
+  graphExtractions,
   preInterviewAssessments,
   projects,
   projectSources,
@@ -57,23 +65,21 @@ export interface PinnedInputs {
   }[];
 }
 
+/**
+ * What a caller may say. Deliberately NOT here (R4 F5): a request hash, a pipeline-configuration hash and an assessment key. Those
+ * are computed below, from the project, the mode, the target and the configuration, so a caller cannot make two different requests
+ * look equal (or one request look different) by choosing a hash.
+ */
 export interface RequestAssessmentInput {
   readonly projectId: string;
   readonly actorId: string;
   readonly idempotencyKey: string;
   readonly mode: AssessmentRequestMode;
-  /** SHA-256 of the canonical request body: the same key with a different body is `key_reused`. */
-  readonly requestHash: string;
   readonly target: AssessmentTarget;
+  /** The pipeline configuration (prompt versions, models, extractor settings...). Its canonical SHA-256 is part of every identity. */
   readonly pipelineConfig: Record<string, unknown>;
-  readonly pipelineConfigHash: string;
   readonly limits: AssessmentRunLimits;
   readonly priceTableId: string;
-  /**
-   * PURE. Derives `assessment_key` from what was just pinned and the salt ("" for `assess`, the request id for `reassess`). It runs
-   * inside the transaction, so it must not perform I/O.
-   */
-  readonly assessmentKey: (pins: PinnedInputs, salt: string) => string;
 }
 
 export type RequestAssessmentResult =
@@ -141,7 +147,8 @@ export class AssessmentRunError extends Error {
       | 'wrong_state'
       | 'lease_mismatch'
       | 'inputs_missing'
-      | 'extraction_kind_mismatch',
+      | 'extraction_kind_mismatch'
+      | 'extraction_rejected',
     message: string,
   ) {
     super(message);
@@ -152,24 +159,84 @@ export class AssessmentRunError extends Error {
 export interface AssessmentRunStoreOptions {
   readonly db: JudgeDatabase;
   readonly now?: () => Date;
+  /**
+   * Test seam, awaited by `finishRun` and `recoverRun` right after the run row is locked and validated, before anything is written.
+   * It lets a test hold the run lock to force an interleaving; it has no production use.
+   */
+  readonly afterRunLocked?: (operation: 'finish' | 'recover') => Promise<void>;
 }
 
 const ACTIVE = ['pending', 'running'] as const;
 
+/** True for the unique-index violation of (actor, idempotency key). */
+function isActorKeyViolation(error: unknown): boolean {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    const candidate = current as {
+      code?: unknown;
+      constraint?: unknown;
+      constraint_name?: unknown;
+    };
+    if (
+      candidate.code === '23505' &&
+      (candidate.constraint === 'assessment_requests_actor_key_key' ||
+        candidate.constraint_name === 'assessment_requests_actor_key_key')
+    ) {
+      return true;
+    }
+    if (/assessment_requests_actor_key_key/.test(current.message)) return true;
+  }
+  return false;
+}
+
 export class AssessmentRunStore {
   private readonly db: JudgeDatabase;
   private readonly now: () => Date;
+  private readonly afterRunLocked: AssessmentRunStoreOptions['afterRunLocked'];
 
   constructor(options: AssessmentRunStoreOptions) {
     this.db = options.db;
     this.now = options.now ?? (() => new Date());
+    this.afterRunLocked = options.afterRunLocked;
   }
 
   // -- S0: request, idempotency and pin ------------------------------------------------------------------------------------
 
-  /** The §8.6 matrix, in one transaction under the project lock. */
+  /**
+   * The §8.6 matrix, in one transaction. Lock order: the (actor, key) advisory lock, then the project row. The advisory lock makes two
+   * simultaneous requests with the same key serialize even when they name DIFFERENT projects (their project locks would not), so the
+   * loser sees the winner's request and answers `key_reused` instead of failing on the unique index.
+   */
   async requestAssessment(input: RequestAssessmentInput): Promise<RequestAssessmentResult> {
+    const pipelineConfigHash = sha256Hex(canonicalJson(input.pipelineConfig));
+    const request = requestIdentityOf({
+      projectId: input.projectId,
+      mode: input.mode,
+      target: input.target,
+      pipelineConfigHash,
+      limits: { ...input.limits },
+      priceTableId: input.priceTableId,
+    });
+    // Defense in depth: if the advisory lock were ever bypassed, the unique index would still reject the loser. That is retried once, so
+    // the caller gets the controlled answer a lone retry would have got.
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.requestOnce(input, request.key, pipelineConfigHash);
+      } catch (error) {
+        if (attempt === 0 && isActorKeyViolation(error)) continue;
+        throw error;
+      }
+    }
+  }
+
+  private async requestOnce(
+    input: RequestAssessmentInput,
+    requestHash: string,
+    pipelineConfigHash: string,
+  ): Promise<RequestAssessmentResult> {
     return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`assessment-request:${input.actorId}:${input.idempotencyKey}`}, 0))`,
+      );
       const [project] = await tx
         .select({ id: projects.id, eventId: projects.eventId })
         .from(projects)
@@ -177,7 +244,7 @@ export class AssessmentRunStore {
         .for('no key update');
       if (!project) throw new AssessmentRunError('run_not_found', 'project not found');
 
-      // 1. an earlier request with this key (the UNIQUE(actor, key) index plus the project lock serialize simultaneous requests)
+      // 1. an earlier request with this key
       const [previous] = await tx
         .select()
         .from(assessmentRequests)
@@ -187,7 +254,7 @@ export class AssessmentRunStore {
             eq(assessmentRequests.idempotencyKey, input.idempotencyKey),
           ),
         );
-      if (previous) return this.replayOf(tx, previous, input);
+      if (previous) return this.replayOf(tx, previous, input, requestHash);
 
       // 2. pin
       const pins = await this.readPins(tx, project.id, project.eventId);
@@ -203,11 +270,23 @@ export class AssessmentRunStore {
         return { kind: 'track_not_in_context', trackKey: input.target.trackKey };
       }
 
+      // 3. the intended assessment identity, frozen now: from the pins just read and the documented salt
       const requestId = randomUUID();
       const salt = input.mode === 'reassess' ? requestId : '';
-      const assessmentKey = input.assessmentKey(pins, salt);
+      const assessment = assessmentIdentityOf({
+        projectId: input.projectId,
+        eventId: project.eventId,
+        contextVersionId: pins.contextVersionId,
+        lockedContentHash: pins.lockedContentHash,
+        trackSelectionSetHash: pins.trackSelectionSetHash,
+        declaredTrackKeys: pins.declaredTrackKeys,
+        target: input.target,
+        snapshots: pins.snapshots,
+        pipelineConfigHash,
+        salt,
+      });
 
-      // 3. `assess` with an equal assessment already on record: answer with it, spend nothing
+      // 4. `assess` with an equal assessment already on record: answer with it, spend nothing
       if (input.mode === 'assess') {
         const [equal] = await tx
           .select({ id: preInterviewAssessments.id })
@@ -215,7 +294,7 @@ export class AssessmentRunStore {
           .where(
             and(
               eq(preInterviewAssessments.projectId, input.projectId),
-              eq(preInterviewAssessments.assessmentKey, assessmentKey),
+              eq(preInterviewAssessments.assessmentKey, assessment.key),
             ),
           );
         if (equal) {
@@ -224,7 +303,7 @@ export class AssessmentRunStore {
             projectId: input.projectId,
             actorId: input.actorId,
             idempotencyKey: input.idempotencyKey,
-            requestHash: input.requestHash,
+            requestHash,
             mode: input.mode,
             assessmentId: equal.id,
           });
@@ -237,7 +316,7 @@ export class AssessmentRunStore {
         }
       }
 
-      // 4. another run is active: 409, nothing recorded
+      // 5. another run is active: 409, nothing recorded
       const [active] = await tx
         .select({ id: analysisRuns.id })
         .from(analysisRuns)
@@ -250,7 +329,7 @@ export class AssessmentRunStore {
         );
       if (active) return { kind: 'run_active_conflict', runId: active.id };
 
-      // 5. a new run, its request, its pins and its budget limits: all or nothing
+      // 6. a new run, its request, its pins and its budget limits: all or nothing
       const [run] = await tx
         .insert(analysisRuns)
         .values({
@@ -268,7 +347,7 @@ export class AssessmentRunStore {
         projectId: input.projectId,
         actorId: input.actorId,
         idempotencyKey: input.idempotencyKey,
-        requestHash: input.requestHash,
+        requestHash,
         mode: input.mode,
         runId: run.id,
       });
@@ -295,10 +374,12 @@ export class AssessmentRunStore {
             snapshotId: s.snapshotId,
             contentHash: s.contentHash,
           })),
-          pipelineConfigHash: input.pipelineConfigHash,
+          pipelineConfigHash,
         }),
         pipelineConfig: input.pipelineConfig,
-        pipelineConfigHash: input.pipelineConfigHash,
+        pipelineConfigHash,
+        assessmentKey: assessment.key,
+        assessmentIdentityCanonical: assessment.canonical,
         requestedByActorId: input.actorId,
       });
       await tx.insert(assessmentRunInputSnapshots).values(
@@ -328,8 +409,14 @@ export class AssessmentRunStore {
     tx: Executor,
     previous: typeof assessmentRequests.$inferSelect,
     input: RequestAssessmentInput,
+    requestHash: string,
   ): Promise<RequestAssessmentResult> {
-    if (previous.requestHash !== input.requestHash || previous.mode !== input.mode) {
+    // The request identity covers project, mode, target, configuration, limits and price table: anything different is a different request.
+    if (
+      previous.projectId !== input.projectId ||
+      previous.requestHash !== requestHash ||
+      previous.mode !== input.mode
+    ) {
       return { kind: 'key_reused' };
     }
     if (previous.assessmentId !== null) {
@@ -514,7 +601,15 @@ export class AssessmentRunStore {
     });
   }
 
-  /** Records which extraction of `kind` this running run uses (written when the graph is created or reused). */
+  /**
+   * Records which extraction of `kind` this running run uses (written when the graph is created or reused). Before it is bound, the
+   * extraction is checked against what the run pinned (R4 F6/F8), so a run can never use an extraction that is not about its inputs:
+   *   source           the extraction covers EXACTLY the snapshots the run pinned (incomplete or extra coverage is refused);
+   *   context_evidence it is of the pinned version, was built for exactly the declared tracks, and equals, member by member, the
+   *                    reference set RECOMPUTED from the pinned locked document (forged metadata, forged text or an over-declared
+   *                    track set does not match).
+   * The database triggers of migration 0013 repeat the structural parts of these checks.
+   */
   async bindExtraction(
     runId: string,
     leaseToken: string,
@@ -523,6 +618,116 @@ export class AssessmentRunStore {
   ): Promise<void> {
     await this.db.transaction(async (tx) => {
       const run = await this.lockOwnRun(tx, runId, leaseToken);
+      const [inputs] = await tx
+        .select()
+        .from(assessmentRunInputs)
+        .where(eq(assessmentRunInputs.runId, runId));
+      if (!inputs) throw new AssessmentRunError('inputs_missing', 'the run has no pinned inputs');
+      const [extraction] = await tx
+        .select()
+        .from(graphExtractions)
+        .where(
+          and(eq(graphExtractions.id, extractionId), eq(graphExtractions.projectId, run.projectId)),
+        );
+      if (!extraction || extraction.kind !== kind) {
+        throw new AssessmentRunError(
+          'extraction_kind_mismatch',
+          'the extraction is not of this project or not of the stated kind',
+        );
+      }
+      if (kind === 'source') {
+        const pins = await tx
+          .select({ id: assessmentRunInputSnapshots.snapshotId })
+          .from(assessmentRunInputSnapshots)
+          .where(eq(assessmentRunInputSnapshots.runId, runId));
+        const pinned = new Set(pins.map((pin) => pin.id));
+        const covered = new Set(extraction.snapshotIds);
+        if (
+          pinned.size !== covered.size ||
+          [...pinned].some((id) => !covered.has(id)) ||
+          extraction.snapshotIds.length !== covered.size
+        ) {
+          throw new AssessmentRunError(
+            'extraction_rejected',
+            'a source extraction must cover exactly the snapshots the run pinned',
+          );
+        }
+      } else {
+        if (extraction.contextVersionId !== inputs.contextVersionId) {
+          throw new AssessmentRunError(
+            'extraction_rejected',
+            'the context extraction is not of the pinned context version',
+          );
+        }
+        const declared = [...inputs.declaredTrackKeys].sort();
+        const built = [...extraction.declaredTrackKeys].sort();
+        if (declared.length !== built.length || declared.some((key, i) => key !== built[i])) {
+          throw new AssessmentRunError(
+            'extraction_rejected',
+            'the context extraction was built for other declared tracks than the run declares',
+          );
+        }
+        const context = await new LockedContextReader().read(
+          tx,
+          inputs.eventId,
+          inputs.contextVersionId,
+        );
+        if (!context.ok || context.recomputedHash !== inputs.lockedContentHash) {
+          throw new AssessmentRunError(
+            'extraction_rejected',
+            'the pinned context version cannot be read back as it was pinned',
+          );
+        }
+        const itemRows = await tx
+          .select()
+          .from(graphExtractionItems)
+          .where(eq(graphExtractionItems.extractionId, extraction.id))
+          .orderBy(asc(graphExtractionItems.recordType), asc(graphExtractionItems.ordinal));
+        const texts = itemRows.length
+          ? await tx
+              .select({ id: evidenceItems.id, text: evidenceItems.text })
+              .from(evidenceItems)
+              .where(
+                and(
+                  eq(evidenceItems.projectId, run.projectId),
+                  inArray(
+                    evidenceItems.id,
+                    itemRows.map((item) => item.recordId),
+                  ),
+                ),
+              )
+          : [];
+        const mismatch = referenceSetMismatch({
+          locked: context.snapshot,
+          declaredTrackKeys: inputs.declaredTrackKeys,
+          items: itemRows.map((item) => ({
+            recordType: item.recordType,
+            recordId: item.recordId,
+            ordinal: item.ordinal,
+            role: item.role,
+            grounding: item.grounding,
+            relationBasis: item.relationBasis,
+            reference:
+              item.referenceBuilder !== null &&
+              item.referenceKind !== null &&
+              item.referenceApplicability !== null
+                ? {
+                    builder: item.referenceBuilder as EventReferenceMeta['builder'],
+                    kind: item.referenceKind,
+                    applicability: item.referenceApplicability,
+                    trackKey: item.referenceTrackKey,
+                  }
+                : null,
+          })),
+          textById: new Map(texts.map((row) => [row.id, row.text])),
+        });
+        if (mismatch !== null) {
+          throw new AssessmentRunError(
+            'extraction_rejected',
+            `the context extraction is not the reference set of the pinned locked document (${mismatch})`,
+          );
+        }
+      }
       await tx.insert(assessmentRunExtractions).values({
         runId,
         projectId: run.projectId,
@@ -535,50 +740,26 @@ export class AssessmentRunStore {
   /**
    * Ends a run WITHOUT an assessment: any still-reserved call becomes `unknown` (counted at its worst case), the state moves to
    * `failed`/`cancelled`, and the outcome row with the ledger totals is written, all in one transaction. A failed run can never
-   * have an assessment (deferred trigger).
+   * have an assessment (deferred trigger). Lock order: run (FOR UPDATE) -> budget (FOR UPDATE) -> ledger rows.
    */
   async finishRun(input: FinishRunInput): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const [run] = await tx
-        .select()
-        .from(analysisRuns)
-        .where(eq(analysisRuns.id, input.runId))
-        .for('update');
-      if (!run?.projectId) throw new AssessmentRunError('run_not_found', 'run not found');
+      const run = await this.lockRun(tx, input.runId);
       if (run.state !== 'pending' && run.state !== 'running') {
         throw new AssessmentRunError('wrong_state', `run is already ${run.state}`);
       }
       if (input.leaseToken !== undefined && run.leaseToken !== input.leaseToken) {
         throw new AssessmentRunError('lease_mismatch', "the lease token is not the run's");
       }
-      await this.reapReserved(tx, input.runId, 'run_ended');
-      const finishedAt = this.now();
-      await tx
-        .update(analysisRuns)
-        .set({
-          state: input.state,
-          failureCategory:
-            input.state === 'failed' ? (input.failureCategory ?? 'internal_error') : null,
-          startedAt: run.startedAt ?? finishedAt,
-          finishedAt,
-        })
-        .where(eq(analysisRuns.id, input.runId));
-      await this.writeOutcome(tx, {
-        runId: input.runId,
-        projectId: run.projectId,
-        outcome: input.state,
-        failureCategory:
-          input.state === 'failed' ? (input.failureCategory ?? 'internal_error') : null,
-        failureCode: input.failureCode,
-        stageReached: input.stageReached ?? null,
-        providerMode: input.providerMode ?? null,
-      });
+      await this.afterRunLocked?.('finish');
+      await this.terminalize(tx, run, input);
     });
   }
 
   /**
    * Fails every running assessment run whose lease expired before `before` (a crashed worker): in-flight attempts become `unknown`,
    * the run ends `failed (internal_error / worker_lease_expired)`, nothing is re-run automatically. Returns the run ids.
+   * The list is only a hint: each run is re-validated under its own row lock by `recoverRun`.
    */
   async recoverExpiredRuns(before: Date = this.now()): Promise<string[]> {
     const expired = await this.db
@@ -593,20 +774,91 @@ export class AssessmentRunStore {
       );
     const recovered: string[] = [];
     for (const { id } of expired) {
-      try {
-        await this.finishRun({
-          runId: id,
+      if (await this.recoverRun(id, before)) recovered.push(id);
+    }
+    return recovered;
+  }
+
+  /**
+   * Recovers ONE run, re-checking under the row lock that it is still running and that its lease has STILL expired before `before`.
+   * A heartbeat that renewed the lease first (or a worker that finished first) wins: this returns false and changes nothing. Safe to
+   * call repeatedly and concurrently (idempotent).
+   */
+  async recoverRun(runId: string, before: Date = this.now()): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const [run] = await tx
+        .select()
+        .from(analysisRuns)
+        .where(eq(analysisRuns.id, runId))
+        .for('update');
+      if (
+        !run?.projectId ||
+        run.runType !== ASSESSMENT_RUN_TYPE ||
+        run.state !== 'running' ||
+        run.leaseExpiresAt === null ||
+        run.leaseExpiresAt.getTime() >= before.getTime()
+      ) {
+        return false;
+      }
+      await this.afterRunLocked?.('recover');
+      await this.terminalize(
+        tx,
+        { ...run, projectId: run.projectId },
+        {
           state: 'failed',
           failureCategory: 'internal_error',
           failureCode: 'worker_lease_expired',
-        });
-        recovered.push(id);
-      } catch (error) {
-        // another process finished it first
-        if (!(error instanceof AssessmentRunError && error.code === 'wrong_state')) throw error;
-      }
-    }
-    return recovered;
+        },
+      );
+      return true;
+    });
+  }
+
+  /** `SELECT ... FOR UPDATE` of a run, the first lock of every terminal path. */
+  private async lockRun(tx: Executor, runId: string) {
+    const [run] = await tx
+      .select()
+      .from(analysisRuns)
+      .where(eq(analysisRuns.id, runId))
+      .for('update');
+    if (!run?.projectId) throw new AssessmentRunError('run_not_found', 'run not found');
+    return { ...run, projectId: run.projectId };
+  }
+
+  /** The terminal write of a failed or cancelled run; the caller holds the run row lock. */
+  private async terminalize(
+    tx: Executor,
+    run: { id: string; projectId: string; startedAt: Date | null },
+    input: {
+      state: 'failed' | 'cancelled';
+      failureCategory?: AssessmentRunFailureCategory;
+      failureCode: string;
+      stageReached?: string;
+      providerMode?: ProviderMode;
+    },
+  ): Promise<void> {
+    await this.reapReserved(tx, run.id, 'run_ended');
+    const finishedAt = this.now();
+    const failureCategory =
+      input.state === 'failed' ? (input.failureCategory ?? 'internal_error') : null;
+    await tx
+      .update(analysisRuns)
+      .set({
+        state: input.state,
+        failureCategory,
+        startedAt: run.startedAt ?? finishedAt,
+        finishedAt,
+      })
+      .where(eq(analysisRuns.id, run.id));
+    await this.writeOutcome(tx, {
+      runId: run.id,
+      projectId: run.projectId,
+      outcome: input.state,
+      failureCategory,
+      failureCode: input.failureCode,
+      stageReached: input.stageReached ?? null,
+      providerMode: input.providerMode ?? null,
+    });
   }
 
   /** Locks and returns a RUNNING run, checking the lease. */
