@@ -88,8 +88,10 @@ R4 and R5 race regressions green. Two R4/R5 regression tests assumed a _blocking
   `replay` is refused in production. There is no live provider.
 - **No worker in a request:** `POST` calls the run store and returns; a scope test forbids the loop, the pipeline, any model call, a prompt renderer and
   `.transaction(` in the routes and service. The client chooses nothing else (no limit, model, provider or price table).
-- **Read model** (`AssessmentReadStore`): project-scoped; re-verifies the stored report (text hash, schema, M4 output hash) on **every read**. A report that does
-  not verify is returned as `verified:false` with **no report and no number**; an insufficient dimension or overall carries `score: null`; the replay flag comes
+- **Read model** (`AssessmentReadStore`): project-scoped; re-verifies the stored report (text hash, schema, M4 output hash) on **every read**. ~~A report that does
+  not verify is returned as `verified:false` with **no report and no number**~~ **[Corrected by R6A/P6A-R1: this was NOT true as shipped. The report was withheld,
+  but the per-dimension judgment rows (scores, rationale, citation and evidence text) were still returned, and the rows were never compared with the report.
+  See `docs/milestones/P6A_R1_REMEDIATION_REPORT.md`.]** An insufficient dimension or overall carries `score: null`; the replay flag comes
   from the stored provider mode; `semanticRelevance: 'not_verified'` is a literal on every judgment and on the notices.
 
 HTTP authorization/idempotency matrix: `apps/api/src/assessments/routes.test.ts` (anonymous/malformed/unauthorized on every route, organizer = judge,

@@ -75,6 +75,23 @@ describe('assessment page state (classification only: no number is ever produced
     expect(classifyOverall(detail(null, false))).toBe('unverified');
   });
 
+  it('classifies an unverified assessment as unverified however much content it carries (P6A-R1)', () => {
+    // verified=false with a report that looks perfectly scored: the flag wins, never the content
+    expect(classifyOverall(detail({ state: 'scored' }, false))).toBe('unverified');
+    const hostile = {
+      verified: false,
+      report: { overall: { state: 'scored', score10: 10 } },
+    } as unknown as AssessmentDetail;
+    expect(classifyOverall(hostile)).toBe('unverified');
+    expect(classifyPage(list({ assessments: [{ id: 'a' } as never] }), hostile)).toBe('unverified');
+    // verified=true without a report is not a score of zero
+    expect(classifyOverall({ verified: true, report: null } as unknown as AssessmentDetail)).toBe(
+      'unverified',
+    );
+    // an unknown overall state is never promoted to a scored one
+    expect(classifyOverall(detail({ state: 'something_new' }))).toBe('insufficient_evidence');
+  });
+
   it('never presents a failed run as a success, and keeps a failure newer than the last assessment visible', () => {
     const failed = run({ id: 'r2', state: 'failed', createdAt: '2026-01-03T00:00:00.000Z' });
     const older = {

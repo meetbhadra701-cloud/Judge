@@ -108,6 +108,7 @@ export { GATE_VALUES } from './issues.js';
 export type { DomainIssue, GateId, Rejection } from './issues.js';
 export {
   applyPostGates,
+  attributeDisposition,
   trackReferenceAudits,
   buildAssessorJudgments,
   classifyDisposition,
@@ -119,6 +120,7 @@ export {
 } from './judgment.js';
 export type {
   CriticFlag,
+  DispositionAttribution,
   DispositionClass,
   FinalUnit,
   TrackReferenceAudit,
@@ -204,9 +206,18 @@ export {
 export type { ShapeFailure, Staged, StagedCritic, StagedJudgment } from './stage.js';
 export { buildStatementItems } from './statements.js';
 export type { StatementItem, StatementResult } from './statements.js';
-export { STORED_REPORT_CHECKS, storedFormOf, verifyStoredAssessment } from './verify-report.js';
+export {
+  JUDGMENT_MISMATCH_VALUES,
+  STORED_REPORT_CHECKS,
+  storedFormOf,
+  verifyJudgmentsAgainstReport,
+  verifyStoredAssessment,
+} from './verify-report.js';
 export type {
+  JudgmentConsistency,
+  JudgmentMismatch,
   StoredAssessmentReport,
+  StoredJudgmentFacts,
   StoredReportCheck,
   StoredReportVerification,
 } from './verify-report.js';

@@ -9,7 +9,16 @@ import type { ScoreReport } from './scoring.js';
  *
  * Everything here is an AI ESTIMATE for the human judge, never the judge's score. A dimension without enough evidence has NO number
  * of any kind (`score` is null and the report's `insufficient_evidence` state has no score field); a failed or cancelled run has no
- * assessment at all. `notices.semanticRelevance` is always `not_verified` (the scorer does not check that a citation is relevant).
+ * assessment at all.
+ *
+ * VERIFIED OR WITHHELD (P6A-R1). Every read re-verifies the stored assessment in two steps: the report bytes (text hash, schema, M4
+ * output hash, canonical fixed point, jsonb mirror), then the judgment rows against that report (same dimensions, same state and number,
+ * same cited evidence ids). If either step fails the assessment is `verified: false` and ONLY safe metadata is returned: `report` is
+ * null, `judgments` and `limitations` are empty, and no score, rationale, citation or evidence text of any kind appears; in the list
+ * `overall` is null. `verificationFailure` carries a stable machine code (a report check name, `report_schema`, or
+ * `judgment_mismatch_<reason>`). The verifier authenticates the report and the agreement of the rows with it; it does NOT authenticate
+ * the free text of a verified assessment's rows (rationale, citation notes, limitation codes), which no hash covers, and its hashes live
+ * in the same database as the data (they detect inconsistent edits and corruption, not a writer able to recompute every column). `notices.semanticRelevance` is always `not_verified` (the scorer does not check that a citation is relevant).
  */
 
 export const ASSESSMENT_API_NOTICE =
@@ -32,14 +41,18 @@ export const ASSESSMENT_RUN_STATE_VALUES = [
 export const AssessmentRunState = z.enum(ASSESSMENT_RUN_STATE_VALUES);
 export type AssessmentRunState = z.infer<typeof AssessmentRunState>;
 
-/** What a unit's disposition means (the P3 policy classes): an honest "not enough evidence" is not a failure. */
-export const DISPOSITION_CLASS_VALUES = [
+/**
+ * WHO decided that a dimension has no number (R6A). Never "valid": no label here says that a model's claim of insufficiency is
+ * correct, only who made it. `insufficient_by_assessor` is the model's own claim and was not independently reviewed.
+ */
+export const DISPOSITION_ATTRIBUTION_VALUES = [
   'scored',
-  'valid_insufficiency',
-  'substantive',
+  'insufficient_by_assessor',
+  'insufficient_by_code',
+  'insufficient_by_critic',
   'technical',
 ] as const;
-export type DispositionClass = (typeof DISPOSITION_CLASS_VALUES)[number];
+export type DispositionAttribution = (typeof DISPOSITION_ATTRIBUTION_VALUES)[number];
 
 export interface AssessmentUsageView {
   readonly attemptsStarted: number;
@@ -150,7 +163,8 @@ export interface AssessmentJudgmentView {
   /** The assessor's rating on the rubric scale; null for every insufficient outcome (never zero-filled). */
   readonly score: number | null;
   readonly disposition: string;
-  readonly dispositionClass: DispositionClass;
+  /** Who decided the outcome (see `DispositionAttribution`). */
+  readonly dispositionAttribution: DispositionAttribution;
   readonly rationale: string | null;
   readonly limitations: readonly string[];
   readonly assessorAttempts: number;
@@ -176,7 +190,7 @@ export interface AssessmentDetail {
   readonly providerMode: ProviderMode;
   readonly replayDemonstration: boolean;
   readonly target: 'overall';
-  /** The stored report re-verified (text hash, schema, M4 output hash). When false the report is NOT returned. */
+  /** The stored assessment re-verified in two steps (see the header). When false NO content is returned. */
   readonly verified: boolean;
   readonly verificationFailure: string | null;
   readonly report: ScoreReport | null;

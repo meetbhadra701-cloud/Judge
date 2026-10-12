@@ -136,7 +136,7 @@ second pass always returns); it was replaced by a real mutant (a second re-ask a
 ## 8. Deviations, decisions and findings
 
 1. **P4 contract gap (needs owner decision).** `AssessmentInputReader` requires both a source and a context extraction, and M3
-   refuses an empty batch. A locked context with no explicit rules/requirements and no declared tracks yields zero reference
+   refuses an empty batch. A locked context with no explicit applicable rules/requirements and none of the project's declared tracks defined yields zero reference
    items and cannot be assessed. P5 fails such a run before any spend (`no_context_reference_evidence`); P4 was not changed.
 2. **No feedback channel in the P2 prompts.** The single repair re-ask re-sends the identical request; critic reruns change only
    the candidate set. Delivering feedback needs prompt v3.
@@ -147,7 +147,7 @@ second pass always returns); it was replaced by a real mutant (a second re-ask a
 6. Zero extracted records ⇒ `source_unavailable` / `no_extractable_records`.
 7. Design §12.3.4 small-row table prints a re-run allowance of 8; the stated rule gives 16 (fallback) — the code follows the
    rule (plans 98 calls, headroom 52).
-8. The pipeline-config builder (`buildPipelineConfig`) lives in the worker; P6 must share or relocate it.
+8. The pipeline-config builder (`buildPipelineConfig`) lives in the worker; P6 must share or relocate it. _(Resolved in P6A: the pure builder is in `@judge-copilot/assessment`, composed once in `@judge-copilot/prompts`.)_
 
 ## 9. Remaining prerequisites for P6
 

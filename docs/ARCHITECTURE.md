@@ -357,7 +357,7 @@ Rules:
 6. Adapters implement ports defined in lower layers (e.g. `database` implements the `AuditSink`
    port from `audit`). Apps compose adapters with core logic.
 
-Current actual dependencies:
+Current actual dependencies (generated from the `workspace:` entries of each `package.json`; keep in sync):
 
 ```
 shared     → (none)
@@ -368,18 +368,21 @@ context    → schemas
 capture    → domain, schemas
 evidence   → domain, schemas
 scoring    → context, evidence, schemas
-llm        → context, schemas   (M5 P1; imported only by the worker pipeline, M5 P5)
-prompts    → context, schemas   (M5 P2; imported only by the worker pipeline, M5 P5)
+llm        → context, schemas   (M5 P1; imported by the worker pipeline, and by the API only for the offline runtime gate: `assertProviderAllowed`, `ReplayFixtureFile`)
+prompts    → assessment, context, schemas   (M5 P2/P6A; the frozen prompts and, in `pipeline-config.ts` only, the one composition of the shared pipeline configuration;
+                                             imported by the worker pipeline and, for `buildPipelineConfig`, by the API)
 assessment → context, evidence, schemas, scoring   (M5 P3; pure)
 database   → assessment, audit, context, domain, evidence, schemas, scoring
-             (scoring only in packages/database/src/trusted-rescoring.ts: persistence re-runs the real engine, M5 P4 R4)
+             (scoring only in packages/database/src/trusted-rescoring.ts: persistence re-runs the real engine, M5 P4 R4;
+              assessment also in the P6A read model, which re-verifies a stored report against its judgment rows)
 auth       → domain, schemas
 safe-http  → capture, schemas
 github     → capture, schemas
 devpost    → capture, schemas
 deployment → capture, schemas
 video      → capture, schemas
-api        → audit, auth, capture, context, database, domain, evidence, schemas, shared
+api        → audit, auth, capture, context, database, domain, evidence, llm, prompts, schemas, shared
+             (llm, prompts: only the offline assessment runtime gate and the shared pipeline configuration, in `apps/api/src/assessments`; no model call)
 worker     → assessment, audit, capture, context, database, deployment, devpost, domain, evidence, github, llm, prompts,
              safe-http, schemas, shared, video   (assessment, context, evidence, llm, prompts: the offline assessment pipeline, M5 P5)
 web        → context, schemas

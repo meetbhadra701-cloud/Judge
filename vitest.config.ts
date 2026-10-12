@@ -5,10 +5,17 @@ const conditions = ['@judge-copilot/source', 'import', 'module', 'node', 'defaul
 
 export default defineConfig({
   resolve: { conditions },
+  // the web UI's presentational components are rendered to static markup in tests
+  esbuild: { jsx: 'automatic' },
   // Tests run in Vite's SSR (server) environment, which has its own resolver settings.
   ssr: { resolve: { conditions } },
   test: {
-    include: ['packages/*/src/**/*.test.ts', 'apps/*/src/**/*.test.ts', 'tests/**/*.test.ts'],
+    include: [
+      'packages/*/src/**/*.test.ts',
+      'apps/*/src/**/*.test.ts',
+      'apps/web/app/**/*.test.tsx',
+      'tests/**/*.test.ts',
+    ],
     setupFiles: ['./tests/support/no-network.mjs'],
     environment: 'node',
     // Real-PostgreSQL runs share one disposable database that each file rebuilds, so files must not overlap.

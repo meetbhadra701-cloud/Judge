@@ -22,6 +22,7 @@ import { AssessmentService } from '../../apps/api/src/assessments/service.js';
 import { buildApp, SERVICE_NAME, type ApiApp } from '../../apps/api/src/app.js';
 import { ProjectService } from '../../apps/api/src/projects/service.js';
 import { bearer, fakeVerifier, TEST_TOKENS } from '../../apps/api/src/testing/harness.js';
+import { corruptions } from '../../apps/worker/src/testing/corrupt.js';
 import { createAssessmentLoop } from '../../apps/worker/src/assessment/loop.js';
 import { harness, seedWorld, TEST_MODELS } from '../../apps/worker/src/testing/assessment-world.js';
 import { FakeModel } from '../../apps/worker/src/testing/fake-model.js';
@@ -283,6 +284,68 @@ describe.each(testDatabaseTargets())(
       expect(await work()).toHaveLength(1);
       expect((await call('GET', `${base}/assessments`)).body['assessments']).toHaveLength(1);
     });
+
+    it.each([
+      ['a corrupted JSONB mirror', 'reportMirror', 'jsonb_mirror'],
+      [
+        'judgment scores that disagree with the report',
+        'judgmentScores',
+        'judgment_mismatch_score',
+      ],
+    ] as const)(
+      'over HTTP, an assessment with %s is withheld: verified=false, no report, no judgments, no number, no text',
+      async (_label, corruption, failure) => {
+        const world = await seedWorld(db);
+        const base = `/projects/${world.project.id}`;
+        expect(
+          (
+            await call(
+              'POST',
+              `${base}/assessments`,
+              KEY(corruption === 'reportMirror' ? 40 : 41),
+              { mode: 'assess' },
+            )
+          ).status,
+        ).toBe(202);
+        await work();
+        const list = (await call('GET', `${base}/assessments`)).body['assessments'] as {
+          id: string;
+        }[];
+        const id = list[0]?.id ?? '';
+        const before = await call('GET', `${base}/assessments/${id}`);
+        expect(before.body).toMatchObject({ verified: true });
+        const texts = (before.body['judgments'] as { rationale: string | null }[]).flatMap((j) =>
+          j.rationale && j.rationale.length >= 12 ? [j.rationale] : [],
+        );
+        expect(texts.length).toBeGreaterThan(0);
+
+        await corruptions[corruption](db, id);
+
+        const detail = await call('GET', `${base}/assessments/${id}`);
+        expect(detail.status).toBe(200);
+        expect(detail.body).toMatchObject({
+          verified: false,
+          verificationFailure: failure,
+          report: null,
+          judgments: [],
+          limitations: [],
+        });
+        const serialized = JSON.stringify(detail.body);
+        for (const text of texts) expect(serialized).not.toContain(text);
+        for (const key of ['"score"', '"score10"', '"scoreOnScale"', '"rationale"']) {
+          expect(serialized).not.toContain(key);
+        }
+        const listed = (await call('GET', `${base}/assessments`)).body['assessments'] as {
+          id: string;
+          verified: boolean;
+          overall: unknown;
+        }[];
+        expect(listed.find((item) => item.id === id)).toMatchObject({
+          verified: false,
+          overall: null,
+        });
+      },
+    );
 
     it('an abandoned pending run is cancelled by the pending-expiry policy and shows as cancelled, not as an assessment', async () => {
       const world = await seedWorld(db);

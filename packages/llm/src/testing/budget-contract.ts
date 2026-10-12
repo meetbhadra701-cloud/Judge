@@ -339,24 +339,61 @@ export function defineBudgetContract(label: string, budgetFor: BudgetFactory): v
         expect(snap.reserved.calls).toBe(0);
       });
 
-      it('serializes settle against reserve: a settlement racing a reservation cannot double-spend the freed budget', async () => {
+      /*
+       * The spending safety invariant is "never two": after the first call's settlement frees (reserved cost - measured cost), the
+       * budget holds room for exactly ONE more worst-case reservation, so of two reservations racing a settlement at most one may
+       * succeed. Whether it is one or zero depends on whether the reservations were serialized before or after the settlement, and
+       * both orders are correct; the test used to demand "exactly one", which only held for one interleaving (R6A: flaky). The
+       * orders are pinned separately below, so the exactly-one case is still proved, deterministically.
+       */
+      const raceSetup = async () => {
         const cost = bounds(1_000, 100).costNanoUsd;
         const measured = 10 * 100 + 1 * 500; // the settled cost of the first attempt
         const { budget } = budgetFor({ maxCostNanoUsd: cost + measured });
         const first = await budget.reserve(ask());
         if (!first.ok) throw new Error('denied');
-        const [settled, second, third] = await Promise.all([
+        const settle = () =>
           budget.settle(first.callId, {
             kind: 'measured',
             usage: usage(10, 1),
             outcomeCode: 'ok',
             responseHash: null,
-          }),
+          });
+        return { budget, settle, cost, measured };
+      };
+
+      it('serializes settle against reserve: a settlement racing two reservations never lets both through', async () => {
+        const { budget, settle, cost, measured } = await raceSetup();
+        const [settled, second, third] = await Promise.all([
+          settle(),
           budget.reserve(ask(bounds(1_000, 100), 'b')),
           budget.reserve(ask(bounds(1_000, 100), 'c')),
         ]);
         expect(settled).toBeUndefined();
+        // either order is valid, but the freed budget can never be spent twice
+        expect([second.ok, third.ok].filter(Boolean).length).toBeLessThanOrEqual(1);
+        const snap = await budget.snapshot();
+        expect(
+          snap.settled.costNanoUsd + snap.unknown.costNanoUsd + snap.reserved.costNanoUsd,
+        ).toBeLessThanOrEqual(cost + measured);
+      });
+
+      it('after the settlement, two racing reservations get exactly one slot of the freed budget', async () => {
+        const { budget, settle } = await raceSetup();
+        await settle();
+        const [second, third] = await Promise.all([
+          budget.reserve(ask(bounds(1_000, 100), 'b')),
+          budget.reserve(ask(bounds(1_000, 100), 'c')),
+        ]);
         expect([second.ok, third.ok].filter(Boolean)).toHaveLength(1);
+      });
+
+      it('before the settlement the budget is full, so a reservation is denied; the same reservation then succeeds once', async () => {
+        const { budget, settle } = await raceSetup();
+        expect((await budget.reserve(ask(bounds(1_000, 100), 'b'))).ok).toBe(false);
+        await settle();
+        expect((await budget.reserve(ask(bounds(1_000, 100), 'c'))).ok).toBe(true);
+        expect((await budget.reserve(ask(bounds(1_000, 100), 'd'))).ok).toBe(false);
       });
     });
   });

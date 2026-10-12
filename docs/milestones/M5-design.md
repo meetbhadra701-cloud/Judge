@@ -383,6 +383,14 @@ member set (`context_evidence` extraction keyed by project + context version + d
 of the context does not force model re-extraction. Known side-effect: citing one satisfies M4's `event_context` need-group channel
 (a coverage nudge with near-zero strength) — risk U9.
 
+> **[R6A correction — assumption withdrawn.]** This section was written assuming the builder always produces at least one reference item. It does
+> not. `buildEventReferenceItems` yields **zero** items for a locked context in which none of the project's declared tracks is defined and no rule or
+> submission requirement is `explicit` and applicable (`interpreted` and `unclear` statements never count). That is an ordinary, lockable context
+> (an official rubric only). The P4/P5 contract cannot represent an empty reference set (M3 refuses an empty batch and the trusted reader requires a
+> bound context extraction), so such a project **cannot be assessed at all** and the run is failed before any spend with
+> `domain_validation_failed` / `no_context_reference_evidence`. Nothing is fabricated. See `M5-P6A-decisions.md` F-3 for the options; until an owner
+> decision is implemented this is a documented limitation, not a guarantee that reference evidence exists.
+
 **Hard rule: an event rule is never project evidence `[Rev3: C4]`.** Event Context evidence describes the event's rules; it does **not** show that a project satisfies them. Therefore:
 
 1. **A numerical quality score may never rest on Event-Context reference citations alone.** G6 rejects, and the deterministic post-gate converts to `insufficient_evidence` (`event_reference_only`), any `scored`
@@ -778,8 +786,10 @@ rationale mentioning handles that are not cited, all-`team_statement` citations 
 ### 9.3 What is a unit outcome, what is a run failure `[Rev2: R8]`
 
 Three kinds of "not assessed" are kept strictly apart: **valid insufficiency** (a successful, honest outcome), **substantive rejection** (the pipeline
-worked and judged the support inadequate) and **technical failure** (the machinery misbehaved). Only technical failure — in aggregate — and outages or
-budget exhaustion fail a run.
+
+> **[R6A terminology note.]** "Valid insufficiency" is the _failure-policy_ class (an outcome that is not a failure and never counts toward the technical threshold). It does **not** say that an insufficiency decision is correct, and it must not be shown to a judge as if it did. What the API and UI show instead is **who decided** (`dispositionAttribution`: `insufficient_by_assessor` — the model's own claim, not independently reviewed —, `insufficient_by_code`, `insufficient_by_critic`, `technical`), derived by `attributeDisposition` in `@judge-copilot/assessment`.
+> worked and judged the support inadequate) and **technical failure** (the machinery misbehaved). Only technical failure — in aggregate — and outages or
+> budget exhaustion fail a run.
 
 | #   | Event                                                                                          | Scope    | Result                                                                                                                                                                                                                           |
 | --- | ---------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -858,6 +868,11 @@ able to launch it; it spends money, so it is separate from `source.capture`). No
 | GET    | `/projects/:projectId/assessments`               | versions newest-first (summary: version, overall state/score, created, `provider_mode`, target) + active run                                                                                                                                                                                                                                                                                                                                    |
 | GET    | `/projects/:projectId/assessments/:assessmentId` | report, judgments, citations (with evidence text/excerpt links), limitations (incl. `official_track_rubrics_not_assessed`), pipeline config, usage split by basis                                                                                                                                                                                                                                                                               |
 | GET    | `/projects/:projectId/assessment-runs/:runId`    | state, stage, failure category/code, usage so far, the **local spending guard** status (§12.4)                                                                                                                                                                                                                                                                                                                                                  |
+
+**[R6A/P6A-R1: verified or withheld.]** Every read re-verifies the stored assessment in two steps: the report bytes, then the judgment rows against that report. If either
+fails, `GET …/assessments/:id` returns `verified:false` with a failure code and **only safe metadata** (`report: null`, `judgments: []`, `limitations: []`, no number, no
+rationale, no citation or evidence text), and the list shows `overall: null`. The verifier does not authenticate the free text of a verified assessment's rows. Details:
+`docs/milestones/P6A_R1_SECURITY_INVARIANTS.md`.
 
 PUT/PATCH/DELETE → `405`. A project/assessment of another project answers like a nonexistent one. Responses carry the `semanticRelevance:
 not_verified` notice, the "AI estimate, not a human judgment" flag, `provider_mode`, and the target statement "overall rubric only".

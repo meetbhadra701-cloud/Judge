@@ -225,6 +225,42 @@ export function classifyDisposition(disposition: UnitDisposition): DispositionCl
   }
 }
 
+/**
+ * WHO decided that a unit has no number (R6A). `classifyDisposition` keeps its original policy vocabulary (its `valid_insufficiency`
+ * means "the pipeline worked and the outcome is not a failure"); it says nothing about whether the model's claim is correct, so it is
+ * not what a judge is shown. This attribution is:
+ *
+ *   scored                        a number the assessor gave and the gates and the critic let stand
+ *   insufficient_by_assessor      the ASSESSOR itself declared insufficiency; nothing reviewed that claim
+ *   insufficient_by_code          deterministic code found no usable basis (no candidates, only event-rule citations, ...)
+ *   insufficient_by_critic        the critic's blocking finding turned a score into insufficiency
+ *   technical                     the machinery failed (invalid output, no critic, refusal, limit): no judgment about the project
+ */
+export type DispositionAttribution =
+  | 'scored'
+  | 'insufficient_by_assessor'
+  | 'insufficient_by_code'
+  | 'insufficient_by_critic'
+  | 'technical';
+
+export function attributeDisposition(disposition: UnitDisposition): DispositionAttribution {
+  switch (disposition) {
+    case 'scored':
+      return 'scored';
+    case 'assessor_reported_insufficient':
+      return 'insufficient_by_assessor';
+    case 'marked_insufficient_by_critic':
+      return 'insufficient_by_critic';
+    case 'assessor_output_invalid':
+    case 'critic_unavailable':
+    case 'provider_refused':
+    case 'official_requirement_omitted_by_limit':
+      return 'technical';
+    default:
+      return 'insufficient_by_code';
+  }
+}
+
 export interface FinalUnit {
   readonly dimensionId: string;
   readonly disposition: UnitDisposition;
