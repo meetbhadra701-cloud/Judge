@@ -284,7 +284,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013) and no other', () => {
+  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013) plus the one additive P6A column migration 0014, and no other', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -303,6 +303,8 @@ describe('M5 milestone scope (phase P6A)', () => {
       '0011_m5_assessment_integrity.sql',
       '0012_r4_assessment_identity.sql',
       '0013_r4_assessment_integrity.sql',
+      // P6A (R5 F-5): one additive nullable column, graph_extractions.recorded_limitations; no table, trigger or constraint
+      '0014_p6a_extraction_limitations.sql',
     ]);
   });
 

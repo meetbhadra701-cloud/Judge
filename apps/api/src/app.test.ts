@@ -50,6 +50,10 @@ describe('api environment', () => {
       EVENT_CONTEXT_EXTRACTOR: 'none',
       AUTH_MODE: 'none',
       AUTH_JWT_ROLES_CLAIM: 'roles',
+      ASSESSMENT_PROVIDER: 'none',
+      ASSESSMENT_MODEL_EXTRACTION: 'claude-haiku-5-5',
+      ASSESSMENT_MODEL_ASSESSMENT: 'claude-sonnet-5-5',
+      ASSESSMENT_MODEL_CRITIC: 'claude-sonnet-5-5',
     });
   });
 
