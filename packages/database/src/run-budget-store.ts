@@ -139,6 +139,15 @@ export interface CallBinding {
   readonly dimensionId: string | null;
   readonly closedSet: Record<string, unknown>;
   readonly closedSetHash: string;
+  /** R5 F-6: the audit identity recorded with the call, read back so the caller can compare it with what it sent. */
+  readonly model: string;
+  readonly provider: string | null;
+  readonly providerMode: string | null;
+  readonly promptId: string | null;
+  readonly promptVersion: string | null;
+  readonly promptTemplateHash: string | null;
+  readonly schemaId: string | null;
+  readonly schemaVersion: string | null;
 }
 
 /** The metadata of a request is outside the persisted allow-list. Nothing was reserved. */
@@ -540,6 +549,14 @@ export class DatabaseRunBudget {
       dimensionId: row.dimensionId,
       closedSet: row.closedSet,
       closedSetHash: row.closedSetHash,
+      model: row.model,
+      provider: row.provider,
+      providerMode: row.providerMode,
+      promptId: row.promptId,
+      promptVersion: row.promptVersion,
+      promptTemplateHash: row.promptTemplateHash,
+      schemaId: row.schemaId,
+      schemaVersion: row.schemaVersion,
     };
   }
 

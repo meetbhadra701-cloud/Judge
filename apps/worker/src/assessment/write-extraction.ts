@@ -2,6 +2,7 @@ import {
   assembleContextBatch,
   assembleExtractionBatch,
   buildEventReferenceItems,
+  collectLimitations,
   dryRunPlan,
   referenceMetaOf,
   type PlanWorld,
@@ -164,6 +165,12 @@ export async function writeSourceExtraction(
       evidenceRef: relation.evidenceRef,
       basis: relation.basis,
     })),
+    // R5 F-5: what the extraction itself dropped, downgraded or rejected, kept with it so a reusing run can still disclose it
+    recordedLimitations: collectLimitations({
+      fidelity: draft.fidelity,
+      rejections: draft.rejections,
+      droppedRelations: draft.droppedRelations,
+    }),
   };
   try {
     const created = await context.extractions.createExtraction(createInput);

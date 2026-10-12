@@ -74,6 +74,8 @@ export interface AssessResult {
   readonly report: ScoreReport;
   /** Units whose critic reported only minor findings (recorded as a limitation, never as a penalty). */
   readonly minorFindingUnits: readonly string[];
+  /** R5 F-7: per unit, the most candidates ever left out of an assessor call because they did not fit its input bound. */
+  readonly truncatedCandidates: ReadonlyMap<string, number>;
   readonly rerunsUsed: number;
 }
 
@@ -169,6 +171,7 @@ export async function assessUnits(context: AssessContext): Promise<AssessResult>
   const finals: FinalUnit[] = [];
   const reviewed = new Set<string>();
   const minorFindingUnits: string[] = [];
+  const truncatedCandidates = new Map<string, number>();
   let rerunsUsed = 0;
 
   for (const unit of units) {
@@ -197,6 +200,13 @@ export async function assessUnits(context: AssessContext): Promise<AssessResult>
         used += size;
         return true;
       });
+      const omitted = base.items.length - fitted.length;
+      if (omitted > 0) {
+        truncatedCandidates.set(
+          unit.dimensionId,
+          Math.max(truncatedCandidates.get(unit.dimensionId) ?? 0, omitted),
+        );
+      }
       const active =
         fitted.length === base.items.length
           ? base
@@ -399,6 +409,7 @@ export async function assessUnits(context: AssessContext): Promise<AssessResult>
     evaluation,
     report: scored.report,
     minorFindingUnits,
+    truncatedCandidates,
     rerunsUsed,
   };
 }

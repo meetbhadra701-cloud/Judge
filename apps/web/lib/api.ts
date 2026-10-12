@@ -27,6 +27,7 @@ export async function apiRequest<T>(
   method: 'GET' | 'POST' | 'PATCH',
   path: string,
   body?: unknown,
+  extraHeaders?: Readonly<Record<string, string>>,
 ): Promise<ApiResult<T>> {
   let response: Response;
   try {
@@ -35,6 +36,7 @@ export async function apiRequest<T>(
       cache: 'no-store',
       headers: {
         ...authHeader(),
+        ...extraHeaders,
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),

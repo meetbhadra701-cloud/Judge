@@ -30,3 +30,8 @@ export type { OfficialUnit, OfficialUnitBinding } from './rubric-view.js';
 export { FRAMING_VERSION } from './system.js';
 export { PROMPT_REGISTRY, PROMPT_VERSION, PROMPTS, promptFor } from './templates.js';
 export type { StagePrompt } from './templates.js';
+export {
+  buildPipelineConfig,
+  checkPipelineConfig,
+  currentPromptIdentities,
+} from './pipeline-config.js';

@@ -431,6 +431,12 @@ export const ASSESSMENT_RUN_LIMIT_MAXIMA = {
   runWallClockMs: 14_400_000,
 } as const;
 
+/**
+ * The dated price table every assessment run names (`assessment_run_budget.price_table_id`). One constant, so the API that freezes a
+ * run request and the llm package that defines the table cannot drift apart; a new dated table is a new constant (`prices/v2`).
+ */
+export const ASSESSMENT_PRICE_TABLE_ID = 'prices/v1' as const;
+
 /** Per-attempt timeout bounds (milliseconds). */
 export const ASSESSMENT_CALL_TIMEOUT_MS = { default: 120_000, max: 300_000 } as const;
 

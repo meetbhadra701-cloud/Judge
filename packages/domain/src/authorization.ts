@@ -13,6 +13,8 @@ export const PERMISSIONS = [
   'project.write',
   'source.capture',
   'evidence.read',
+  'assessment.read',
+  'assessment.run',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -20,6 +22,10 @@ export type Permission = (typeof PERMISSIONS)[number];
  * organizer — manages Event Context, projects, source declarations and captures.
  * judge     — reads Event Context, projects and snapshots, and may request a fresh capture
  *             (which only ever adds a new snapshot). A judge never edits official Event Context.
+ *
+ * `assessment.read` and `assessment.run` (M5, design D14) let both roles read a project's AI pre-interview assessments and request one.
+ * `assessment.run` is separate from `source.capture` because it can spend money (it is refused unless a provider is configured, and a
+ * run is bounded by the local spending guard); there is no permission to edit or delete an assessment.
  *
  * `evidence.read` (M3) lets both roles inspect a project's evidence graph. There is no evidence
  * write permission: M3 has no producer, and the graph is written only by trusted server code.
@@ -32,8 +38,17 @@ export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>
     'project.write',
     'source.capture',
     'evidence.read',
+    'assessment.read',
+    'assessment.run',
   ],
-  judge: ['event_context.read', 'project.read', 'source.capture', 'evidence.read'],
+  judge: [
+    'event_context.read',
+    'project.read',
+    'source.capture',
+    'evidence.read',
+    'assessment.read',
+    'assessment.run',
+  ],
 };
 
 export function hasPermission(roles: readonly ActorRole[], permission: Permission): boolean {

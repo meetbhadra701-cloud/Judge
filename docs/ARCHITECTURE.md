@@ -429,19 +429,32 @@ its own migrations; existing migrations are never edited after being committed.
 - **api** binds `API_HOST:API_PORT` (default `127.0.0.1:3001`), exposes `GET /health` →
   `{"status":"ok","service":"judge-copilot-api"}` (never touches the database) and the M1 Event
   Context routes (§9). Without `DATABASE_URL` it still boots; Event Context routes then answer
-  `503 DATABASE_NOT_CONFIGURED`. It closes cleanly on SIGINT/SIGTERM.
+  `503 DATABASE_NOT_CONFIGURED`. It closes cleanly on SIGINT/SIGTERM. M5 P6A adds the four
+  offline assessment routes (`apps/api/src/assessments`, [M5-P6A-report](./milestones/M5-P6A-report.md)):
+  `POST|GET /projects/:projectId/assessments`, `GET …/assessments/:assessmentId` and
+  `GET …/assessment-runs/:runId` (`assessment.read` / `assessment.run`, organizer and judge). `POST`
+  requires an `Idempotency-Key`, only creates a pending run (it never executes a worker or calls a model) and
+  answers `503 ASSESSMENT_PROVIDER_NOT_CONFIGURED` unless the explicit offline `ASSESSMENT_PROVIDER=replay` mode is
+  configured and approved by the runtime gate. The API and the worker build the pipeline configuration from the same
+  function (`buildPipelineConfig`, composed once in `@judge-copilot/prompts` over the pure builder in
+  `@judge-copilot/assessment`), so one logical request has one identity.
 - **worker** without `DATABASE_URL` idles with `jobHandlers: 0` and contacts nothing. With a
   database it runs the project-source capture loop (§10) with bounded concurrency and stops
   cleanly on SIGINT/SIGTERM. With a database **and** `ASSESSMENT_PROVIDER=replay` (development and
   tests only; the default `none` leaves the loop off) it also runs the offline pre-interview assessment
   loop (M5 P5, `apps/worker/src/assessment`, [M5-P5-report](./milestones/M5-P5-report.md)): lease and
   heartbeat per run, the S0–S14 pipeline over the scripted/replay providers, the durable spending guard,
-  pending-run expiry (default 15 minutes) and crash recovery. No live provider exists yet.
+  pending-run expiry (default 15 minutes) and crash recovery. Runs are claimed with
+  `AssessmentRunStore.claimNextRun` (`FOR UPDATE SKIP LOCKED`, atomic run + lease), and pending-expiry and
+  lease-recovery skip rows another transaction holds, so one locked run cannot starve the queue or the
+  maintenance pass. No live provider exists yet.
 - **web** renders the M1 Event Context views and the M2 project, source and snapshot views using
   server components and server actions that call the API server-side (`JUDGE_API_URL`,
   `JUDGE_API_TOKEN`). It binds **127.0.0.1** explicitly (its scripts pass `--hostname 127.0.0.1`): it
   has no per-user login, so exposing it beyond the local machine is unsupported (SECURITY §10).
-  M3 adds a read-only evidence view per project. No scoring or fake judging UI exists.
+  M3 adds a read-only evidence view per project. M5 P6A adds the advisory assessment page
+  (`/projects/:id/assessment`): it shows only what the verified API read model returns, never a number for an
+  insufficient dimension, and always states that the human judge's final score is authoritative. No fake judging UI exists.
 
 Only the worker contacts external services, and only through `safe-http` (source capture) or, for
 JWT verification, the configured identity provider's JWKS (API). The database pool connects lazily.

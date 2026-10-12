@@ -353,5 +353,43 @@ describe.each(testDatabaseTargets())(
         [CLAIM_QUOTES[0], 'Filler paragraph 20 is here.'].sort(),
       );
     });
+
+    it('tells the judge when an assessor saw only a prefix of the candidates (R5 F-7)', async () => {
+      const filler = Array.from(
+        { length: 14 },
+        (_, index) => `Filler claim ${String(index + 1)}: ${'y'.repeat(700)}.`,
+      );
+      const devpostText = ['HydroTrack', CLAIM_QUOTES[0], CLAIM_QUOTES[1], ...filler, ''].join(
+        '\n',
+      );
+      const model = new FakeModel().on('claim_extraction', (context) => ({
+        claims: context.records
+          .filter((record) => record.body?.startsWith('Filler claim') === true)
+          .map((record, index) => ({
+            ref: `f${String(index)}`,
+            text: (record.body ?? '').slice(0, 400),
+            passage: record.handle,
+            quote: (record.body ?? '').slice(0, 400),
+          })),
+      }));
+      const run = await execute(db, {
+        worldOptions: { devpostText, sources: ['devpost'] },
+        model,
+        limits: { maxReservedInputTokensPerCall: 20_000 },
+      });
+      expect(run.outcome.kind).toBe('succeeded');
+      const [assessment] = await run.assessments();
+      const limitations = assessment?.limitations as { code: string; subjects: string[] }[];
+      // the assessor saw only a prefix of the evidence, and the judge is told which dimensions were affected
+      const closed = (await run.calls())
+        .filter((call) => call.stage === 'dimension_assessment')
+        .map((call) => (call.closedSet as { evidence: string[] }).evidence.length);
+      expect(Math.max(...closed)).toBeLessThan(13);
+      expect(limitations.find((entry) => entry.code === 'candidates_omitted_for_size')).toEqual({
+        code: 'candidates_omitted_for_size',
+        count: 2,
+        subjects: ['official.problem_fit', 'official.usability'],
+      });
+    });
   },
 );

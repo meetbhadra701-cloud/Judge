@@ -2,7 +2,7 @@ import type { AssessmentRunStore } from '@judge-copilot/database';
 import { ManualClock } from '@judge-copilot/llm';
 import { createLogger } from '@judge-copilot/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { RunSession } from './session.js';
+import { HEARTBEAT_STOP_WAIT_MS, RunSession } from './session.js';
 import { nullSink } from '../testing/probes.js';
 import { RunStopped } from './stop.js';
 
@@ -59,6 +59,26 @@ describe('RunSession', () => {
     await session.stop();
     await clock.advance(10_000);
     expect(calls).toHaveLength(3); // no heartbeat after stop
+  });
+
+  it('stop() does not wait forever for a heartbeat query that never settles (R5 F-10)', async () => {
+    const { clock, session } = setup(() => new Promise<boolean>(() => undefined));
+    session.start();
+    await clock.advance(1_100); // the first heartbeat is now in flight and never answers
+    vi.useFakeTimers();
+    try {
+      let stopped = false;
+      const pending = session.stop().then(() => {
+        stopped = true;
+      });
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_STOP_WAIT_MS - 1);
+      expect(stopped).toBe(false); // still inside the bounded wait
+      await vi.advanceTimersByTimeAsync(2);
+      await pending;
+      expect(stopped).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a stale token (or a run someone else ended) aborts the signal and stops the worker writing', async () => {

@@ -22,6 +22,7 @@
     "@judge-copilot/context": "workspace:*",
     "@judge-copilot/evidence": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
-    "@judge-copilot/scoring": "workspace:*"
+    "@judge-copilot/scoring": "workspace:*",
+    "zod": "^4.6.5"
   }
 }

@@ -395,12 +395,13 @@ describe.skipIf(!URL_)('R4 F3/F4 terminal-run reservation race and lock order (P
         await held.wait;
       });
       await locked.wait;
-      // the candidate list is read from committed state (the lease still looks expired), then recoverRun blocks on the row lock
-      const recovering = store.recoverExpiredRuns(before);
-      await waitUntilBlocked();
+      // the candidate list is read from committed state (the lease still looks expired); since P6A (R5 F-1) recoverRun SKIPS the row
+      // the heartbeat holds instead of waiting for it, so the pass returns at once with nothing recovered
+      expect(await store.recoverExpiredRuns(before)).toEqual([]);
       held.open();
       await heartbeat;
-      expect(await recovering).toEqual([]);
+      // after the heartbeat committed the renewed lease protects the run on the next pass as well
+      expect(await store.recoverExpiredRuns(before)).toEqual([]);
       const [run] = await db.select().from(analysisRuns).where(eq(analysisRuns.id, runId));
       expect(run?.state).toBe('running');
       expect(await store.recoverRun(runId, before)).toBe(false);

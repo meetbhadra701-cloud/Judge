@@ -12,10 +12,10 @@ export interface RequestIssue {
 
 /** A malformed request (bad UUID, invalid body). Issues describe rules, never echo values. */
 export class RequestValidationError extends Error {
-  readonly location: 'body' | 'params' | 'query';
+  readonly location: 'body' | 'params' | 'query' | 'headers';
   readonly issues: readonly RequestIssue[];
 
-  constructor(location: 'body' | 'params' | 'query', issues: readonly RequestIssue[]) {
+  constructor(location: 'body' | 'params' | 'query' | 'headers', issues: readonly RequestIssue[]) {
     super(`Invalid request ${location}`);
     this.name = 'RequestValidationError';
     this.location = location;

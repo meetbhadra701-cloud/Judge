@@ -59,7 +59,12 @@ describe('packages/prompts source (P2)', () => {
   it('imports workspace packages only through their roots', () => {
     for (const file of sources) {
       for (const match of code(file).matchAll(/from ['"](@judge-copilot\/[^'"]+)['"]/g)) {
-        expect(match[1], relative(SRC, file)).toMatch(/^@judge-copilot\/(context|schemas)$/);
+        // P6A: only pipeline-config.ts composes the shared (pure, layer-2) configuration builder with the current prompt identities
+        const allowed =
+          relative(SRC, file) === 'pipeline-config.ts'
+            ? /^@judge-copilot\/(assessment|context|schemas)$/
+            : /^@judge-copilot\/(context|schemas)$/;
+        expect(match[1], relative(SRC, file)).toMatch(allowed);
       }
     }
   });

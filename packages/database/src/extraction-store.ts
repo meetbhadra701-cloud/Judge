@@ -75,6 +75,15 @@ export interface CreateExtractionInput extends ExtractionIdentityInput {
   readonly claimGrounding?: Readonly<Record<string, Grounding>>;
   readonly evidence: Readonly<Record<string, EvidenceItemMeta>>;
   readonly relations?: readonly RelationItemMeta[];
+  /** R5 F-5: the extraction-time limitations to record with a NEWLY created extraction (ignored when an equal one is reused). */
+  readonly recordedLimitations?: readonly RecordedLimitation[];
+}
+
+/** A stored limitation: a stable code, a count and code-assigned subjects (never source or model prose). */
+export interface RecordedLimitation {
+  readonly code: string;
+  readonly count: number;
+  readonly subjects: readonly string[];
 }
 
 /**
@@ -107,6 +116,8 @@ export interface StoredExtraction {
   readonly declaredTrackKeys: readonly string[];
   readonly membersHash: string;
   readonly createdByRunId: string | null;
+  /** null: created before limitations were recorded (or by a writer that recorded none). */
+  readonly recordedLimitations: readonly RecordedLimitation[] | null;
 }
 
 /** Members in CREATION order (the order defines the handles C-001, E-001, ...). */
@@ -142,7 +153,7 @@ const sameList = (a: readonly string[], b: readonly string[]): boolean => {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 };
 
-const toStored = (row: typeof graphExtractions.$inferSelect): StoredExtraction => ({
+export const toStored = (row: typeof graphExtractions.$inferSelect): StoredExtraction => ({
   id: row.id,
   projectId: row.projectId,
   kind: row.kind,
@@ -153,6 +164,12 @@ const toStored = (row: typeof graphExtractions.$inferSelect): StoredExtraction =
   declaredTrackKeys: [...row.declaredTrackKeys],
   membersHash: row.membersHash,
   createdByRunId: row.createdByRunId,
+  recordedLimitations:
+    row.recordedLimitations?.map((entry) => ({
+      code: entry.code,
+      count: entry.count,
+      subjects: [...entry.subjects],
+    })) ?? null,
 });
 
 export class GraphExtractionStore {
@@ -244,6 +261,14 @@ export class GraphExtractionStore {
           unknownCount: members.unknownIds.length,
           contradictionCount: members.contradictionIds.length,
           membersHash: hash,
+          recordedLimitations:
+            input.recordedLimitations === undefined
+              ? null
+              : input.recordedLimitations.map((entry) => ({
+                  code: entry.code,
+                  count: entry.count,
+                  subjects: [...entry.subjects],
+                })),
           createdByRunId: input.runId,
         })
         .returning();

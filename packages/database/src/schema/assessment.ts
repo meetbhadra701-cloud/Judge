@@ -427,6 +427,13 @@ export const graphExtractions = pgTable(
     unknownCount: integer('unknown_count').notNull(),
     contradictionCount: integer('contradiction_count').notNull(),
     membersHash: text('members_hash').notNull(),
+    /**
+     * R5 F-5 (P6A): the EXTRACTION-TIME limitations (fidelity downgrades, rejected items, dropped relations) recorded when the
+     * extraction was created, so a run that reuses it can still disclose them. Not part of the key or the content fingerprint; null for
+     * an extraction created before this column existed (a reusing run then says that its notices were not recorded).
+     */
+    recordedLimitations:
+      jsonb('recorded_limitations').$type<{ code: string; count: number; subjects: string[] }[]>(),
     createdByRunId: uuid('created_by_run_id').references(() => analysisRuns.id, {
       onDelete: 'restrict',
     }),

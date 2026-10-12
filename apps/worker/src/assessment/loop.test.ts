@@ -1,4 +1,9 @@
-import { analysisRuns, assessmentRunCalls, type JudgeDatabase } from '@judge-copilot/database';
+import {
+  analysisRuns,
+  assessmentRunCalls,
+  AssessmentRunStore,
+  type JudgeDatabase,
+} from '@judge-copilot/database';
 import { ScriptedProvider, type LlmProvider } from '@judge-copilot/llm';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -267,5 +272,68 @@ describe.each(testDatabaseTargets())('the assessment loop on %s', (_name, open) 
     const [run] = await db.select().from(analysisRuns).where(eq(analysisRuns.id, runId));
     expect(run?.state).toBe('cancelled');
     expect(loop.inFlight).toBe(0);
+  });
+
+  it('stop() while a claim is committing: the claimed run is launched, aborted and ENDED (cancelled), never left running', async () => {
+    const world = await seedWorld(db);
+    const scripted = new ScriptedProvider([new FakeModel().step], { repeatLast: true });
+    // the first model call waits for the abort, so the run can only end by the shutdown (and never by finishing first)
+    const hanging: LlmProvider = {
+      id: scripted.id,
+      mode: scripted.mode,
+      generate(request, signal) {
+        if (request.stage !== 'claim_extraction') return scripted.generate(request, signal);
+        return new Promise((resolve) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              resolve({ ok: false, category: 'cancelled', sendState: 'sent_unknown' });
+            },
+            { once: true },
+          );
+        });
+      },
+    };
+    const runId = await requestRun(harness(db), world, scripted);
+    const entered = { open: () => undefined as void };
+    const enteredP = new Promise<void>((resolve) => {
+      entered.open = resolve;
+    });
+    let go: () => void = () => undefined;
+    const release = new Promise<void>((resolve) => {
+      go = resolve;
+    });
+    const h = harness(db);
+    class SlowClaimStore extends AssessmentRunStore {
+      override async claimNextRun(...args: Parameters<AssessmentRunStore['claimNextRun']>) {
+        const claimed = await super.claimNextRun(...args); // committed: the run is ours
+        entered.open();
+        await release; // the loop learns about it only now
+        return claimed;
+      }
+    }
+    const slow = new SlowClaimStore({ db });
+    const { logger } = memoryLogger();
+    const { shutdown: _shutdown, ...deps } = h.deps(hanging);
+    const outcomes: [string, RunOutcome][] = [];
+    const loop = createAssessmentLoop({
+      db,
+      runs: slow,
+      logger,
+      concurrency: 1,
+      pollIntervalMs: 50,
+      shutdownGraceMs: 20,
+      onOutcome: (id, outcome) => void outcomes.push([id, outcome]),
+      pipeline: { ...deps, runs: slow },
+    });
+    loop.start();
+    await enteredP;
+    const stopping = loop.stop();
+    go();
+    await stopping;
+    await waitFor(() => outcomes.length === 1, 20_000, 'the outcome');
+    expect(outcomes[0]?.[1]).toMatchObject({ kind: 'cancelled', code: 'worker_shutdown' });
+    const [run] = await db.select().from(analysisRuns).where(eq(analysisRuns.id, runId));
+    expect(run?.state).toBe('cancelled');
   });
 });

@@ -1,6 +1,7 @@
 import {
   buildEventReferenceItems,
   collectLimitations,
+  EXTRACTION_LIMITATION_CODES,
   buildPassages,
   type Limitation,
 } from '@judge-copilot/assessment';
@@ -169,10 +170,25 @@ async function loadFacts(deps: PipelineDeps, runId: string, leaseToken: string):
   };
 }
 
-/** Runs one assessment run to a terminal state (or hands it back, if this worker no longer owns it). */
+/**
+ * Claims ONE named run, then runs it (tests and tools that already know the run id; the loop claims with `claimNextRun` and calls
+ * `runClaimedAssessment` directly, so a run is never claimed twice).
+ */
 export async function runAssessment(deps: PipelineDeps, runId: string): Promise<RunOutcome> {
   const leaseToken = await deps.runs.claimRun(runId, deps.leaseMs);
   if (leaseToken === null) return { kind: 'not_claimed' };
+  return runClaimedAssessment(deps, runId, leaseToken);
+}
+
+/**
+ * Runs a run THIS worker already holds the lease of (`claimRun` / `claimNextRun` returned `leaseToken`) to a terminal state, or hands
+ * it back if the worker no longer owns it. It performs no claim of its own.
+ */
+export async function runClaimedAssessment(
+  deps: PipelineDeps,
+  runId: string,
+  leaseToken: string,
+): Promise<RunOutcome> {
   const { logger } = deps;
   let session: RunSession | null = null;
   try {
@@ -408,18 +424,20 @@ async function execute(
   session.checkpoint('assess');
   const assessed = await assessUnits({ caller, ledger, reader: deps.reader, runId, limits });
 
+  // Extraction-time notices (fidelity downgrades, rejected items, dropped relations) belong to the extraction, so they are read back
+  // from it: a reusing run discloses exactly what the original run did (R5 F-5). The windowing and locked-context notices are
+  // properties of THIS run's inputs and are always recomputed; the two sets of codes are disjoint.
+  const recorded = recordedExtractionLimitations(source);
   const limitations: Limitation[] = [
-    ...collectLimitations({
-      windowing: plan.windowing,
-      ...(draft === null
-        ? {}
-        : {
+    ...collectLimitations({ windowing: plan.windowing, locked }),
+    ...(recorded ??
+      (draft === null
+        ? []
+        : collectLimitations({
             fidelity: draft.fidelity,
             rejections: draft.rejections,
             droppedRelations: draft.droppedRelations,
-          }),
-      locked,
-    }),
+          }))),
   ];
   const note = (code: string, subjects: readonly string[]) => {
     limitations.push({
@@ -436,8 +454,16 @@ async function execute(
     ]);
   }
   if (draft === null) note('extraction_reused', [source.extractionKey]);
+  if (draft === null && recorded === null) {
+    // an extraction created before its notices were recorded: its fidelity and rejection notices cannot be reproduced, and the judge is told so
+    note('extraction_limitations_not_recorded', [source.extractionKey]);
+  }
   if (assessed.evaluation.mostlyUnassessable) note('mostly_unassessable', []);
   if (assessed.authorized.data.newerDeclarationsExist) note('newer_declarations_exist', []);
+  if (assessed.truncatedCandidates.size > 0) {
+    // R5 F-7: the assessor saw only a prefix of these dimensions' candidates; the omitted ones could not be cited
+    note('candidates_omitted_for_size', [...assessed.truncatedCandidates.keys()].sort());
+  }
   if (assessed.minorFindingUnits.length > 0)
     note('critic_minor_findings', [...assessed.minorFindingUnits].sort());
 
@@ -476,4 +502,17 @@ async function execute(
     assessmentId: persisted.assessmentId,
     versionNumber: persisted.versionNumber,
   };
+}
+
+/** The extraction's recorded limitations when every entry is a known code (else null: treated as not recorded). */
+function recordedExtractionLimitations(extraction: StoredExtraction): Limitation[] | null {
+  const stored = extraction.recordedLimitations;
+  if (stored === null) return null;
+  const known = new Set<string>(EXTRACTION_LIMITATION_CODES);
+  if (stored.some((entry) => !known.has(entry.code))) return null;
+  return stored.map((entry) => ({
+    code: entry.code as Limitation['code'],
+    count: entry.count,
+    subjects: [...entry.subjects],
+  }));
 }

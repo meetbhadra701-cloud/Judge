@@ -1,4 +1,4 @@
-import type { CallBinding } from '@judge-copilot/database';
+import type { CallBinding, CallMetadata } from '@judge-copilot/database';
 import {
   createGuardedProvider,
   PRICES_V1,
@@ -35,34 +35,68 @@ const ok = (json: unknown): LlmResult => ({
   servedModel: 'm',
 });
 
+type IdentityKeys =
+  | 'model'
+  | 'provider'
+  | 'providerMode'
+  | 'promptId'
+  | 'promptVersion'
+  | 'promptTemplateHash'
+  | 'schemaId'
+  | 'schemaVersion';
+/** A stored binding as a test states it: the audit identity defaults to what the caller registered, unless the test overrides it. */
+type TestBinding = Omit<CallBinding, IdentityKeys> & Partial<Pick<CallBinding, IdentityKeys>>;
+
 function setup(
   steps: LlmResult[],
-  binding: (callId: number, digest: string, rendered: BoundClosedSet) => CallBinding | null,
+  binding: (callId: number, digest: string, rendered: BoundClosedSet) => TestBinding | null,
 ) {
   let n = 0;
   const digests = new Map<number, string>();
+  // what a faithful ledger would have stored for the call: the identity the caller registered and the model it reserved for
+  const registered = new Map<string, CallMetadata>();
+  const models = new Map<string, string>();
   const inner = {
-    register() {},
-    reserve(request: { requestDigest: string }) {
+    register(digest: string, meta: CallMetadata) {
+      registered.set(digest, meta);
+    },
+    reserve(request: { requestDigest: string; model: string }) {
       n += 1;
       digests.set(n, request.requestDigest);
+      models.set(request.requestDigest, request.model);
       return Promise.resolve({ ok: true as const, callId: n });
     },
     settle: () => Promise.resolve(),
     snapshot: () => Promise.reject(new Error('unused')),
     entries: () => Promise.resolve([]),
     reapInFlight: () => Promise.resolve(0),
-    bindingOf: (callId: number) =>
-      Promise.resolve(
-        binding(callId, digests.get(callId) ?? '', {
-          passages: ['P-0001'],
-          claims: [],
-          evidence: [],
-          pairs: [],
-          items: [],
-          unit: null,
-        }),
-      ),
+    bindingOf: (callId: number) => {
+      const digest = digests.get(callId) ?? '';
+      const found = binding(callId, digest, {
+        passages: ['P-0001'],
+        claims: [],
+        evidence: [],
+        pairs: [],
+        items: [],
+        unit: null,
+      });
+      const meta = registered.get(digest) ?? {};
+      return Promise.resolve(
+        found === null
+          ? null
+          : {
+              model: models.get(digest) ?? '',
+              provider: meta.provider ?? null,
+              providerMode: meta.providerMode ?? null,
+              promptId: meta.promptId ?? null,
+              promptVersion: meta.promptVersion ?? null,
+              promptTemplateHash: meta.promptTemplateHash ?? null,
+              schemaId: meta.schemaId ?? null,
+              schemaVersion: meta.schemaVersion ?? null,
+              ...found,
+            },
+      );
+    },
   };
   const ledger = new RecordingBudget(inner as never);
   const base = new ScriptedProvider(steps);
@@ -99,15 +133,16 @@ function setup(
 
 const bindingFor =
   (closedSet: Record<string, unknown>, overrides: Partial<CallBinding> = {}) =>
-  (callId: number, requestDigest: string): CallBinding => ({
-    callId,
-    stage: 'claim_extraction',
-    requestDigest,
-    dimensionId: null,
-    closedSet,
-    closedSetHash: 'x'.repeat(64),
-    ...overrides,
-  });
+  (callId: number, requestDigest: string): TestBinding =>
+    ({
+      callId,
+      stage: 'claim_extraction',
+      requestDigest,
+      dimensionId: null,
+      closedSet,
+      closedSetHash: 'x'.repeat(64),
+      ...overrides,
+    }) as TestBinding;
 
 const spec = (seen: BoundClosedSet[] = []) => ({
   stage: 'claim_extraction' as const,
@@ -134,6 +169,31 @@ describe('ModelCaller', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toEqual(FULL);
   });
+
+  it.each([
+    ['model', { model: 'claude-opus-5-5' }],
+    ['provider', { provider: 'other-provider' }],
+    ['provider mode', { providerMode: 'live' }],
+    ['prompt id', { promptId: 'some.other.prompt' }],
+    ['prompt version', { promptVersion: 'v999' }],
+    ['prompt template hash', { promptTemplateHash: 'f'.repeat(64) }],
+    ['schema id', { schemaId: 'some.other.schema' }],
+    ['schema version', { schemaVersion: 'v999' }],
+  ] satisfies [string, Partial<CallBinding>][])(
+    'stops the run when the ledger recorded another %s than the one sent (R5 F-6)',
+    async (_name, override) => {
+      const seen: BoundClosedSet[] = [];
+      const { caller } = setup([ok(OK_ANSWER)], bindingFor(FULL, override));
+      await expect(caller.call(spec(seen))).rejects.toMatchObject({
+        stop: {
+          kind: 'fail',
+          category: 'internal_error',
+          code: 'call_identity_differs_from_request',
+        },
+      });
+      expect(seen).toHaveLength(0); // the answer never reaches the domain gate
+    },
+  );
 
   it('stops the run when the ledger row is not about this request (digest or stage differ)', async () => {
     for (const override of [{ requestDigest: 'f'.repeat(64) }, { stage: 'critic' as const }]) {

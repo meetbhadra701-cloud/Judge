@@ -61,6 +61,11 @@ export default async function ProjectPage({
       <p>
         <Link href={`/projects/${project.id}/evidence`}>Evidence graph (read-only) →</Link>
       </p>
+      <p>
+        <Link href={`/projects/${project.id}/assessment`}>
+          Pre-interview assessment (advisory) →
+        </Link>
+      </p>
 
       <section>
         <h2>Declared tracks</h2>

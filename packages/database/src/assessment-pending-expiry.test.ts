@@ -223,7 +223,7 @@ describe.skipIf(!URL_)('pending-expiry versus claim races, two connections (Post
     expect(await callsOf(db, runId)).toHaveLength(0);
   });
 
-  it('A2: the worker claims first and holds the lock; an expiry started meanwhile waits, then finds a running run and leaves it', async () => {
+  it('A2: the worker claims first and holds the lock; an expiry started meanwhile SKIPS the locked row at once (P6A), and the run is then running', async () => {
     const entered = gate();
     const release = gate();
     const workerToken = randomUUID();
@@ -247,11 +247,12 @@ describe.skipIf(!URL_)('pending-expiry versus claim races, two connections (Post
         .where(eq(analysisRuns.id, runId));
     });
     await entered.wait;
-    const expiring = expiry.expirePendingRun(runId, cutoff);
-    await waitUntilBlocked();
+    // P6A (R5 F-1): maintenance never waits for an unrelated lock. The locked row is skipped (false) immediately, while the claim's
+    // transaction is still open; a later pass, after the claim committed, finds a running run and leaves it as well.
+    expect(await expiry.expirePendingRun(runId, cutoff)).toBe(false);
     release.open();
     await holding;
-    expect(await expiring).toBe(false); // the age and state were re-read after the lock was granted
+    expect(await expiry.expirePendingRun(runId, cutoff)).toBe(false); // state re-read after the claim committed
     expect(await stateOf(db, runId)).toMatchObject({ state: 'running', leaseToken: workerToken });
     expect(await outcomesOf(db, runId)).toHaveLength(0);
     expect(await worker.heartbeat(runId, workerToken, LEASE_MS)).toBe(true);

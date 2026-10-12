@@ -4,6 +4,8 @@ import { createDatabase, EvidenceGraphStore } from '@judge-copilot/database';
 import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { buildApp, SERVICE_NAME } from './app.js';
 import { loadApiEnv } from './env.js';
+import { AssessmentService } from './assessments/service.js';
+import { openOfflineGate } from './assessments/runtime-gate.js';
 import { EventContextService } from './event-context/service.js';
 import { EvidenceGraphService } from './evidence-graph/service.js';
 import { ProjectService } from './projects/service.js';
@@ -43,12 +45,31 @@ if (env.AUTH_MODE === 'dev') {
   logger.warn('AUTH_MODE is not configured; protected routes will respond 503');
 }
 
+const gate = await openOfflineGate({
+  provider: env.ASSESSMENT_PROVIDER,
+  fixturePath: env.ASSESSMENT_REPLAY_FIXTURE,
+  models: {
+    extraction: env.ASSESSMENT_MODEL_EXTRACTION,
+    assessment: env.ASSESSMENT_MODEL_ASSESSMENT,
+    critic: env.ASSESSMENT_MODEL_CRITIC,
+  },
+});
+if (gate.runtime) {
+  logger.warn(
+    { provider: gate.runtime.provider.id },
+    'offline assessment provider available: requests are replayed synthetic outputs, not a model assessment',
+  );
+} else if (gate.problem) {
+  logger.warn({ problem: gate.problem }, 'assessment provider unusable; requests will respond 503');
+}
+
 const app = buildApp({
   logger,
   db: database?.db ?? null,
   verifier,
   eventContext: database ? new EventContextService({ db: database.db, extractor }) : null,
   projects: database ? new ProjectService({ db: database.db }) : null,
+  assessments: database ? new AssessmentService({ db: database.db, offline: gate.runtime }) : null,
   evidenceGraph: database
     ? new EvidenceGraphService({ store: new EvidenceGraphStore({ db: database.db }) })
     : null,

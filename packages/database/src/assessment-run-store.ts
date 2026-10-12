@@ -8,7 +8,7 @@ import {
   type ExtractionKind,
   type ProviderMode,
 } from '@judge-copilot/schemas';
-import { and, asc, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm';
 import type { EventReferenceMeta } from '@judge-copilot/assessment';
 import { inputsFingerprint, trackSelectionSetHash } from './assessment-hashes.js';
 import { assessmentIdentityOf, requestIdentityOf } from './assessment-identity.js';
@@ -575,20 +575,62 @@ export class AssessmentRunStore {
         .where(eq(analysisRuns.id, runId))
         .for('update');
       if (run?.state !== 'pending') return null;
-      const token = randomUUID();
-      const now = this.now();
-      await tx
-        .update(analysisRuns)
-        .set({
-          state: 'running',
-          startedAt: now,
-          leaseToken: token,
-          leaseExpiresAt: new Date(now.getTime() + leaseMs),
-          attemptCount: run.attemptCount + 1,
-        })
-        .where(eq(analysisRuns.id, runId));
-      return token;
+      return this.startLease(tx, run, leaseMs);
     });
+  }
+
+  /**
+   * Claims the OLDEST claimable pending assessment run, atomically with its lease: one transaction, `FOR UPDATE SKIP LOCKED`, so a
+   * run whose row another session holds (a competing claim, an expiry, a stuck transaction) is skipped instead of waited for. Two
+   * workers can never receive the same run, a held lock never blocks the queue, and the caller never claims a second time: the
+   * result is the lease it must run under. `createdAfter` (the pending-expiry cutoff) keeps a run the 15-minute policy is about to
+   * cancel from being started. Returns null when nothing is claimable right now.
+   * The state transition itself is the one `claimRun` uses (`startLease`). Lock order is unchanged: only the run row is locked.
+   */
+  async claimNextRun(
+    leaseMs: number,
+    options: { readonly createdAfter?: Date } = {},
+  ): Promise<{ readonly runId: string; readonly leaseToken: string } | null> {
+    return this.db.transaction(async (tx) => {
+      const [run] = await tx
+        .select()
+        .from(analysisRuns)
+        .where(
+          and(
+            eq(analysisRuns.runType, ASSESSMENT_RUN_TYPE),
+            eq(analysisRuns.state, 'pending'),
+            ...(options.createdAfter === undefined
+              ? []
+              : [gt(analysisRuns.createdAt, options.createdAfter)]),
+          ),
+        )
+        .orderBy(asc(analysisRuns.createdAt), asc(analysisRuns.id))
+        .limit(1)
+        .for('update', { skipLocked: true });
+      if (!run) return null;
+      return { runId: run.id, leaseToken: await this.startLease(tx, run, leaseMs) };
+    });
+  }
+
+  /** The single pending -> running transition (caller holds the run row lock and has seen `pending`). */
+  private async startLease(
+    tx: Executor,
+    run: { id: string; attemptCount: number },
+    leaseMs: number,
+  ): Promise<string> {
+    const token = randomUUID();
+    const now = this.now();
+    await tx
+      .update(analysisRuns)
+      .set({
+        state: 'running',
+        startedAt: now,
+        leaseToken: token,
+        leaseExpiresAt: new Date(now.getTime() + leaseMs),
+        attemptCount: run.attemptCount + 1,
+      })
+      .where(eq(analysisRuns.id, run.id));
+    return token;
   }
 
   /** Extends the lease of a running run. False when the token is stale. */
@@ -793,11 +835,13 @@ export class AssessmentRunStore {
    */
   async recoverRun(runId: string, before: Date = this.now()): Promise<boolean> {
     return this.db.transaction(async (tx) => {
+      // SKIP LOCKED: a run whose row someone else holds right now (a heartbeat, a finishing worker, a stuck session) is not recovered
+      // by THIS pass, which must not wait for it; the next pass re-checks it under the same rules.
       const [run] = await tx
         .select()
         .from(analysisRuns)
         .where(eq(analysisRuns.id, runId))
-        .for('update');
+        .for('update', { skipLocked: true });
       if (
         !run?.projectId ||
         run.runType !== ASSESSMENT_RUN_TYPE ||
@@ -833,11 +877,13 @@ export class AssessmentRunStore {
    */
   async expirePendingRun(runId: string, createdBefore: Date): Promise<boolean> {
     return this.db.transaction(async (tx) => {
+      // SKIP LOCKED: a pending run whose row another session holds (a claim in progress, a stuck transaction) is left alone by this
+      // pass and re-examined by the next one; maintenance never waits for an unrelated lock.
       const [run] = await tx
         .select()
         .from(analysisRuns)
         .where(eq(analysisRuns.id, runId))
-        .for('update');
+        .for('update', { skipLocked: true });
       if (
         !run?.projectId ||
         run.runType !== ASSESSMENT_RUN_TYPE ||

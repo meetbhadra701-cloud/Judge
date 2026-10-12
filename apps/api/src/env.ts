@@ -36,7 +36,35 @@ export const ApiEnv = BaseEnv.extend({
   AUTH_JWT_AUDIENCE: z.string().min(1).optional(),
   AUTH_JWKS_URL: z.url().optional(),
   AUTH_JWT_ROLES_CLAIM: z.string().min(1).max(200).default('roles'),
+  /**
+   * The pre-interview assessment provider (M5 P6A). `none` (default): `POST /projects/:id/assessments` answers 503
+   * ASSESSMENT_PROVIDER_NOT_CONFIGURED (reading still works). `replay`: the OFFLINE demonstration provider over a hand-written synthetic
+   * fixture (development and test only; the worker reads the same fixture). There is no live provider: it needs a separate owner
+   * authorization.
+   */
+  ASSESSMENT_PROVIDER: z.enum(['none', 'replay']).default('none'),
+  ASSESSMENT_REPLAY_FIXTURE: z.string().min(1).optional(),
+  /** The models named in the frozen configuration; a replay fixture is recorded for exactly these. */
+  ASSESSMENT_MODEL_EXTRACTION: z.string().min(1).default('claude-haiku-5-5'),
+  ASSESSMENT_MODEL_ASSESSMENT: z.string().min(1).default('claude-sonnet-5-5'),
+  ASSESSMENT_MODEL_CRITIC: z.string().min(1).default('claude-sonnet-5-5'),
 }).superRefine((env, ctx) => {
+  if (env.ASSESSMENT_PROVIDER === 'replay') {
+    if (env.NODE_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ASSESSMENT_PROVIDER'],
+        message: 'The replay provider is for development and tests only',
+      });
+    }
+    if (!env.ASSESSMENT_REPLAY_FIXTURE) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ASSESSMENT_REPLAY_FIXTURE'],
+        message: 'Required when ASSESSMENT_PROVIDER=replay',
+      });
+    }
+  }
   if (env.AUTH_MODE === 'dev' && env.NODE_ENV === 'production') {
     ctx.addIssue({
       code: 'custom',

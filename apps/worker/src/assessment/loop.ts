@@ -1,21 +1,26 @@
 import { analysisRuns, type AssessmentRunStore, type JudgeDatabase } from '@judge-copilot/database';
 import { ASSESSMENT_RUN_TYPE } from '@judge-copilot/schemas';
 import type { Logger } from '@judge-copilot/shared';
-import { and, asc, eq, lt } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import { safeErrorCode } from '../capture/safe-error.js';
-import { runAssessment, type PipelineDeps, type RunOutcome } from './pipeline.js';
+import { runClaimedAssessment, type PipelineDeps, type RunOutcome } from './pipeline.js';
 
 /*
  * The assessment work loop (design §10.3), a sibling of the capture loop.
  *
- *   claim      a pending `pre_interview_assessment` run is the durable work item. `claimRun` locks the run row and re-checks that it is
- *              still `pending`, so two workers (or two loops) can never both own one run; the loser simply moves on.
+ *   claim      `claimNextRun` takes the oldest claimable pending `pre_interview_assessment` run and its lease in ONE transaction with
+ *              `FOR UPDATE SKIP LOCKED`: two workers never receive the same run, and a run whose row another session holds (a claim in
+ *              progress, a stuck transaction) is skipped, never waited for, so one locked run cannot freeze the queue or occupy a
+ *              worker slot. The pipeline runs under that lease and performs no claim of its own (`runClaimedAssessment`).
  *   pending    a run nobody claimed within `pendingMaxAgeMs` (the request handler died before a worker started: default 15 minutes) is
- *              CANCELLED `pending_expired` by `expirePendingRun`, which re-checks `pending` and the age under the run row lock and cancels in
- *              the same transaction: a run a worker claimed in the meantime is never touched. A pending run cannot own a ledger row, so
- *              nothing was spent; the project is free again.
+ *              CANCELLED `pending_expired` by `expirePendingRun`, which re-checks `pending` and the age under the run row lock and
+ *              cancels in the same transaction (a locked row is skipped and re-examined on the next pass). A run a worker claimed in
+ *              the meantime is never touched, and a run past the limit is never claimed (`createdAfter`). A pending run cannot own a
+ *              ledger row, so nothing was spent; the project is free again.
  *   expired    a running run whose lease expired (a crashed worker) is failed `internal_error / worker_lease_expired` and its in-flight
- *              attempts are counted at their worst case. Nothing is re-run automatically.
+ *              attempts are counted at their worst case (`recoverRun`, also SKIP LOCKED). Nothing is re-run automatically.
+ *   passes     maintenance (expiry, recovery) and queue filling are INDEPENDENT passes with their own re-entrancy guards: a slow or
+ *              stuck pass of one can never delay the other.
  *   shutdown   `stop()` waits a grace period for in-flight runs, then aborts them: each cancels its provider call and ends `cancelled`
  *              (`worker_shutdown`). Concurrency is bounded (default 1, at most 2); model calls inside one run are always sequential.
  */
@@ -56,20 +61,13 @@ export function createAssessmentLoop(options: AssessmentLoopOptions): Assessment
   const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
   let running = false;
-  let ticking = false;
+  let maintaining: Promise<void> | null = null;
+  let filling: Promise<void> | null = null;
 
-  async function pendingRunIds(limit: number): Promise<string[]> {
-    const rows = await db
-      .select({ id: analysisRuns.id })
-      .from(analysisRuns)
-      .where(and(eq(analysisRuns.runType, ASSESSMENT_RUN_TYPE), eq(analysisRuns.state, 'pending')))
-      .orderBy(asc(analysisRuns.createdAt), asc(analysisRuns.id))
-      .limit(limit);
-    return rows.map((row) => row.id);
-  }
+  const pendingCutoff = (): Date => new Date(now().getTime() - pendingMaxAgeMs);
 
   async function expirePending(): Promise<string[]> {
-    const cutoff = new Date(now().getTime() - pendingMaxAgeMs);
+    const cutoff = pendingCutoff();
     const stale = await db
       .select({ id: analysisRuns.id })
       .from(analysisRuns)
@@ -83,7 +81,8 @@ export function createAssessmentLoop(options: AssessmentLoopOptions): Assessment
     const expired: string[] = [];
     for (const { id } of stale) {
       // The list above is only a hint: `expirePendingRun` re-checks `pending` and the age under the run row lock and cancels in the
-      // same transaction, so a run that a worker claimed (or is claiming) in the meantime is left alone. It never ends a running run.
+      // same transaction, so a run that a worker claimed (or is claiming) in the meantime is left alone. It never ends a running run,
+      // and it skips a row somebody else holds instead of waiting for it.
       if (await runs.expirePendingRun(id, cutoff)) expired.push(id);
     }
     return expired;
@@ -95,8 +94,12 @@ export function createAssessmentLoop(options: AssessmentLoopOptions): Assessment
     return { expiredPending, recovered };
   }
 
-  function launch(runId: string): void {
-    const job = runAssessment({ ...options.pipeline, shutdown: controller.signal }, runId)
+  function launch(runId: string, leaseToken: string): void {
+    const job = runClaimedAssessment(
+      { ...options.pipeline, shutdown: controller.signal },
+      runId,
+      leaseToken,
+    )
       .then((outcome) => {
         options.onOutcome?.(runId, outcome);
       })
@@ -110,31 +113,42 @@ export function createAssessmentLoop(options: AssessmentLoopOptions): Assessment
     active.set(runId, job);
   }
 
+  /** Claims work while a slot is free. Every claim is one short transaction that never waits for a locked row. */
   async function fill(): Promise<number> {
-    const attempted = new Set<string>();
+    let started = 0;
     while (running && active.size < options.concurrency) {
-      const candidates = (
-        await pendingRunIds(options.concurrency + active.size + attempted.size)
-      ).filter((id) => !active.has(id) && !attempted.has(id));
-      const next = candidates[0];
-      if (next === undefined) break;
-      // `launch` registers the run synchronously, so it is never launched twice; the claim itself is the row-locked `claimRun`
-      attempted.add(next);
-      launch(next);
+      const claimed = await runs.claimNextRun(options.pipeline.leaseMs, {
+        createdAfter: pendingCutoff(),
+      });
+      if (claimed === null) break;
+      // the run is ours from the moment the claim committed: it is launched even if `stop()` began meanwhile (it then aborts at once)
+      launch(claimed.runId, claimed.leaseToken);
+      started += 1;
     }
-    return attempted.size;
+    return started;
   }
 
-  async function tick(): Promise<void> {
-    if (ticking || !running) return;
-    ticking = true;
-    try {
-      await maintain();
-      await fill();
-    } catch (error) {
-      logger.error({ errorCode: safeErrorCode(error) }, 'assessment poll error');
-    } finally {
-      ticking = false;
+  /** One pass of one kind; a failure is logged (code only) and the pass is retried at the next interval. */
+  function guarded(label: string, work: () => Promise<unknown>): Promise<void> {
+    return work()
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        logger.error({ errorCode: safeErrorCode(error) }, `assessment ${label} error`);
+      });
+  }
+
+  /** Maintenance and filling are started independently and never awaited by one another. */
+  function tick(): void {
+    if (!running) return;
+    if (maintaining === null) {
+      maintaining = guarded('maintenance', maintain).finally(() => {
+        maintaining = null;
+      });
+    }
+    if (filling === null) {
+      filling = guarded('poll', fill).finally(() => {
+        filling = null;
+      });
     }
   }
 
@@ -146,17 +160,20 @@ export function createAssessmentLoop(options: AssessmentLoopOptions): Assessment
     start() {
       if (running) return;
       running = true;
-      timer = setInterval(() => void tick(), options.pollIntervalMs);
-      void tick();
+      timer = setInterval(tick, options.pollIntervalMs);
+      tick();
     },
     async stop() {
       running = false;
       if (timer) clearInterval(timer);
       timer = undefined;
-      if (active.size === 0) return;
       const grace = new Promise<void>((resolve) =>
         setTimeout(resolve, options.shutdownGraceMs ?? 10_000).unref(),
       );
+      // a pass that is mid-flight finishes (a claim may still hand us a run, which is then launched and aborted below)
+      const passes = [maintaining, filling].filter((job): job is Promise<void> => job !== null);
+      if (passes.length > 0) await Promise.race([Promise.allSettled(passes), grace]);
+      if (active.size === 0) return;
       await Promise.race([Promise.allSettled([...active.values()]), grace]);
       controller.abort();
       await Promise.allSettled([...active.values()]);

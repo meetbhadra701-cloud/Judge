@@ -1,0 +1,1 @@
+ALTER TABLE "graph_extractions" ADD COLUMN "recorded_limitations" jsonb;

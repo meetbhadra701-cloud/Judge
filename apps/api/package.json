@@ -18,6 +18,8 @@
     "@judge-copilot/database": "workspace:*",
     "@judge-copilot/domain": "workspace:*",
     "@judge-copilot/evidence": "workspace:*",
+    "@judge-copilot/llm": "workspace:*",
+    "@judge-copilot/prompts": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
     "@judge-copilot/shared": "workspace:*",
     "drizzle-orm": "^0.45.3",

@@ -61,6 +61,7 @@ export {
   type PersistAssessmentResult,
   type StoredAssessment,
 } from './assessment-store.js';
+export { AssessmentReadStore } from './assessment-read.js';
 export {
   ExtractionInputError,
   GraphExtractionStore,
@@ -70,6 +71,7 @@ export {
   type ExtractionItemRow,
   type Grounding,
   type OrderedMembers,
+  type RecordedLimitation,
   type RelationItemMeta,
   type StoredExtraction,
 } from './extraction-store.js';

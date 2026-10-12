@@ -22,6 +22,16 @@ describe('authorization policy', () => {
     expect(PERMISSIONS.filter((permission) => permission.startsWith('evidence'))).toEqual([
       'evidence.read',
     ]);
+    // M5 (D14): both roles read and request assessments; nobody can edit or delete one
+    for (const permission of ['assessment.read', 'assessment.run'] as const) {
+      expect(hasPermission(['judge'], permission)).toBe(true);
+      expect(hasPermission(['organizer'], permission)).toBe(true);
+      expect(hasPermission([], permission)).toBe(false);
+    }
+    expect(PERMISSIONS.filter((permission) => permission.startsWith('assessment'))).toEqual([
+      'assessment.read',
+      'assessment.run',
+    ]);
     expect(hasPermission(['judge'], 'event_context.write')).toBe(false);
     expect(hasPermission(['judge'], 'project.write')).toBe(false);
     expect(hasPermission([], 'project.read')).toBe(false);

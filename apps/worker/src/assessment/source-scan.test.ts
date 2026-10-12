@@ -84,6 +84,19 @@ describe('assessment pipeline structure', () => {
     expect(where(/\.expirePendingRun\(/, [join(WORKER_SRC, 'assessment/loop.ts')])).toHaveLength(1);
   });
 
+  it('claims a run in exactly two places and never claims inside the pipeline body: the loop claims atomically (SKIP LOCKED), the pipeline runs under that lease', () => {
+    expect(where(/\.claimNextRun\(/)).toEqual(['assessment/loop.ts']);
+    // `claimRun(id)` remains only for callers that already know the run id (tests, tools): `runAssessment`
+    expect(where(/\.claimRun\(/)).toEqual(['assessment/pipeline.ts']);
+    const pipeline = code(join(WORKER_SRC, 'assessment/pipeline.ts'));
+    const claimed = pipeline.slice(pipeline.indexOf('export async function runClaimedAssessment'));
+    expect(claimed).not.toMatch(/\.claim(Next)?Run\(/);
+    // the loop never lists-then-claims: no plain pending list feeds a claim
+    const loop = code(join(WORKER_SRC, 'assessment/loop.ts'));
+    expect(loop).not.toMatch(/pendingRunIds|\.claimRun\(/);
+    expect(loop).not.toMatch(/await maintain\(\);\s*await fill\(\)/);
+  });
+
   it('assigns no privileged verification level and mentions none in code', () => {
     expect(where(/repo_corroborated|machine_verified|judge_verified|live_verified/)).toEqual([]);
     expect(where(/verificationLevel/)).toEqual([]);

@@ -19,6 +19,9 @@ import { RunStopped } from './stop.js';
  * after the ownership ended. There is no transaction held anywhere in this class.
  */
 
+/** How long `stop()` waits for a heartbeat that is still in flight. */
+export const HEARTBEAT_STOP_WAIT_MS = 2_000;
+
 export type StopReason = 'lease_lost' | 'shutdown' | 'wall_clock';
 
 export interface SessionOptions {
@@ -82,13 +85,26 @@ export class RunSession {
     });
   }
 
-  /** Stops the heartbeat and the deadline and waits for an in-flight heartbeat. Idempotent. */
+  /**
+   * Stops the heartbeat and the deadline and waits for an in-flight heartbeat, but only for `HEARTBEAT_STOP_WAIT_MS`: a heartbeat query
+   * that never settles (a dead connection) must not keep a finished run's worker slot occupied forever. A heartbeat that settles later
+   * changes nothing: `beat` writes no run state and `scheduleHeartbeat` refuses once stopped. Idempotent.
+   */
   async stop(): Promise<void> {
     this.stopped = true;
     this.cancelHeartbeat?.();
     this.cancelDeadline?.();
     this.options.shutdown.removeEventListener('abort', this.onShutdown);
-    await this.beating;
+    let timer: NodeJS.Timeout | undefined;
+    const bounded = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, HEARTBEAT_STOP_WAIT_MS);
+      timer.unref();
+    });
+    try {
+      await Promise.race([this.beating, bounded]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

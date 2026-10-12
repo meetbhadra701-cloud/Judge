@@ -329,6 +329,20 @@ export class ModelCaller {
     if ((binding.dimensionId ?? null) !== (spec.dimensionId ?? null)) {
       return failRun('internal_error', 'closed_set_wrong_dimension', spec.stage);
     }
+    // R5 F-6: the audit identity persisted with the call must be exactly what was sent (a registration with another provider, prompt
+    // version, template hash or schema would otherwise be accepted and then recorded as the truth about this answer)
+    if (
+      binding.model !== request.model ||
+      binding.provider !== provider.id ||
+      binding.providerMode !== provider.mode ||
+      binding.promptId !== request.promptId ||
+      binding.promptVersion !== request.promptVersion ||
+      binding.promptTemplateHash !== request.promptTemplateHash ||
+      binding.schemaId !== request.schemaId ||
+      binding.schemaVersion !== request.schemaVersion
+    ) {
+      return failRun('internal_error', 'call_identity_differs_from_request', spec.stage);
+    }
     const closedSet = asClosedSet(binding.closedSet);
     // the stored set must be EXACTLY the one this prompt offered (all five handle lists, in order, and the unit); a mismatch means
     // the binding is not about this request, and the answer never reaches the domain gate

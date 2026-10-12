@@ -62,6 +62,12 @@ importers:
       '@judge-copilot/evidence':
         specifier: workspace:*
         version: link:../../packages/evidence
+      '@judge-copilot/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+      '@judge-copilot/prompts':
+        specifier: workspace:*
+        version: link:../../packages/prompts
       '@judge-copilot/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
@@ -188,6 +194,9 @@ importers:
       '@judge-copilot/scoring':
         specifier: workspace:*
         version: link:../scoring
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/audit:
     dependencies:
@@ -333,6 +342,9 @@ importers:
 
   packages/prompts:
     dependencies:
+      '@judge-copilot/assessment':
+        specifier: workspace:*
+        version: link:../assessment
       '@judge-copilot/context':
         specifier: workspace:*
         version: link:../context

@@ -29,7 +29,12 @@ import {
   toRelationRecord,
   toUnknownRecord,
 } from './evidence-graph-store.js';
-import type { ExtractionItemRow, OrderedMembers, StoredExtraction } from './extraction-store.js';
+import {
+  toStored,
+  type ExtractionItemRow,
+  type OrderedMembers,
+  type StoredExtraction,
+} from './extraction-store.js';
 import { referenceSetMismatch } from './context-reference-check.js';
 import { LockedContextReader } from './locked-context-reader.js';
 import {
@@ -143,19 +148,6 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
 const fail = (code: AssessmentInputErrorCode, ...detail: string[]): never => {
   throw new AssessmentInputError(code, detail);
 };
-
-const toStored = (row: typeof graphExtractions.$inferSelect): StoredExtraction => ({
-  id: row.id,
-  projectId: row.projectId,
-  kind: row.kind,
-  extractionKey: row.extractionKey,
-  configHash: row.configHash,
-  snapshotIds: [...row.snapshotIds],
-  contextVersionId: row.contextVersionId,
-  declaredTrackKeys: [...row.declaredTrackKeys],
-  membersHash: row.membersHash,
-  createdByRunId: row.createdByRunId,
-});
 
 export class AssessmentInputReader {
   private readonly contexts = new LockedContextReader();

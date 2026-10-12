@@ -240,3 +240,12 @@ export {
   unassessedTrackRubrics,
 } from './limitations.js';
 export type { ExtractionLimitationCode, Limitation, LimitationInputs } from './limitations.js';
+
+// The pipeline configuration shared by the API (which freezes it into a run request) and the worker (which re-validates it).
+export {
+  AssessmentPipelineConfig,
+  buildPipelineConfig,
+  checkPipelineConfig,
+  PIPELINE_ID,
+} from './pipeline-config.js';
+export type { ConfigCheck, ConfigRejection, PipelineConfigOptions } from './pipeline-config.js';

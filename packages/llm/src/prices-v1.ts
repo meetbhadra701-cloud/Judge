@@ -1,4 +1,4 @@
-import { PriceTable } from '@judge-copilot/schemas';
+import { ASSESSMENT_PRICE_TABLE_ID, PriceTable } from '@judge-copilot/schemas';
 
 /*
  * `prices/v1`. Source: reference material available to the design session, cached 2026-10-06. NOT verified
@@ -9,7 +9,7 @@ import { PriceTable } from '@judge-copilot/schemas';
  * $0.10 per million tokens = 100 nano-USD per token.
  */
 export const PRICES_V1: PriceTable = PriceTable.parse({
-  id: 'prices/v1',
+  id: ASSESSMENT_PRICE_TABLE_ID,
   effectiveDate: '2026-10-06',
   currency: 'USD',
   unit: 'nano_usd_per_token',

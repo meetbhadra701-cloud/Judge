@@ -5,11 +5,12 @@ import {
   evidenceRelations,
   graphExtractionItems,
   unknowns,
+  type GraphExtractionStore,
   type JudgeDatabase,
 } from '@judge-copilot/database';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CLAIM_QUOTES, EVIDENCE_QUOTE } from '../testing/assessment-world.js';
+import { CLAIM_QUOTES, EVIDENCE_QUOTE, harness, seedWorld } from '../testing/assessment-world.js';
 import { FakeModel, ok } from '../testing/fake-model.js';
 import { testDatabaseTargets, type TestDatabase } from '../testing/harness.js';
 import { execute, expectNoAssessment } from '../testing/run.js';
@@ -89,6 +90,57 @@ describe.each(testDatabaseTargets())('extraction stages S2-S6 on %s', (_name, op
         expect(downgraded?.count).toBe(1);
       },
     );
+
+    describe('a reused extraction still discloses its extraction-time notices (R5 F-5)', () => {
+      const FIDELITY_CODES = [
+        'paraphrase_replaced_by_verbatim',
+        'evidence_text_replaced_by_verbatim',
+      ];
+
+      it('the reusing run reports the same fidelity notices as the run that extracted', async () => {
+        const first = await execute(db, { model: paraphrasing('unfaithful') });
+        expect(first.outcome.kind).toBe('succeeded');
+        const fresh = await limitationsOf(first);
+        for (const code of FIDELITY_CODES) expect(fresh.map((l) => l.code)).toContain(code);
+
+        const second = await execute(db, {
+          world: first.world,
+          model: new FakeModel(),
+          mode: 'reassess',
+        });
+        expect(second.outcome.kind).toBe('succeeded');
+        expect(second.model.callsOf('claim_extraction')).toHaveLength(0); // genuinely reused
+        const reused = await limitationsOf(second);
+        const codes = reused.map((l) => l.code);
+        expect(codes).toContain('extraction_reused');
+        expect(codes).not.toContain('extraction_limitations_not_recorded');
+        for (const code of FIDELITY_CODES) {
+          expect(reused.find((l) => l.code === code)).toEqual(fresh.find((l) => l.code === code));
+        }
+      });
+
+      it('an extraction created without recorded notices says so instead of looking clean', async () => {
+        const unrecorded = (inner: GraphExtractionStore) =>
+          Object.assign(Object.create(inner) as GraphExtractionStore, {
+            createExtraction: (input: Parameters<GraphExtractionStore['createExtraction']>[0]) => {
+              const { recordedLimitations: _dropped, ...rest } = input;
+              return inner.createExtraction(rest);
+            },
+          });
+        const world = await seedWorld(db);
+        const first = await execute(db, {
+          world,
+          model: paraphrasing('unfaithful'),
+          deps: { extractions: unrecorded(harness(db).extractions) },
+        });
+        expect(first.outcome.kind).toBe('succeeded');
+        const second = await execute(db, { world, model: new FakeModel(), mode: 'reassess' });
+        expect(second.outcome.kind).toBe('succeeded');
+        const codes = (await limitationsOf(second)).map((l) => l.code);
+        expect(codes).toContain('extraction_reused');
+        expect(codes).toContain('extraction_limitations_not_recorded');
+      });
+    });
 
     it('an unusable reviewer answer DOWNGRADES the batch instead of admitting anything unreviewed (and never fails the run)', async () => {
       const model = paraphrasing('faithful').on('fidelity_review', () => 'not a verdict list');

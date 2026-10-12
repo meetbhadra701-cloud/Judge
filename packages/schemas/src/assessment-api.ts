@@ -1,0 +1,222 @@
+import { z } from 'zod';
+import { AssessmentRequestMode, ProviderMode } from './assessment.js';
+import { Uuid } from './primitives.js';
+import type { ScoreReport } from './scoring.js';
+
+/*
+ * The HTTP contract of the pre-interview assessment (M5 P6A, design §10.2). Timestamps are ISO-8601 UTC strings.
+ *
+ * Everything here is an AI ESTIMATE for the human judge, never the judge's score. A dimension without enough evidence has NO number
+ * of any kind (`score` is null and the report's `insufficient_evidence` state has no score field); a failed or cancelled run has no
+ * assessment at all. `notices.semanticRelevance` is always `not_verified` (the scorer does not check that a citation is relevant).
+ */
+
+export const ASSESSMENT_API_NOTICE =
+  'AI estimate from the submitted material only. The human judge’s final score is separate and authoritative.' as const;
+
+/** Body of `POST /projects/:projectId/assessments`. */
+export const CreateAssessmentRequest = z.strictObject({ mode: AssessmentRequestMode });
+export type CreateAssessmentRequest = z.infer<typeof CreateAssessmentRequest>;
+
+/** `Idempotency-Key` header: a UUID (design §8.6). */
+export const IdempotencyKey = Uuid;
+
+export const ASSESSMENT_RUN_STATE_VALUES = [
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+] as const;
+export const AssessmentRunState = z.enum(ASSESSMENT_RUN_STATE_VALUES);
+export type AssessmentRunState = z.infer<typeof AssessmentRunState>;
+
+/** What a unit's disposition means (the P3 policy classes): an honest "not enough evidence" is not a failure. */
+export const DISPOSITION_CLASS_VALUES = [
+  'scored',
+  'valid_insufficiency',
+  'substantive',
+  'technical',
+] as const;
+export type DispositionClass = (typeof DISPOSITION_CLASS_VALUES)[number];
+
+export interface AssessmentUsageView {
+  readonly attemptsStarted: number;
+  readonly settledCalls: number;
+  readonly unknownCalls: number;
+  readonly releasedCalls: number;
+  /** Counted tokens and cost (a settled call at its measured usage, an ambiguous call at its worst case; a released call at zero). */
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly costNanoUsd: number;
+}
+
+/** The configured LOCAL spending guard of a run: a software limit of this application, not a provider billing limit. */
+export interface AssessmentGuardView {
+  readonly maxCalls: number;
+  readonly maxInputTokens: number;
+  readonly maxOutputTokens: number;
+  readonly maxCostNanoUsd: number;
+  readonly maxReservedInputTokensPerCall: number;
+  readonly runWallClockMs: number;
+  readonly priceTableId: string;
+  readonly notice: 'local_spending_guard_not_a_provider_billing_limit';
+}
+
+export interface AssessmentRunView {
+  readonly id: string;
+  readonly projectId: string;
+  readonly state: AssessmentRunState;
+  readonly mode: AssessmentRequestMode | null;
+  /** Machine category of a failed run (null otherwise). */
+  readonly failureCategory: string | null;
+  /** Machine code of the end of a failed or cancelled run, from the run outcome (null otherwise). */
+  readonly failureCode: string | null;
+  readonly stageReached: string | null;
+  /** The provider mode the run was requested for, from its frozen pipeline configuration. */
+  readonly providerMode: ProviderMode | null;
+  readonly replayDemonstration: boolean;
+  readonly createdAt: string;
+  readonly startedAt: string | null;
+  readonly finishedAt: string | null;
+  /** Set only when the run succeeded. */
+  readonly assessmentId: string | null;
+  readonly usage: AssessmentUsageView;
+  readonly guard: AssessmentGuardView;
+}
+
+export interface AssessmentOverallSummary {
+  readonly state: string;
+  /** null unless the overall is a computed score; never filled in for an insufficient or not-computed overall. */
+  readonly score10: number | null;
+}
+
+export interface AssessmentSummary {
+  readonly id: string;
+  readonly versionNumber: number;
+  readonly runId: string;
+  readonly createdAt: string;
+  readonly providerMode: ProviderMode;
+  readonly replayDemonstration: boolean;
+  readonly target: 'overall';
+  readonly overall: AssessmentOverallSummary | null;
+  readonly verified: boolean;
+}
+
+/** What the "Run" action may do right now (from the configured offline runtime gate). */
+export interface AssessmentLaunchView {
+  readonly available: boolean;
+  readonly providerMode: ProviderMode | null;
+  /** Always states whether any project text leaves this system. */
+  readonly notice: string;
+}
+
+export interface AssessmentListResponse {
+  /** Newest version first. */
+  readonly assessments: readonly AssessmentSummary[];
+  readonly activeRun: AssessmentRunView | null;
+  /** The most recent assessment run of any state (so a failed or cancelled run is visible when there is no assessment). */
+  readonly latestRun: AssessmentRunView | null;
+  readonly launch: AssessmentLaunchView;
+  readonly notice: typeof ASSESSMENT_API_NOTICE;
+}
+
+export interface CitedEvidenceView {
+  readonly kind: string;
+  readonly origin: string;
+  /** The evidence label as recorded (for example `team_claim`, `unverified`): never proof of truth. */
+  readonly verificationLevel: string;
+  readonly text: string;
+  readonly excerpt: string | null;
+  readonly snapshotId: string | null;
+  readonly artifactId: string | null;
+  readonly span: { readonly start: number; readonly end: number } | null;
+  readonly contextVersionId: string | null;
+}
+
+export interface JudgmentCitationView {
+  readonly evidenceId: string;
+  readonly directness: string;
+  readonly specificity: string;
+  readonly note: string;
+  readonly evidence: CitedEvidenceView | null;
+}
+
+export interface AssessmentJudgmentView {
+  readonly dimensionId: string;
+  readonly position: number;
+  readonly outcomeKind: 'scored' | 'insufficient_evidence';
+  /** The assessor's rating on the rubric scale; null for every insufficient outcome (never zero-filled). */
+  readonly score: number | null;
+  readonly disposition: string;
+  readonly dispositionClass: DispositionClass;
+  readonly rationale: string | null;
+  readonly limitations: readonly string[];
+  readonly assessorAttempts: number;
+  readonly criticAttempts: number;
+  readonly criticReviewRequired: boolean;
+  readonly criticReviewed: boolean;
+  readonly semanticRelevance: 'not_verified';
+  readonly citations: readonly JudgmentCitationView[];
+}
+
+export interface AssessmentLimitationView {
+  readonly code: string;
+  readonly count: number;
+  readonly subjects: readonly string[];
+}
+
+export interface AssessmentDetail {
+  readonly id: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly versionNumber: number;
+  readonly createdAt: string;
+  readonly providerMode: ProviderMode;
+  readonly replayDemonstration: boolean;
+  readonly target: 'overall';
+  /** The stored report re-verified (text hash, schema, M4 output hash). When false the report is NOT returned. */
+  readonly verified: boolean;
+  readonly verificationFailure: string | null;
+  readonly report: ScoreReport | null;
+  readonly judgments: readonly AssessmentJudgmentView[];
+  readonly limitations: readonly AssessmentLimitationView[];
+  readonly pipeline: {
+    readonly provider: { readonly id: string; readonly mode: ProviderMode };
+    readonly models: {
+      readonly extraction: string;
+      readonly assessment: string;
+      readonly critic: string;
+    };
+    readonly configHash: string;
+  } | null;
+  readonly usage: AssessmentUsageView;
+  readonly notices: {
+    readonly advisory: typeof ASSESSMENT_API_NOTICE;
+    readonly semanticRelevance: 'not_verified';
+    readonly target: 'overall_rubric_only';
+    readonly replay: string | null;
+  };
+}
+
+/** The answer of `POST /projects/:projectId/assessments`. */
+export type CreateAssessmentResponse =
+  | {
+      readonly result: 'run_created' | 'run_active';
+      readonly runId: string;
+      readonly state: 'pending' | 'running';
+      readonly replayed: boolean;
+    }
+  | {
+      readonly result: 'assessment_ready' | 'already_assessed';
+      readonly assessmentId: string;
+      readonly runId: string | null;
+      readonly replayed: boolean;
+    }
+  | {
+      readonly result: 'run_failed';
+      readonly runId: string;
+      readonly state: 'failed' | 'cancelled';
+      readonly failureCategory: string | null;
+      readonly replayed: true;
+    };

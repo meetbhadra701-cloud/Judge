@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@judge-copilot/assessment": "workspace:*",
     "@judge-copilot/context": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
     "zod": "^4.6.5"
