@@ -356,6 +356,7 @@ export class AssessmentReadStore {
       notices: {
         advisory: ASSESSMENT_API_NOTICE,
         semanticRelevance: 'not_verified' as const,
+        storedText: 'not_hash_covered' as const,
         target: 'overall_rubric_only' as const,
         replay: replay ? REPLAY_NOTICE : null,
       },
@@ -420,10 +421,16 @@ export class AssessmentReadStore {
         dimensionId: j.dimensionId,
         position: j.position,
         outcomeKind: dimension?.state === 'assessed' ? 'scored' : 'insufficient_evidence',
-        // the number comes from the VERIFIED REPORT; an insufficient dimension has none, whatever else the row holds
+        // the number comes from the VERIFIED REPORT, at the report's canonical precision; an insufficient dimension has none, whatever
+        // else the row holds (including a judged value that M4 declined to use)
         score: dimension?.state === 'assessed' ? dimension.scoreOnScale : null,
+        insufficiencyReason: dimension?.state === 'insufficient_evidence' ? dimension.reason : null,
         disposition: j.disposition,
-        dispositionAttribution: attributeDisposition(j.disposition),
+        // a judged value M4 did not use (no usable citation) is a decision of the scorer, not of the assessor
+        dispositionAttribution:
+          dimension?.state === 'insufficient_evidence' && dimension.reason === 'no_usable_citation'
+            ? 'insufficient_by_code'
+            : attributeDisposition(j.disposition),
         rationale: j.rationale,
         limitations: [...j.limitations],
         assessorAttempts: j.assessorAttempts,

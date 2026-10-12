@@ -58,3 +58,25 @@ Step 2: `judgment_mismatch_dimension_set`, `judgment_mismatch_dimension_duplicat
 
 The corruption helper is `apps/worker/src/testing/corrupt.ts`: it lives in the excluded-from-build testing directory, disables an immutability trigger only
 for the duration of a statement on a disposable database, and re-enables it in `finally`. The application has no code path that can do this.
+
+## R2 amendment (P6A-R2): canonical score precision, unused judged values, stored-text notice
+
+- **Canonical precision.** The report holds `roundReported(rawScore)`: the decimal the raw number prints as, rounded once, half-up, to 4 places, negative zero
+  as zero (`packages/scoring/src/canonical.ts`, exported additively as `roundReported`). Step 2 compares `roundReported(row.score)` with the report's
+  `scoreOnScale` — the engine's own function, no epsilon. What is authenticated is therefore the **canonical report-level score** (an equivalence class of raw
+  values), not the raw double. Two raw values in the same bucket (7.33333 and 7.33334) cannot be told apart; a change into another bucket, a non-finite
+  value or a missing value fails closed with `judgment_mismatch_score`. The raw value is covered only by the report's `inputFingerprint`, which needs the whole
+  authorized scoring context to recompute; stronger raw-value authenticity would need a persisted digest of the raw judgments (schema migration) or a
+  read-time re-score through `AssessmentInputReader`. Neither was added.
+- **A judged value M4 did not use.** If a scored judgment cites only evidence of a kind M4 cannot use (absence, unknown, contradiction), the report marks the
+  dimension `insufficient_evidence / no_usable_citation`. The row is then legitimately `scored` with a finite number the report does not carry; it verifies, the
+  API shows `score: null`, `insufficiencyReason: 'no_usable_citation'` and attribution `insufficient_by_code`, and the raw value is not returned as a judgment
+  score (the verified report's own `JUDGED_VALUE_NOT_USED` diagnostic may state it). Citation membership is unchanged: the row's cited ids must equal the report's
+  `citedEvidenceIds` (which lists every cited id, usable or not), so a swapped, added, removed or foreign id still withholds the assessment.
+- **Stored text is not authenticated, and the response says so.** `notices.storedText = 'not_hash_covered'` on every detail response, a per-dimension tag and a
+  line under "What this does not establish" on the page state that rationale, citation notes, limitation lists, disposition and its attribution are stored text
+  that no integrity hash covers. (The _numbers, states and cited ids_ are verified; the text is not.)
+- New invariants: **I13** a legitimate raw score of any decimal length verifies and is shown at report precision (`score-precision.test.ts`, `verify-judgments.test.ts`,
+  `assessment-read-direct.test.ts`); **I14** a material score change, a non-finite score, or a bucket change fails closed (same files); **I15** a change inside one
+  bucket is _not_ detected, and a test pins that as the documented behavior; **I16** an unverified assessment with non-empty limitations withholds them
+  (`assessment-read-direct.test.ts`).

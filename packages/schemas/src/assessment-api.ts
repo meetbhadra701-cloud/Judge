@@ -12,13 +12,19 @@ import type { ScoreReport } from './scoring.js';
  * assessment at all.
  *
  * VERIFIED OR WITHHELD (P6A-R1). Every read re-verifies the stored assessment in two steps: the report bytes (text hash, schema, M4
- * output hash, canonical fixed point, jsonb mirror), then the judgment rows against that report (same dimensions, same state and number,
- * same cited evidence ids). If either step fails the assessment is `verified: false` and ONLY safe metadata is returned: `report` is
+ * output hash, canonical fixed point, jsonb mirror), then the judgment rows against that report (same dimensions, same state, the same number AT THE REPORT'S
+ * CANONICAL PRECISION, same cited evidence ids). If either step fails the assessment is `verified: false` and ONLY safe metadata is returned: `report` is
  * null, `judgments` and `limitations` are empty, and no score, rationale, citation or evidence text of any kind appears; in the list
  * `overall` is null. `verificationFailure` carries a stable machine code (a report check name, `report_schema`, or
  * `judgment_mismatch_<reason>`). The verifier authenticates the report and the agreement of the rows with it; it does NOT authenticate
- * the free text of a verified assessment's rows (rationale, citation notes, limitation codes), which no hash covers, and its hashes live
- * in the same database as the data (they detect inconsistent edits and corruption, not a writer able to recompute every column). `notices.semanticRelevance` is always `not_verified` (the scorer does not check that a citation is relevant).
+ * the free text of a verified assessment's rows (rationale, citation notes, limitation codes; `notices.storedText` says so), which no hash covers, and its hashes live
+ * in the same database as the data (they detect inconsistent edits and corruption, not a writer able to recompute every column).
+ *
+ * CANONICAL SCORE PRECISION (P6A-R2). Every number the API returns for a judgment comes from the verified report, where M4 rounded it ONCE,
+ * half-up, to four decimals on the decimal the raw score prints as (negative zero becomes zero). The raw value the assessor gave is not
+ * returned: an assessor's 7.33333 is reported, and verified, as 7.3333, and two raw values in the same four-decimal bucket are
+ * indistinguishable to the verifier. A dimension whose judged value M4 declined to use (`insufficiencyReason: 'no_usable_citation'`:
+ * only absence/unknown/contradiction evidence was cited) has no number at all (the verified report's own diagnostic says the value was not used). `notices.semanticRelevance` is always `not_verified` (the scorer does not check that a citation is relevant).
  */
 
 export const ASSESSMENT_API_NOTICE =
@@ -160,8 +166,14 @@ export interface AssessmentJudgmentView {
   readonly dimensionId: string;
   readonly position: number;
   readonly outcomeKind: 'scored' | 'insufficient_evidence';
-  /** The assessor's rating on the rubric scale; null for every insufficient outcome (never zero-filled). */
+  /**
+   * The assessor's rating on the rubric scale AS THE VERIFIED REPORT STATES IT: rounded once, half-up, to four decimals (the report's
+   * canonical precision), so 7.33333 is shown as 7.3333. Null for every insufficient outcome (never zero-filled), including a dimension
+   * whose judged value M4 declined to use (`insufficiencyReason: 'no_usable_citation'`): that raw value is never returned as a judgment score (the verified report's own `JUDGED_VALUE_NOT_USED` diagnostic may state it).
+   */
   readonly score: number | null;
+  /** Why a dimension has no number, from the verified report (null when it has one). */
+  readonly insufficiencyReason: 'assessor_reported_insufficient' | 'no_usable_citation' | null;
   readonly disposition: string;
   /** Who decided the outcome (see `DispositionAttribution`). */
   readonly dispositionAttribution: DispositionAttribution;
@@ -209,6 +221,12 @@ export interface AssessmentDetail {
   readonly notices: {
     readonly advisory: typeof ASSESSMENT_API_NOTICE;
     readonly semanticRelevance: 'not_verified';
+    /**
+     * `rationale`, citation `note`s, per-judgment `limitations`, attempt counts, critic flags, the `disposition` and its attribution, and the
+     * assessment-level `limitations` are text/metadata stored in separate rows. They are returned only for an assessment that verified and
+     * whose rows agree with the report on numbers, state and citations, but no hash covers THEM: they are not cryptographically authenticated.
+     */
+    readonly storedText: 'not_hash_covered';
     readonly target: 'overall_rubric_only';
     readonly replay: string | null;
   };

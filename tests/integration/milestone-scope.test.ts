@@ -502,11 +502,20 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('changes scoring only by the approved additive report-hash export (design §8.9, D15)', () => {
+  it('changes scoring only by the approved additive exports: the report-hash functions (design §8.9, D15) and, in P6A-R2, the report’s own rounding rule', () => {
     const index = readFileSync(join(ROOT, 'packages/scoring/src/index.ts'), 'utf8');
     expect(index).toContain(
       "export { reportOutputHash, verifyScoreReportHash } from './report-hash.js';",
     );
+    // P6A-R2: the verifier compares judgment rows at the precision the report was built with, by calling the engine's OWN function
+    expect(index).toContain("export { roundReported } from './canonical.js';");
+    const canonical = readFileSync(join(ROOT, 'packages/scoring/src/canonical.ts'), 'utf8');
+    expect(canonical).toContain(
+      'export function roundReported(value: number | Rational): number {',
+    );
+    expect(canonical).toContain('return roundHalfUp(exact, SCORING_PARAMETERS.roundingDecimals);');
+    // the exports are the only additions: the index exports nothing else that was not there before
+    expect([...index.matchAll(/^export \{/gm)]).toHaveLength(9);
     const hashFile = readFileSync(join(ROOT, 'packages/scoring/src/report-hash.ts'), 'utf8');
     // the verifier reproduces the engine's existing rule through the engine's own hash helper; it defines no new rule
     expect(hashFile).toContain("import { hashOf } from './canonical.js';");

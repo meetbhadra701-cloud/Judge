@@ -1,6 +1,6 @@
 import { canonicalJson, sha256Hex } from '@judge-copilot/context';
 import { ScoreReport } from '@judge-copilot/schemas';
-import { reportOutputHash } from '@judge-copilot/scoring';
+import { reportOutputHash, roundReported } from '@judge-copilot/scoring';
 
 /*
  * `verifyStoredAssessment` (design §8.8): pure verification of a STORED report. Four different things must never be conflated:
@@ -74,10 +74,10 @@ export function storedFormOf(report: ScoreReport): StoredAssessmentReport {
   };
 }
 
-// -- Judgment rows versus the verified report (P6A-R1) ---------------------------------------------------------------------------
+// -- Judgment rows versus the verified report (P6A-R1, P6A-R2) -------------------------------------------------------------------
 
 /*
- * `verifyStoredAssessment` authenticates ONE thing: the stored report bytes (text hash, schema, M4 output hash, fixed point, jsonb
+ * `verifyStoredAssessment` authenticates ONE thing: the stored report bytes (text hash, schema, M4 output hash, canonical fixed point, jsonb
  * mirror). It does not authenticate the per-dimension judgment ROWS (`assessment_dimension_judgments`, `assessment_judgment_citations`)
  * that carry the rationale, limitation codes and citation notes, and no hash in the report covers those texts.
  *
@@ -85,14 +85,41 @@ export function storedFormOf(report: ScoreReport): StoredAssessmentReport {
  * VERIFIED report also states must agree with it. The report is the source of truth for state and numbers:
  *
  *   dimensions   the rows cover exactly the report's dimensions (no missing, extra or duplicated dimension)
- *   state        an `assessed` dimension has a `scored` row with the SAME number on the rubric scale; an `insufficient_evidence` dimension
- *                has a non-scored row and NO number
- *   disposition  `scored` if and only if the dimension is assessed
- *   citations    the cited evidence ids of the row equal the report's `citedEvidenceIds` (the scorer was handed exactly these)
+ *   state        an `assessed` dimension has a `scored` row whose score, AT THE REPORT'S CANONICAL PRECISION, equals the report's number;
+ *                an `insufficient_evidence` dimension has no number to show, in one of two shapes (below)
+ *   disposition  `scored` if and only if the row holds a judged value (an assessed dimension, or a value M4 did not use)
+ *   citations    the cited evidence ids of the row equal the report's `citedEvidenceIds` (the scorer was handed exactly these, whatever
+ *                their kind: M4 lists every cited id and only then decides which are usable)
+ *
+ * CANONICAL SCORE PRECISION (P6A-R2). The assessor's score is a JavaScript number stored as `double precision` in the row. M4 never
+ * reports it as is: the report holds `roundReported(score)` = the decimal the number PRINTS as (`String(score)`), rounded ONCE, half-up,
+ * to `SCORING_PARAMETERS.roundingDecimals` (4) places, with negative zero normalized to zero. A row therefore matches its report when
+ * `roundReported(row.score) === dimension.scoreOnScale`, with `roundReported` being the engine's own function (not a copy, and no epsilon).
+ * What this authenticates is the CANONICAL REPORT-LEVEL SCORE, an equivalence class of raw values: 7.33333 and 7.33334 are both 7.3333 and
+ * cannot be told apart by this check. The raw value is covered only by the report's `inputFingerprint`, which cannot be recomputed here
+ * without the whole authorized scoring context.
+ *
+ * TWO SHAPES OF "NO NUMBER". (1) `assessor_reported_insufficient`: the row is non-scored, has no score and a non-`scored` disposition
+ * (the assessor declared insufficiency, or code downgraded the unit). (2) `no_usable_citation`: the assessor judged a value, the gates
+ * passed, but every cited item was of a kind that cannot support anything (absence, unknown, contradiction), so M4 refused to use the
+ * value ("missing evidence is not negative evidence"). The row is then legitimately `scored` with a finite number that the report does
+ * not carry and the API never shows.
  *
  * It does NOT authenticate the free text of a row (rationale, notes, limitation codes, attempt counts, critic flags): those are returned
  * only for a report that verifies and whose rows agree as above, and are described as unauthenticated text by the API contract.
  */
+
+/**
+ * The canonical report-level form of a raw judged score, or null if the value cannot be a score at all (not finite, or outside what the
+ * exact rounding accepts). This IS the engine's `roundReported`; it only converts its refusal into null so a hostile value fails closed.
+ */
+export function canonicalReportedScore(raw: number): number | null {
+  try {
+    return roundReported(raw);
+  } catch {
+    return null;
+  }
+}
 
 export const JUDGMENT_MISMATCH_VALUES = [
   'dimension_set',
@@ -134,9 +161,15 @@ export function verifyJudgmentsAgainstReport(
   for (const dimension of report.dimensions) {
     const row = byId.get(dimension.id);
     if (!row) return fail('dimension_set');
+    const canonical = row.score === null ? null : canonicalReportedScore(row.score);
     if (dimension.state === 'assessed') {
       if (row.outcomeKind !== 'scored') return fail('outcome_state');
-      if (row.score === null || row.score !== dimension.scoreOnScale) return fail('score');
+      if (canonical === null || canonical !== dimension.scoreOnScale) return fail('score');
+      if (row.disposition !== 'scored') return fail('disposition');
+    } else if (dimension.reason === 'no_usable_citation') {
+      // a judged value M4 did not use: the row is scored with a finite number the report (rightly) does not carry
+      if (row.outcomeKind !== 'scored') return fail('outcome_state');
+      if (canonical === null) return fail('score');
       if (row.disposition !== 'scored') return fail('disposition');
     } else {
       if (row.outcomeKind !== 'insufficient_evidence') return fail('outcome_state');

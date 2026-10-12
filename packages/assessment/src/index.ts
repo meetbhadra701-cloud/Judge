@@ -207,6 +207,7 @@ export type { ShapeFailure, Staged, StagedCritic, StagedJudgment } from './stage
 export { buildStatementItems } from './statements.js';
 export type { StatementItem, StatementResult } from './statements.js';
 export {
+  canonicalReportedScore,
   JUDGMENT_MISMATCH_VALUES,
   STORED_REPORT_CHECKS,
   storedFormOf,

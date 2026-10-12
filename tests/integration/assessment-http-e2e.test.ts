@@ -192,6 +192,7 @@ describe.each(testDatabaseTargets())(
       });
       expect(d['notices'] as Record<string, unknown>).toMatchObject({
         semanticRelevance: 'not_verified',
+        storedText: 'not_hash_covered',
         target: 'overall_rubric_only',
       });
       expect((d['notices'] as { replay: string }).replay).toMatch(/REPLAY DEMONSTRATION/);
@@ -201,12 +202,15 @@ describe.each(testDatabaseTargets())(
         dimensionId: string;
         score: number | null;
         outcomeKind: string;
-        dispositionClass: string;
+        dispositionAttribution: string;
+        insufficiencyReason: string | null;
         citations: { evidence: { text: string; verificationLevel: string } | null }[];
       }[];
       expect(judgments).toHaveLength(2);
       for (const j of judgments) {
         expect(j.outcomeKind).toBe('scored');
+        expect(j.dispositionAttribution).toBe('scored');
+        expect(j.insufficiencyReason).toBeNull();
         expect(j.score).toBe(7);
         expect(j.citations.length).toBeGreaterThan(0);
         for (const c of j.citations) expect(c.evidence?.text.length).toBeGreaterThan(0);
@@ -334,6 +338,17 @@ describe.each(testDatabaseTargets())(
         for (const text of texts) expect(serialized).not.toContain(text);
         for (const key of ['"score"', '"score10"', '"scoreOnScale"', '"rationale"']) {
           expect(serialized).not.toContain(key);
+        }
+        // the run view of a withheld assessment carries state and totals only: no score, no text
+        const runView = await call(
+          'GET',
+          `${base}/assessment-runs/${before.body['runId'] as string}`,
+        );
+        expect(runView.status).toBe(200);
+        expect(runView.body).toMatchObject({ state: 'succeeded', assessmentId: id });
+        const runText = JSON.stringify(runView.body);
+        for (const key of ['"score"', '"score10"', '"scoreOnScale"', '"rationale"']) {
+          expect(runText).not.toContain(key);
         }
         const listed = (await call('GET', `${base}/assessments`)).body['assessments'] as {
           id: string;

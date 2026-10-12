@@ -45,6 +45,7 @@ const judgment = (overrides: Partial<AssessmentJudgmentView>): AssessmentJudgmen
   position: 0,
   outcomeKind: 'scored',
   score: 7,
+  insufficiencyReason: null,
   disposition: 'scored',
   dispositionAttribution: 'scored',
   rationale: SECRET_RATIONALE,
@@ -191,6 +192,7 @@ const detail = (overrides: Partial<AssessmentDetail>): AssessmentDetail => ({
     advisory:
       'AI estimate from the submitted material only. The human judge’s final score is separate and authoritative.',
     semanticRelevance: 'not_verified',
+    storedText: 'not_hash_covered',
     target: 'overall_rubric_only',
     replay: 'REPLAY DEMONSTRATION',
   },
@@ -289,6 +291,7 @@ describe('assessment page: the missing-number display invariant', () => {
           judgment({
             outcomeKind: 'insufficient_evidence',
             score: null,
+            insufficiencyReason: 'assessor_reported_insufficient',
             disposition: 'assessor_reported_insufficient',
             dispositionAttribution: 'insufficient_by_assessor',
             citations: [],
@@ -311,6 +314,40 @@ describe('assessment page: the missing-number display invariant', () => {
     expect(html).toContain('Advisory only');
     expect(html).toContain('relevance not verified');
     expect(html).toContain('Replay demonstration');
+  });
+
+  it('says that the rationale, notes and limitations are stored text that no hash covers, and that scores are shown at report precision', () => {
+    const html = render(list([summary({ overall: { state: 'scored', score10: 7 } })]), detail({}));
+    expect(html).toContain('stored text that no integrity hash covers');
+    expect(html).toContain('not cryptographically authenticated');
+    expect(html).toContain('stored text, not hash-verified');
+    expect(html).toContain('appears as 7.3333');
+  });
+
+  it('a dimension whose judged value was not used says why and shows no number', () => {
+    const html = render(
+      list([summary({ overall: { state: 'insufficient_evidence', score10: null } })]),
+      detail({
+        report: {
+          ...reportWith(INSUFFICIENT, false),
+          dimensions: [
+            { ...dimension('official.problem_fit', false), reason: 'no_usable_citation' },
+          ],
+        } as unknown as ScoreReport,
+        judgments: [
+          judgment({
+            outcomeKind: 'insufficient_evidence',
+            score: null,
+            insufficiencyReason: 'no_usable_citation',
+            dispositionAttribution: 'insufficient_by_code',
+            citations: [],
+          }),
+        ],
+      }),
+    );
+    expect(html).toContain('the scorer did not use it');
+    expect(html).toContain('no number is given');
+    expect(html).not.toMatch(NUMBER_OF_ANY_KIND);
   });
 
   it('a partial assessment names the share assessed and the criteria that were not', () => {

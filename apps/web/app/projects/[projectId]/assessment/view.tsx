@@ -112,6 +112,13 @@ const ATTRIBUTION_LABELS = {
   technical: 'technical failure (not a judgment about the project)',
 } as const;
 
+const INSUFFICIENCY_LABELS = {
+  assessor_reported_insufficient:
+    'the assessor reported insufficient evidence, or code found no usable basis',
+  no_usable_citation:
+    'a value was judged but only absence, unknown or contradiction evidence was cited, so the scorer did not use it',
+} as const;
+
 const STATE_LABELS = {
   none: 'NO ASSESSMENT',
   in_progress: 'IN PROGRESS',
@@ -319,6 +326,16 @@ function AssessmentView({ detail }: { detail: AssessmentDetail }) {
             Citation relevance is <strong>not verified</strong>: a cited item is not checked to
             support the claim it is attached to.
           </li>
+          <li>
+            The rationale, citation notes and limitation lists of each dimension are{' '}
+            <strong>stored text that no integrity hash covers</strong>. The report’s numbers and
+            states are verified; this text is shown as recorded and is not cryptographically
+            authenticated.
+          </li>
+          <li>
+            Scores are shown at the report’s precision (four decimals, rounded once): a raw value of
+            7.33333 appears as 7.3333.
+          </li>
           <li>Claim labels are never proof of truth; missing evidence is not negative evidence.</li>
           <li>Contradictions are only those recorded in the evidence graph.</li>
         </ul>
@@ -354,7 +371,9 @@ function DimensionCard({
             · evidence strength {formatRatio(dimension.evidenceStrength)}
           </>
         ) : (
-          <>Insufficient evidence ({dimension.reason}) — no number is given.</>
+          <>
+            Insufficient evidence ({INSUFFICIENCY_LABELS[dimension.reason]}) — no number is given.
+          </>
         )}
       </div>
       {judgment ? (
@@ -368,6 +387,9 @@ function DimensionCard({
               </span>
             ) : null}
             <span className="tag tag-warn">relevance not verified</span>
+            <span className="tag tag-warn">
+              rationale, notes and limitations: stored text, not hash-verified
+            </span>
           </div>
           {judgment.rationale ? <p>{judgment.rationale}</p> : null}
           {judgment.limitations.length > 0 ? (
