@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { AssessmentRequestMode, ProviderMode } from './assessment.js';
+import type { ProviderMode } from './assessment.js';
+import { AssessmentRequestMode } from './assessment.js';
 import { Uuid } from './primitives.js';
 import type { ScoreReport } from './scoring.js';
 

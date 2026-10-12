@@ -38,7 +38,7 @@ export function registerAssessmentRoutes(
     { preHandler: guard('assessment.run') },
     async (request, reply) => {
       const { projectId } = parseRequest(ProjectParams, request.params, 'params');
-      const key = idempotencyKeyOf(request.headers as Record<string, unknown>);
+      const key = idempotencyKeyOf(request.headers);
       const body = parseRequest(CreateAssessmentRequest, request.body, 'body');
       const outcome = await service.request(projectId, actorOf(request).id, key, body);
       return reply.code(outcome.status).send(outcome.body);

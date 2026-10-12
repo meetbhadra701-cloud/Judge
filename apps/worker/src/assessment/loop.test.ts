@@ -327,7 +327,7 @@ describe.each(testDatabaseTargets())('the assessment loop on %s', (_name, open) 
       },
     };
     const runId = await requestRun(harness(db), world, scripted);
-    const entered = { open: () => undefined as void };
+    const entered = { open: (): void => undefined };
     const enteredP = new Promise<void>((resolve) => {
       entered.open = resolve;
     });

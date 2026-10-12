@@ -182,7 +182,7 @@ describe.each(testDatabaseTargets())(
 
       const detail = await call('GET', `${base}/assessments/${assessmentId}`);
       expect(detail.status).toBe(200);
-      const d = detail.body as Record<string, unknown>;
+      const d = detail.body;
       expect(d).toMatchObject({
         verified: true,
         verificationFailure: null,
@@ -289,7 +289,6 @@ describe.each(testDatabaseTargets())(
       const base = `/projects/${world.project.id}`;
       const post = await call('POST', `${base}/assessments`, KEY(20), { mode: 'assess' });
       const runId = post.body['runId'] as string;
-      const h = harness(db);
       // the expiry operation the loop uses, with a cutoff in the future
       expect(
         await new AssessmentRunStore({ db }).expirePendingRun(
@@ -297,7 +296,6 @@ describe.each(testDatabaseTargets())(
           new Date(Date.now() + 3_600_000),
         ),
       ).toBe(true);
-      void h;
       const run = await call('GET', `${base}/assessment-runs/${runId}`);
       expect(run.body).toMatchObject({
         state: 'cancelled',

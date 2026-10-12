@@ -1,4 +1,4 @@
-import { classifyDisposition, type UnitDisposition } from '@judge-copilot/assessment';
+import { classifyDisposition } from '@judge-copilot/assessment';
 import { canonicalJson, sha256Hex } from '@judge-copilot/context';
 import {
   ASSESSMENT_API_NOTICE,
@@ -19,8 +19,6 @@ import { AssessmentStore } from './assessment-store.js';
 import type { JudgeDatabase } from './client.js';
 import {
   analysisRuns,
-  assessmentDimensionJudgments,
-  assessmentJudgmentCitations,
   assessmentRequests,
   assessmentRunBudget,
   assessmentRunCalls,
@@ -334,7 +332,7 @@ export class AssessmentReadStore {
         // an insufficient outcome never carries a number, whatever else the row holds
         score: j.outcomeKind === 'scored' ? j.score : null,
         disposition: j.disposition,
-        dispositionClass: classifyDisposition(j.disposition as UnitDisposition),
+        dispositionClass: classifyDisposition(j.disposition),
         rationale: j.rationale,
         limitations: [...j.limitations],
         assessorAttempts: j.assessorAttempts,
@@ -347,11 +345,17 @@ export class AssessmentReadStore {
     });
 
     const facts = configFacts(inputs?.pipelineConfig ?? {});
-    const limitations = (row.limitations as AssessmentLimitationView[]).map((entry) => ({
-      code: String(entry.code),
-      count: Number(entry.count),
-      subjects: Array.isArray(entry.subjects) ? entry.subjects.map(String) : [],
-    }));
+    // stored by trusted code, but read defensively: a malformed entry is shown as what it is, never as a different code
+    const limitations: AssessmentLimitationView[] = row.limitations.map((raw) => {
+      const entry = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+      return {
+        code: typeof entry['code'] === 'string' ? entry['code'] : 'malformed_limitation',
+        count: typeof entry['count'] === 'number' ? entry['count'] : 0,
+        subjects: Array.isArray(entry['subjects'])
+          ? entry['subjects'].filter((item): item is string => typeof item === 'string')
+          : [],
+      };
+    });
     const replay = isDemonstration(row.providerMode);
     return {
       id: row.id,

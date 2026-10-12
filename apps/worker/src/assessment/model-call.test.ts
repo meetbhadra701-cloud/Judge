@@ -133,16 +133,15 @@ function setup(
 
 const bindingFor =
   (closedSet: Record<string, unknown>, overrides: Partial<CallBinding> = {}) =>
-  (callId: number, requestDigest: string): TestBinding =>
-    ({
-      callId,
-      stage: 'claim_extraction',
-      requestDigest,
-      dimensionId: null,
-      closedSet,
-      closedSetHash: 'x'.repeat(64),
-      ...overrides,
-    }) as TestBinding;
+  (callId: number, requestDigest: string): TestBinding => ({
+    callId,
+    stage: 'claim_extraction',
+    requestDigest,
+    dimensionId: null,
+    closedSet,
+    closedSetHash: 'x'.repeat(64),
+    ...overrides,
+  });
 
 const spec = (seen: BoundClosedSet[] = []) => ({
   stage: 'claim_extraction' as const,
