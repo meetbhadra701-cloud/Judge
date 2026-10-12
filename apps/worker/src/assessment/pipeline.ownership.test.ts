@@ -243,7 +243,12 @@ describe.each(testDatabaseTargets())(
               .where(eq(analysisRuns.projectId, world.project.id));
             stolen = row?.id ?? '';
             // another worker's recovery pass takes the run over (fails it, counts the in-flight attempt)
-            await harness(db).runs.recoverRun(stolen, FAR_FUTURE);
+            // recovery skips a row someone else holds at this instant (here: the 20 ms heartbeat) and the next maintenance pass
+            // retries it, so the test retries too
+            for (let attempt = 0; attempt < 200; attempt += 1) {
+              if (await harness(db).runs.recoverRun(stolen, FAR_FUTURE)) break;
+              await new Promise((resolve) => setTimeout(resolve, 5));
+            }
             return 'hang';
           }),
           deps: { leaseMs: 60_000, heartbeatEveryMs: 20 },
