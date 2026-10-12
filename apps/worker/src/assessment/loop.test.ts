@@ -146,6 +146,38 @@ describe.each(testDatabaseTargets())('the assessment loop on %s', (_name, open) 
     expect((await loop.maintain()).expiredPending).toEqual([]);
   });
 
+  it('never STARTS a pending run that is past the age limit, even when the expiry pass cannot cancel it yet (the claim carries the cutoff)', async () => {
+    const world = await seedWorld(db);
+    const provider = new ScriptedProvider([new FakeModel().step], { repeatLast: true });
+    const h = harness(db);
+    const runId = await requestRun(h, world, provider);
+    const now = new Date((await createdAt(runId)) + PENDING_MAX_AGE_DEFAULT_MS + 50);
+    // an expiry pass that loses every race (the row is held elsewhere): it leaves the run pending
+    const runs = Object.assign(Object.create(h.runs) as typeof h.runs, {
+      expirePendingRun: () => Promise.resolve(false),
+    });
+    const { logger } = memoryLogger();
+    const outcomes: unknown[] = [];
+    const { shutdown: _shutdown, ...deps } = h.deps(provider);
+    const loop = createAssessmentLoop({
+      db,
+      runs,
+      logger,
+      concurrency: 1,
+      pollIntervalMs: 50,
+      now: () => now,
+      onOutcome: (_id, outcome) => void outcomes.push(outcome),
+      pipeline: deps,
+    });
+    expect(await loop.drain()).toBe(0); // nothing was claimed
+    expect(outcomes).toEqual([]);
+    const [row] = await db.select().from(analysisRuns).where(eq(analysisRuns.id, runId));
+    expect(row?.state).toBe('pending'); // untouched: the expiry policy, not a worker, ends it
+    expect(
+      await db.select().from(assessmentRunCalls).where(eq(assessmentRunCalls.runId, runId)),
+    ).toHaveLength(0);
+  });
+
   it('honors a shorter configured age', async () => {
     const world = await seedWorld(db);
     const provider = new ScriptedProvider([new FakeModel().step], { repeatLast: true });
