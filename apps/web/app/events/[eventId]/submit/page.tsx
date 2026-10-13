@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { EventContextLockedSnapshot, EventDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, eventPath } from '../../../../lib/api';
@@ -40,6 +41,7 @@ export default async function SubmitPage({ params }: { params: Promise<{ eventId
       event={event}
       locked={locked ?? null}
       rubric={rubric ? { name: rubric.name, criteriaCount: rubric.criteria.length } : null}
+      submissionKey={randomUUID()}
     />
   );
 }

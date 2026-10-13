@@ -12,6 +12,7 @@ vi.mock('next/navigation', () => ({
 /* P6B-alpha: the submit page rendered from plain data. */
 
 const event = { id: 'e1', name: 'Demo Hackathon', slug: 'demo-hack', createdAt: '', updatedAt: '' };
+const KEY = '0b9f6c1e-5b0e-4c27-9d6d-0a8e7d3f2a11';
 const locked = {
   id: 'v2',
   version: 2,
@@ -25,6 +26,7 @@ describe('submit page', () => {
         event={event as never}
         locked={locked}
         rubric={{ name: 'Official rubric', criteriaCount: 4 }}
+        submissionKey={KEY}
       />,
     );
     expect(html).toContain('Demo Hackathon');
@@ -37,11 +39,13 @@ describe('submit page', () => {
     expect(html).toContain('name="github"');
     expect(html).toContain('name="devpost"');
     expect(html).toContain('Start analysis');
+    // the request identity of THIS form travels with it, so a retry can only converge
+    expect(html).toContain(`name="submissionKey" value="${KEY}"`);
   });
 
   it('states that this is a temporary offline workflow and that capture is not an AI analysis', () => {
     const html = renderToStaticMarkup(
-      <SubmitView event={event as never} locked={locked} rubric={null} />,
+      <SubmitView event={event as never} locked={locked} rubric={null} submissionKey={KEY} />,
     );
     expect(html).toContain('Temporary offline workflow');
     expect(html).toContain('not an AI analysis');
@@ -51,7 +55,7 @@ describe('submit page', () => {
 
   it('without a locked Event Context there is no form, only a way to set one up', () => {
     const html = renderToStaticMarkup(
-      <SubmitView event={event as never} locked={null} rubric={null} />,
+      <SubmitView event={event as never} locked={null} rubric={null} submissionKey={KEY} />,
     );
     expect(html).toContain('no locked Event Context');
     expect(html).not.toContain('name="github"');
@@ -65,6 +69,7 @@ describe('submit page', () => {
         event={{ ...event, name: '<script>alert(1)</script>' } as never}
         locked={locked}
         rubric={null}
+        submissionKey={KEY}
       />,
     );
     expect(html).not.toContain('<script>alert');

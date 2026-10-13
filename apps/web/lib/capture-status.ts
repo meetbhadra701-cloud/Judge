@@ -147,3 +147,18 @@ export function overviewOf(sources: readonly ProjectSourceRecord[]): CaptureOver
     allContent: views.length > 0 && views.every((view) => view.hasContent),
   };
 }
+
+/**
+ * A short string that changes exactly when something the capture page shows could have changed: which snapshot is the latest of each
+ * source, and its status. The page's progress checker compares it, so the page is re-rendered only on a real change.
+ */
+export function captureFingerprint(project: {
+  readonly sources: readonly ProjectSourceRecord[];
+}): string {
+  return project.sources
+    .map(
+      (source) =>
+        `${source.id}:${source.latestSnapshot?.id ?? 'none'}:${source.latestSnapshot?.status ?? 'none'}`,
+    )
+    .join('|');
+}

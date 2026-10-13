@@ -1,7 +1,13 @@
-import { AddProjectSourceRequest, CreateProjectRequest, Uuid } from '@judge-copilot/schemas';
+import {
+  AddProjectSourceRequest,
+  CreateProjectRequest,
+  IdempotencyKey,
+  SubmitProjectRequest,
+  Uuid,
+} from '@judge-copilot/schemas';
 import { z } from 'zod';
 import { actorOf, type Guard } from '../auth.js';
-import { parseRequest, type ApiApp } from '../http.js';
+import { parseRequest, RequestValidationError, type ApiApp } from '../http.js';
 import { SourceIngestionError } from './errors.js';
 import type { ProjectService } from './service.js';
 
@@ -9,6 +15,18 @@ const EventParams = z.object({ eventId: Uuid });
 const ProjectParams = z.object({ projectId: Uuid });
 const SourceParams = z.object({ projectId: Uuid, sourceId: Uuid });
 const SnapshotParams = z.object({ projectId: Uuid, snapshotId: Uuid });
+/** `Idempotency-Key`: a UUID (case-insensitive). Required: a submission without a stable request identity could not be retried safely. */
+function idempotencyKeyOf(headers: Record<string, unknown>): string {
+  const raw = headers['idempotency-key'];
+  const parsed = IdempotencyKey.safeParse(typeof raw === 'string' ? raw.trim() : undefined);
+  if (!parsed.success) {
+    throw new RequestValidationError('headers', [
+      { path: 'idempotency-key', message: 'A UUID Idempotency-Key header is required' },
+    ]);
+  }
+  return parsed.data.toLowerCase();
+}
+
 const ArtifactParams = z.object({ projectId: Uuid, snapshotId: Uuid, artifactId: Uuid });
 
 /**
@@ -24,6 +42,28 @@ export function registerProjectRoutes(app: ApiApp, service: ProjectService, guar
       const { eventId } = parseRequest(EventParams, request.params, 'params');
       const body = parseRequest(CreateProjectRequest, request.body, 'body');
       return reply.code(201).send(await service.createProject(eventId, body, actorOf(request).id));
+    },
+  );
+
+  // One atomic, idempotent submission: project + GitHub and Devpost declarations + both capture requests (P6B-beta1).
+  app.post(
+    '/events/:eventId/submissions',
+    { preHandler: [guard('project.write'), guard('source.capture')] },
+    async (request, reply) => {
+      const { eventId } = parseRequest(EventParams, request.params, 'params');
+      const key = idempotencyKeyOf(request.headers);
+      const body = parseRequest(SubmitProjectRequest, request.body, 'body');
+      const response = await service.submitProject(eventId, body, actorOf(request).id, key);
+      return reply.code(response.result === 'created' ? 201 : 200).send(response);
+    },
+  );
+
+  app.get(
+    '/events/:eventId/submission-integrity',
+    { preHandler: guard('project.read') },
+    async (request) => {
+      const { eventId } = parseRequest(EventParams, request.params, 'params');
+      return service.submissionIntegrity(eventId);
     },
   );
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { ApiErrorBody } from '../../packages/schemas/src/index.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -28,9 +29,10 @@ import { describeCapture } from '../../apps/web/lib/capture-status.js';
 import { runSubmission, type ApiFn } from '../../apps/web/lib/submission.js';
 
 /*
- * P6B-alpha: the submission flow against the REAL API routes and the REAL capture worker (fixture network, no socket). Covers the happy
- * path, double submission, retries after a failed capture, source isolation between projects, hostile input and the guarantee that
- * submitting never touches an assessment route.
+ * P6B-alpha/beta1: the web tier's submission flow against the REAL API routes and the REAL capture worker (fixture network, no socket).
+ * Covers the happy path, double submission, lost responses, two-tab races, retries after a failed capture, source isolation between
+ * projects, hostile input and the guarantee that submitting never touches an assessment route. The API contract itself is covered by
+ * submission-intent.test.ts.
  */
 
 const logger = createLogger({ service: SERVICE_NAME, level: 'silent' });
@@ -45,12 +47,12 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
   const calls: { method: string; path: string }[] = [];
 
   /** The web tier's API function, served by the real routes through `inject`. */
-  const api: ApiFn = async (method, path, body) => {
+  const api: ApiFn = async (method, path, body, headers) => {
     calls.push({ method, path });
     const response = await app.inject({
       method,
       url: path,
-      headers: bearer(TEST_TOKENS.organizer),
+      headers: { ...bearer(TEST_TOKENS.organizer), ...headers },
       ...(body === undefined ? {} : { payload: body as object }),
     });
     const json: unknown = response.statusCode === 204 ? null : response.json<unknown>();
@@ -62,6 +64,7 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
       code: parsed.error.code,
       message: parsed.error.message,
       issues: [],
+      details: parsed.error.details,
     };
   };
 
@@ -99,6 +102,12 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     name: '',
     ...overrides,
   });
+  /** Every call gets its own form key unless a test reuses one (the same form, pressed again). */
+  const run = (
+    eventId: string,
+    overrides: Partial<{ github: string; devpost: string; name: string }> = {},
+    key: string = randomUUID(),
+  ) => runSubmission(api, eventId, input(overrides), key);
 
   async function detail(projectId: string) {
     const result = await api<{
@@ -125,19 +134,26 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     return setup.loop.drain();
   }
 
-  it('creates the project, declares both sources and requests both captures, and nothing else', async () => {
+  async function snapshotsOf(projectId: string) {
+    return (await db.select().from(sourceSnapshots)).filter(
+      (snapshot) => snapshot.projectId === projectId,
+    );
+  }
+
+  it('creates the project, declares both sources and requests both captures with ONE write call, and nothing else', async () => {
     const eventId = await lockedEvent();
     calls.length = 0;
-    const outcome = await runSubmission(api, eventId, input());
-    expect(outcome).toMatchObject({
-      kind: 'started',
-      created: true,
-      capturesRequested: 2,
-      capturesLeftAlone: 0,
-    });
+    const outcome = await run(eventId);
+    expect(outcome).toMatchObject({ kind: 'started', result: 'created' });
     if (outcome.kind !== 'started') return;
+    // the only calls: read the event, then the single atomic submission
+    expect(calls.map((call) => `${call.method} ${call.path.replace(eventId, ':event')}`)).toEqual([
+      'GET /events/:event',
+      'POST /events/:event/submissions',
+    ]);
     const project = await detail(outcome.projectId);
     expect(project.name).toBe('synthetic/atlas'); // derived from the GitHub URL
+    expect(outcome.projectName).toBe('synthetic/atlas');
     expect(project.sources.map((s) => [s.sourceType, s.url]).sort()).toEqual([
       ['devpost', DEVPOST],
       ['github', GITHUB],
@@ -157,63 +173,61 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     expect(runs.every((run) => run.runType === 'project_source_capture')).toBe(true);
   });
 
-  it('a double click (three concurrent identical submissions) yields ONE project, one declaration per source and one pending capture per source', async () => {
+  it('a double click (the same form sent three times at once) yields ONE project, one declaration per source and one pending capture per source', async () => {
     const eventId = await lockedEvent();
+    const key = randomUUID();
+    const github = 'https://github.com/synthetic/double';
     const outcomes = await Promise.all([
-      runSubmission(api, eventId, input({ github: 'https://github.com/synthetic/double' })),
-      runSubmission(api, eventId, input({ github: 'https://github.com/synthetic/double' })),
-      runSubmission(api, eventId, input({ github: 'https://github.com/synthetic/double' })),
+      run(eventId, { github }, key),
+      run(eventId, { github }, key),
+      run(eventId, { github }, key),
     ]);
     for (const outcome of outcomes) expect(outcome.kind).toBe('started');
+    expect(outcomes.filter((o) => o.kind === 'started' && o.result === 'created')).toHaveLength(1);
     const ids = new Set(outcomes.map((o) => (o.kind === 'started' ? o.projectId : '')));
     expect(ids.size).toBe(1);
     const projectId = [...ids][0] ?? '';
     const project = await detail(projectId);
     expect(project.sources).toHaveLength(2);
-    const snapshots = (await db.select().from(sourceSnapshots)).filter(
-      (snapshot) => snapshot.projectId === projectId,
-    );
+    const snapshots = await snapshotsOf(projectId);
     expect(snapshots).toHaveLength(2);
     expect(snapshots.every((s) => s.status === 'pending')).toBe(true);
     const listed = await api<{ projects: { id: string }[] }>('GET', `/events/${eventId}/projects`);
     expect(listed.ok && listed.data.projects.filter((p) => p.id === projectId)).toHaveLength(1);
   });
 
-  it('submitting again while captures are pending, and again after they succeed, requests nothing new', async () => {
+  it('submitting again while captures are pending, and again after they succeed, requests nothing new (same form or a reloaded one)', async () => {
     const eventId = await lockedEvent();
-    const first = await runSubmission(api, eventId, input());
+    const key = randomUUID();
+    const first = await run(eventId, {}, key);
     if (first.kind !== 'started') throw new Error('not started');
-    const whilePending = await runSubmission(api, eventId, input());
-    expect(whilePending).toMatchObject({
+    const sameForm = await run(eventId, {}, key);
+    expect(sameForm).toMatchObject({
       kind: 'started',
-      created: false,
-      capturesRequested: 0,
-      capturesLeftAlone: 2,
+      result: 'replayed',
+      projectId: first.projectId,
+    });
+    const reloaded = await run(eventId);
+    expect(reloaded).toMatchObject({
+      kind: 'started',
+      result: 'already_submitted',
+      projectId: first.projectId,
     });
     expect(await drainCaptures()).toBeGreaterThanOrEqual(2);
     const captured = await detail(first.projectId);
     expect(captured.sources.map((s) => s.latestSnapshot?.status)).toEqual(['captured', 'captured']);
-    const after = await runSubmission(api, eventId, input());
-    expect(after).toMatchObject({
-      kind: 'started',
-      created: false,
-      capturesRequested: 0,
-      capturesLeftAlone: 2,
-    });
-    const snapshots = (await db.select().from(sourceSnapshots)).filter(
-      (snapshot) => snapshot.projectId === first.projectId,
-    );
-    expect(snapshots).toHaveLength(2); // still one snapshot per source
+    const after = await run(eventId);
+    expect(after).toMatchObject({ kind: 'started', result: 'already_submitted' });
+    expect(await snapshotsOf(first.projectId)).toHaveLength(2); // still one snapshot per source
     // captured, not analysed: the page-level view says so
     for (const source of captured.sources) {
       expect(describeCapture(source.latestSnapshot as never).detail).toMatch(/not an analysis/);
     }
   });
 
-  it('a failed capture is reported per source, and a re-submit retries ONLY the failed source (a new attempt, the old one stays)', async () => {
+  it('a failed capture is reported per source; the per-source retry adds a new attempt for ONLY that source and keeps the history', async () => {
     const eventId = await lockedEvent();
-    const body = input({ github: 'https://github.com/synthetic/does-not-exist' });
-    const first = await runSubmission(api, eventId, body);
+    const first = await run(eventId, { github: 'https://github.com/synthetic/does-not-exist' });
     if (first.kind !== 'started') throw new Error('not started');
     await drainCaptures();
     const afterFirst = await detail(first.projectId);
@@ -226,13 +240,21 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     expect(failedView.hasContent).toBe(false);
     expect(failedView.detail.length).toBeGreaterThan(10);
 
-    const retry = await runSubmission(api, eventId, body);
-    expect(retry).toMatchObject({
-      kind: 'started',
-      created: false,
-      capturesRequested: 1,
-      capturesLeftAlone: 1,
-    });
+    // resubmitting the form does NOT request captures (it is not a retry button) ...
+    const again = await run(eventId, { github: 'https://github.com/synthetic/does-not-exist' });
+    expect(again).toMatchObject({ kind: 'started', result: 'already_submitted' });
+    expect(await snapshotsOf(first.projectId)).toHaveLength(2);
+    // ... the capture page's retry does, for that source only, and a second click while pending is the documented 409
+    const retry = await api(
+      'POST',
+      `/projects/${first.projectId}/sources/${gh?.id ?? ''}/captures`,
+    );
+    expect(retry.ok).toBe(true);
+    const duplicate = await api(
+      'POST',
+      `/projects/${first.projectId}/sources/${gh?.id ?? ''}/captures`,
+    );
+    expect(!duplicate.ok && duplicate.code).toBe('CAPTURE_ALREADY_PENDING');
     await drainCaptures();
     const afterRetry = await detail(first.projectId);
     expect(
@@ -241,23 +263,16 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     expect(
       afterRetry.sources.find((s) => s.sourceType === 'devpost')?.latestSnapshot?.captureNumber,
     ).toBe(1);
-    const all = (await db.select().from(sourceSnapshots)).filter(
-      (snapshot) => snapshot.projectId === first.projectId,
-    );
-    expect(all).toHaveLength(3); // history is kept
+    expect(await snapshotsOf(first.projectId)).toHaveLength(3); // history is kept
   });
 
   it('isolates projects: two submissions in one event do not share sources, snapshots or captures', async () => {
     const eventId = await lockedEvent();
-    const a = await runSubmission(api, eventId, input());
-    const b = await runSubmission(
-      api,
-      eventId,
-      input({
-        github: 'https://github.com/synthetic/injection',
-        devpost: 'https://devpost.com/software/another-entry',
-      }),
-    );
+    const a = await run(eventId);
+    const b = await run(eventId, {
+      github: 'https://github.com/synthetic/injection',
+      devpost: 'https://devpost.com/software/another-entry',
+    });
     if (a.kind !== 'started' || b.kind !== 'started') throw new Error('not started');
     expect(a.projectId).not.toBe(b.projectId);
     const [pa, pb] = [await detail(a.projectId), await detail(b.projectId)];
@@ -270,36 +285,149 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     );
     const ids = new Set([...pa.sources, ...pb.sources].map((s) => s.id));
     expect(ids.size).toBe(4);
-    const snaps = await db.select().from(sourceSnapshots);
-    const forA = snaps.filter((s) => s.projectId === a.projectId);
-    const forB = snaps.filter((s) => s.projectId === b.projectId);
-    expect(forA).toHaveLength(2);
-    expect(forB).toHaveLength(2);
+    expect(await snapshotsOf(a.projectId)).toHaveLength(2);
+    expect(await snapshotsOf(b.projectId)).toHaveLength(2);
     // re-submitting A does not touch B
-    await runSubmission(api, eventId, input());
-    expect(
-      (await db.select().from(sourceSnapshots)).filter((s) => s.projectId === b.projectId),
-    ).toHaveLength(2);
+    await run(eventId);
+    expect(await snapshotsOf(b.projectId)).toHaveLength(2);
   });
 
-  it('refuses to merge into a different project that already uses the derived name, and says so (nothing is changed)', async () => {
+  it('never merges a second submission into an existing project: a shared link or a clashing name is refused and says why', async () => {
     const eventId = await lockedEvent();
-    const first = await runSubmission(api, eventId, input());
+    const first = await run(eventId);
     if (first.kind !== 'started') throw new Error('not started');
-    const clash = await runSubmission(
-      api,
-      eventId,
-      input({ devpost: 'https://devpost.com/software/someone-else' }),
+    // same repository, different Devpost page: a different submission, not an update of the first
+    const clash = await run(eventId, { devpost: 'https://devpost.com/software/someone-else' });
+    expect(clash).toMatchObject({ kind: 'failed', projectId: first.projectId });
+    expect(clash.kind === 'failed' && clash.message).toMatch(
+      /Nothing was saved and nothing was merged/,
     );
-    expect(clash).toMatchObject({ kind: 'failed', field: 'name', projectId: first.projectId });
+    const stored = await detail(first.projectId);
+    expect(stored.sources.map((s) => s.url).sort()).toEqual([DEVPOST, GITHUB].sort());
+    // a name that differs only by capital letters is the same label
+    const sameLabel = await run(eventId, {
+      github: 'https://github.com/synthetic/second',
+      devpost: 'https://devpost.com/software/second',
+      name: 'SYNTHETIC/ATLAS',
+    });
+    expect(sameLabel).toMatchObject({ kind: 'failed', field: 'name' });
+    // two truly different links and an explicit different name work
+    const named = await run(eventId, {
+      github: 'https://github.com/synthetic/second',
+      devpost: 'https://devpost.com/software/second',
+      name: 'Atlas (second entry)',
+    });
+    expect(named).toMatchObject({ kind: 'started', result: 'created' });
     expect((await detail(first.projectId)).sources).toHaveLength(2);
-    // an explicit different name is a visible choice that works
-    const named = await runSubmission(
-      api,
-      eventId,
-      input({ devpost: 'https://devpost.com/software/someone-else', name: 'Atlas (second entry)' }),
+  });
+
+  it('R7-1 through the web tier: two tabs submitting the same repository with different Devpost pages end with ONE project holding ONE of them', async () => {
+    const eventId = await lockedEvent();
+    for (let round = 0; round < 6; round += 1) {
+      const github = `https://github.com/synthetic/tabs-${String(round)}`;
+      const [tabA, tabB] = await Promise.all([
+        run(eventId, { github, devpost: `https://devpost.com/software/tabs-${String(round)}-a` }),
+        run(eventId, { github, devpost: `https://devpost.com/software/tabs-${String(round)}-b` }),
+      ]);
+      const started = [tabA, tabB].filter((o) => o.kind === 'started');
+      const failed = [tabA, tabB].filter((o) => o.kind === 'failed');
+      expect([started.length, failed.length]).toEqual([1, 1]);
+      const winner = started[0];
+      const loser = failed[0];
+      if (winner?.kind !== 'started' || loser?.kind !== 'failed') throw new Error('unreachable');
+      expect(loser.projectId).toBe(winner.projectId); // the loser is pointed at the project that holds the link
+      const stored = await detail(winner.projectId);
+      expect(stored.sources.filter((s) => s.sourceType === 'devpost')).toHaveLength(1);
+      expect(stored.sources.filter((s) => s.sourceType === 'github')).toHaveLength(1);
+      const all = await api<{ projects: { id: string; name: string }[] }>(
+        'GET',
+        `/events/${eventId}/projects`,
+      );
+      expect(
+        all.ok && all.data.projects.filter((p) => p.name === `synthetic/tabs-${String(round)}`),
+      ).toHaveLength(1);
+    }
+  });
+
+  it('a lost response before the project was created: the retry with the same form creates it exactly once', async () => {
+    const eventId = await lockedEvent();
+    const key = randomUUID();
+    const dropRequest: ApiFn = (method, path, body, headers) =>
+      method === 'POST'
+        ? Promise.resolve({
+            ok: false,
+            status: 503,
+            code: 'API_UNREACHABLE',
+            message: 'not reachable',
+            issues: [],
+          })
+        : api(method, path, body, headers);
+    const lost = await runSubmission(dropRequest, eventId, input(), key);
+    expect(lost).toMatchObject({ kind: 'failed', outcomeUnknown: true });
+    expect(lost.kind === 'failed' && lost.message).toMatch(
+      /Submitting the same form twice is safe/,
     );
-    expect(named).toMatchObject({ kind: 'started', created: true });
+    const none = await api<{ projects: unknown[] }>('GET', `/events/${eventId}/projects`);
+    expect(none.ok && none.data.projects).toHaveLength(0);
+    const retried = await run(eventId, {}, key);
+    expect(retried).toMatchObject({ kind: 'started', result: 'created' });
+    const after = await api<{ projects: unknown[] }>('GET', `/events/${eventId}/projects`);
+    expect(after.ok && after.data.projects).toHaveLength(1);
+  });
+
+  it('a lost response AFTER the project was created: the retry returns the same project and requests nothing again', async () => {
+    const eventId = await lockedEvent();
+    const key = randomUUID();
+    const dropResponse: ApiFn = async <T>(
+      method: 'GET' | 'POST',
+      path: string,
+      body?: unknown,
+      headers?: Readonly<Record<string, string>>,
+    ) => {
+      const real = await api<T>(method, path, body, headers);
+      return method === 'POST'
+        ? {
+            ok: false,
+            status: 503,
+            code: 'API_UNREACHABLE',
+            message: 'connection reset',
+            issues: [],
+          }
+        : real;
+    };
+    const lost = await runSubmission(dropResponse, eventId, input(), key);
+    expect(lost).toMatchObject({ kind: 'failed', outcomeUnknown: true });
+    const listed = await api<{ projects: { id: string }[] }>('GET', `/events/${eventId}/projects`);
+    const created = listed.ok ? listed.data.projects : [];
+    expect(created).toHaveLength(1); // it WAS saved, although the caller never heard
+    const retried = await run(eventId, {}, key);
+    expect(retried).toMatchObject({
+      kind: 'started',
+      result: 'replayed',
+      projectId: created[0]?.id,
+    });
+    expect(await snapshotsOf(created[0]?.id ?? '')).toHaveLength(2);
+    expect((await detail(created[0]?.id ?? '')).sources).toHaveLength(2);
+  });
+
+  it('a form key is bound to its content: the same form with changed links is refused and points at what it already created', async () => {
+    const eventId = await lockedEvent();
+    const key = randomUUID();
+    const first = await run(eventId, {}, key);
+    if (first.kind !== 'started') throw new Error('not started');
+    const changed = await run(
+      eventId,
+      { devpost: 'https://devpost.com/software/edited-after-submit' },
+      key,
+    );
+    expect(changed).toMatchObject({ kind: 'failed', projectId: first.projectId });
+    expect(changed.kind === 'failed' && changed.message).toMatch(/Reload the page/);
+    expect((await detail(first.projectId)).sources.map((s) => s.url).sort()).toEqual(
+      [DEVPOST, GITHUB].sort(),
+    );
+    const malformed = await run(eventId, {}, 'not-a-key');
+    expect(malformed).toMatchObject({ kind: 'failed' });
+    expect(malformed.kind === 'failed' && malformed.message).toMatch(/expired/);
   });
 
   it('an event without a locked Event Context cannot receive a project, and nothing is created', async () => {
@@ -309,11 +437,11 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     });
     if (!created.ok) throw new Error(created.message);
     const before = (await db.select().from(projects)).length;
-    const outcome = await runSubmission(api, created.data.id, input());
+    const outcome = await run(created.data.id);
     expect(outcome).toMatchObject({ kind: 'failed' });
     expect(outcome.kind === 'failed' && outcome.message).toMatch(/no locked Event Context/);
     expect((await db.select().from(projects)).length).toBe(before);
-    const missing = await runSubmission(api, '5b4d7c3e-2f1a-4c6b-9d8e-7f6a5b4c3d2e', input());
+    const missing = await run('5b4d7c3e-2f1a-4c6b-9d8e-7f6a5b4c3d2e');
     expect(missing).toMatchObject({ kind: 'failed', message: 'This hackathon does not exist.' });
   });
 
@@ -332,7 +460,7 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
     const eventId = await lockedEvent();
     const before = (await db.select().from(projects)).length;
     calls.length = 0;
-    const outcome = await runSubmission(api, eventId, input(overrides));
+    const outcome = await run(eventId, overrides);
     expect(outcome.kind).toBe('invalid');
     if (outcome.kind === 'invalid') {
       expect(outcome.errors[field as 'github' | 'devpost']?.length).toBeGreaterThan(10);
@@ -373,7 +501,7 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
         issues: [],
       };
     };
-    const outcome = await runSubmission(anonymous, eventId, input());
+    const outcome = await runSubmission(anonymous, eventId, input(), randomUUID());
     expect(outcome.kind).toBe('failed');
     expect((await db.select().from(projects)).length).toBe(before);
   });

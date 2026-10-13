@@ -10,9 +10,11 @@ export interface SubmitViewProps {
   /** The locked Event Context version, or null when the hackathon has none. */
   readonly locked: EventDetail['versions'][number] | null;
   readonly rubric: { readonly name: string; readonly criteriaCount: number } | null;
+  /** Request identity of this rendering of the form (a UUID, generated per page load). */
+  readonly submissionKey: string;
 }
 
-export function SubmitView({ event, locked, rubric }: SubmitViewProps): ReactNode {
+export function SubmitView({ event, locked, rubric, submissionKey }: SubmitViewProps): ReactNode {
   return (
     <main>
       <p>
@@ -56,7 +58,7 @@ export function SubmitView({ event, locked, rubric }: SubmitViewProps): ReactNod
       {locked ? (
         <section aria-labelledby="links-heading">
           <h2 id="links-heading">Project links</h2>
-          <SubmitForm eventId={event.id} />
+          <SubmitForm eventId={event.id} submissionKey={submissionKey} />
         </section>
       ) : null}
     </main>

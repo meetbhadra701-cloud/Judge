@@ -12,7 +12,10 @@ export type SourceIngestionErrorCode =
   | 'SOURCE_IMMUTABLE'
   | 'UNKNOWN_TRACK'
   | 'INVALID_SOURCE_URL'
-  | 'SOURCE_LIMIT_REACHED';
+  | 'SOURCE_LIMIT_REACHED'
+  | 'SUBMISSION_CONFLICT'
+  | 'SUBMISSION_SOURCE_FIXED'
+  | 'IDEMPOTENCY_KEY_REUSED';
 
 export const SOURCE_INGESTION_STATUS: Record<SourceIngestionErrorCode, number> = {
   EVENT_NOT_FOUND: 404,
@@ -29,6 +32,9 @@ export const SOURCE_INGESTION_STATUS: Record<SourceIngestionErrorCode, number> =
   UNKNOWN_TRACK: 422,
   INVALID_SOURCE_URL: 422,
   SOURCE_LIMIT_REACHED: 422,
+  SUBMISSION_CONFLICT: 409,
+  SUBMISSION_SOURCE_FIXED: 409,
+  IDEMPOTENCY_KEY_REUSED: 422,
 };
 
 /** A typed, client-safe error of the project-source workflow. Details never echo raw input. */

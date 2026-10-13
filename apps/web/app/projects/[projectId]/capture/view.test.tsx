@@ -72,7 +72,7 @@ describe('capture progress page', () => {
     expect(html).toContain('locked Event Context v3');
   });
 
-  it('waiting: says nothing was read yet, offers no retry, blocks the next step and refreshes itself', () => {
+  it('waiting: says nothing was read yet, offers no retry, blocks the next step and says how it checks for progress', () => {
     const html = render(
       project([
         source('github', snapshot({ status: 'pending' })),
@@ -84,7 +84,8 @@ describe('capture progress page', () => {
     expect(html).not.toContain('Retry capture');
     expect(html).toContain('data-testid="next-blocked"');
     expect(html).not.toContain('data-testid="next-report"');
-    expect(html).toContain('This page refreshes itself');
+    expect(html).toContain('This page checks for progress every 3 seconds, for up to 5 minutes.');
+    expect(html).not.toContain('refreshes itself');
   });
 
   it('captured: says it is not an analysis and not verified, and links to the separate report step', () => {

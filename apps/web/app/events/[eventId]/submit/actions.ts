@@ -12,6 +12,8 @@ export interface SubmitState {
   readonly formError: string | null;
   /** The project that already exists after a partial failure, so nothing is lost by retrying. */
   readonly projectId: string | null;
+  /** True when the request may or may not have been saved: pressing the button again with the same form is the safe recovery. */
+  readonly outcomeUnknown: boolean;
 }
 
 function text(formData: FormData, name: string): string {
@@ -20,7 +22,7 @@ function text(formData: FormData, name: string): string {
 }
 
 /**
- * "Start analysis": creates (or reuses) the project, declares the two sources and requests their captures through the existing API.
+ * "Analyze Project": ONE atomic, idempotent API operation creates the project, declares both sources and requests both captures.
  * It never requests an assessment. The browser never sends a URL anywhere but here; this action never fetches one.
  */
 export async function submitProjectAction(
@@ -33,7 +35,8 @@ export async function submitProjectAction(
     devpost: text(formData, 'devpost'),
     name: text(formData, 'name'),
   };
-  const outcome = await runSubmission(apiRequest, eventId, values);
+  // the key was generated when the form was rendered: a retry of THIS form can only converge on the project it created
+  const outcome = await runSubmission(apiRequest, eventId, values, text(formData, 'submissionKey'));
   if (outcome.kind === 'started') {
     redirect(`/projects/${encodeURIComponent(outcome.projectId)}/capture`);
   }
@@ -44,6 +47,7 @@ export async function submitProjectAction(
       errors: outcome.errors,
       formError: null,
       projectId: null,
+      outcomeUnknown: false,
     };
   }
   return {
@@ -52,5 +56,6 @@ export async function submitProjectAction(
     errors: outcome.field ? { [outcome.field]: outcome.message } : {},
     formError: outcome.field ? null : outcome.message,
     projectId: outcome.projectId ?? null,
+    outcomeUnknown: outcome.outcomeUnknown === true,
   };
 }

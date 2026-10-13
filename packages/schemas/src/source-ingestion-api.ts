@@ -154,6 +154,68 @@ export const CaptureAllResponse = z.object({
 });
 export type CaptureAllResponse = z.infer<typeof CaptureAllResponse>;
 
+/*
+ * P6B-beta1: a SUBMISSION is one logical intent -- one GitHub repository plus one Devpost page, submitted to one event -- recorded and
+ * performed atomically by `POST /events/:eventId/submissions` (header `Idempotency-Key`: a UUID). Project, both source declarations and
+ * both capture requests are created in ONE transaction or not at all. Identity is the canonical (event, GitHub URL, Devpost URL), never a
+ * project name. The project name is a label only.
+ */
+export const SubmitProjectRequest = z.strictObject({
+  githubUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
+  devpostUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
+  /** Optional label. Derived from the GitHub repository (`owner/repo`) when absent. */
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(SOURCE_INGESTION_LIMITS.projectNameMaxChars)
+    .nullable()
+    .optional(),
+});
+export type SubmitProjectRequest = z.input<typeof SubmitProjectRequest>;
+
+/** What a request RECORDED (stored with the idempotency key). A replay is not stored: it is the answer to a repeated key. */
+export const SUBMISSION_RECORDED_RESULT_VALUES = ['created', 'already_submitted'] as const;
+export const SUBMISSION_RESULT_VALUES = [...SUBMISSION_RECORDED_RESULT_VALUES, 'replayed'] as const;
+/**
+ * `created`: this request created the project. `replayed`: the same Idempotency-Key with the same content already created it (a retry
+ * after a lost response). `already_submitted`: a DIFFERENT request with an identical GitHub + Devpost pair in this event already created
+ * it -- proven-equivalent content, so it converges on that project instead of creating a second one.
+ */
+export const SubmissionResult = z.enum(SUBMISSION_RESULT_VALUES);
+export type SubmissionResult = z.infer<typeof SubmissionResult>;
+
+export const SubmitProjectResponse = z.object({
+  result: SubmissionResult,
+  project: ProjectDetail,
+  /** Capture runs requested by THIS request (empty for `replayed` / `already_submitted`: nothing is requested twice). */
+  captureRuns: z.array(z.object({ sourceId: Uuid, snapshotId: Uuid, runId: Uuid })),
+});
+export type SubmitProjectResponse = z.infer<typeof SubmitProjectResponse>;
+
+export const SUBMISSION_INTEGRITY_KIND_VALUES = [
+  'multiple_sources_of_one_type',
+  'shared_source_url',
+] as const;
+export const SubmissionIntegrityFinding = z.object({
+  kind: z.enum(SUBMISSION_INTEGRITY_KIND_VALUES),
+  sourceType: z.enum(['github', 'devpost']),
+  /** The declared URLs involved (canonical). */
+  urls: z.array(z.string()),
+  projectIds: z.array(Uuid),
+});
+export type SubmissionIntegrityFinding = z.infer<typeof SubmissionIntegrityFinding>;
+
+/** Read-only detection of projects that do not form one submission. Nothing is repaired or deleted by reading it. */
+export const SubmissionIntegrityReport = z.object({
+  eventId: Uuid,
+  projectsChecked: z.number().int().min(0),
+  /** Projects not created through the submission operation (earlier flows): their provenance cannot be proven either way. */
+  projectsWithoutSubmissionRecord: z.number().int().min(0),
+  findings: z.array(SubmissionIntegrityFinding),
+});
+export type SubmissionIntegrityReport = z.infer<typeof SubmissionIntegrityReport>;
+
 export const ActorRecord = z.object({
   id: Uuid,
   issuer: z.string(),

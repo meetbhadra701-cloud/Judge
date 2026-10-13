@@ -1,7 +1,7 @@
 import type { EventDetail, ProjectDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { describeCapture, overviewOf } from '../../../../lib/capture-status';
+import { captureFingerprint, describeCapture, overviewOf } from '../../../../lib/capture-status';
 import { AutoRefresh } from './auto-refresh';
 import { RetryButton } from './retry-button';
 
@@ -44,7 +44,11 @@ export function CaptureView({ project, event, error, retryAction }: CaptureViewP
           {error}
         </p>
       ) : null}
-      <AutoRefresh active={overview.anyWaiting} />
+      <AutoRefresh
+        projectId={project.id}
+        fingerprint={captureFingerprint(project)}
+        active={overview.anyWaiting}
+      />
 
       <p className="notice" role="note">
         <strong>Step 2 of 4: capture.</strong> A worker reads the public pages and stores them as
@@ -115,9 +119,7 @@ export function CaptureView({ project, event, error, retryAction }: CaptureViewP
             </tbody>
           </table>
         )}
-        {overview.anyWaiting ? (
-          <p role="status">Waiting for the capture worker. This page refreshes itself.</p>
-        ) : null}
+        {overview.anyWaiting ? <p role="status">Waiting for the capture worker.</p> : null}
         {overview.anyFailed ? (
           <p role="alert" className="error">
             At least one source could not be captured. You can retry it, or continue: a missing

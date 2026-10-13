@@ -8,8 +8,8 @@ import {
 import {
   SOURCE_INGESTION_LIMITS,
   type EventDetail,
-  type ProjectDetail,
-  type ProjectRecord,
+  type SubmissionResult,
+  type SubmitProjectResponse,
 } from '@judge-copilot/schemas';
 
 /*
@@ -131,32 +131,38 @@ export function validateSubmission(input: SubmissionInput): SubmissionValidation
 // -- The submission flow ---------------------------------------------------------------------------------------------------------------
 
 /*
- * The orchestration behind "Start analysis" (P6B-alpha, workstream B). It composes EXISTING API routes only: read the event, create the
- * project, declare the two sources, request their captures. It never calls an assessment route, so submitting can never start a paid or
- * live-model run: assessment stays a separate, explicit action on its own page.
+ * "Analyze Project" (P6B-beta1). The whole submission is ONE server operation, `POST /events/:id/submissions` (header `Idempotency-Key`):
+ * project, both source declarations and both capture requests are written atomically or not at all. This file only validates the form,
+ * sends that one request and explains the answer. It never calls an assessment route, so submitting can never start a paid or live-model
+ * run.
  *
- * IDEMPOTENT BY CONSTRUCTION. Running the same submission twice (a double click, a retry after a failure half-way, two browser tabs)
- * converges on ONE project with ONE declaration per source and at most ONE pending capture per source, because every step
- * is a read-then-write that tolerates the API's own uniqueness answers:
+ * Why this replaced the alpha orchestration (R7-1): the alpha flow composed project creation, source declaration and capture requests as
+ * separate read-then-write calls and adopted an existing project by NAME. Two simultaneous submissions that shared a name could therefore
+ * end up in one project holding both submissions' links. Identity is now the canonical (event, GitHub URL, Devpost URL) pair, enforced by
+ * unique constraints in the database; a name is only a label; and retrying with the same key can only ever return the original result.
  *
- *   project      POST; `PROJECT_NAME_TAKEN` -> find that project by name; reuse it only if its declared GitHub/Devpost sources agree with
- *                the submission, otherwise stop with a visible choice (a different project already uses this name)
- *   sources      skipped when already declared with the same canonical URL; `DUPLICATE_SOURCE` from a concurrent submit is success
- *   captures     requested only for a source with NO snapshot or whose latest snapshot FAILED/was REJECTED (a retry); never for a pending
- *                or content-bearing one; `CAPTURE_ALREADY_PENDING` from a concurrent submit is success
- *
- * The function receives the API as a parameter so tests can run it against a fake and against the real routes.
+ * The idempotency key is generated when the form is rendered and travels with the form, so a retry of the SAME form after a lost response
+ * is safe: it converges on the project the first attempt created, or creates it once.
  */
 
 /** Structurally the web tier's `ApiResult` (lib/api.ts): kept here so this file has no relative import and tests can import it as is. */
 export type SubmissionApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; status: number; code: string; message: string; issues: unknown[] };
+  | {
+      ok: false;
+      status: number;
+      code: string;
+      message: string;
+      issues: unknown[];
+      /** The error's client-safe `details` (for example the project that already uses a link). */
+      details?: Readonly<Record<string, unknown>> | undefined;
+    };
 
 export type ApiFn = <T>(
   method: 'GET' | 'POST',
   path: string,
   body?: unknown,
+  headers?: Readonly<Record<string, string>>,
 ) => Promise<SubmissionApiResult<T>>;
 
 export type SubmissionOutcome =
@@ -168,40 +174,55 @@ export type SubmissionOutcome =
       readonly kind: 'failed';
       readonly message: string;
       readonly field?: SubmissionField | undefined;
-      /** Set when the project already exists, so the page can link to it (nothing is lost by retrying). */
+      /** A project the organizer can open: the one that already uses a link, or the one this form already created. */
       readonly projectId?: string | undefined;
+      /**
+       * True when the request may or may not have been saved (no usable answer arrived). Resubmitting the SAME form is the safe recovery:
+       * it can never create a second project.
+       */
+      readonly outcomeUnknown?: boolean | undefined;
     }
   | {
       readonly kind: 'started';
       readonly projectId: string;
-      /** False when an existing project with the same sources was reused. */
-      readonly created: boolean;
-      readonly capturesRequested: number;
-      /** Sources whose capture was left alone: pending, or already captured. */
-      readonly capturesLeftAlone: number;
+      readonly projectName: string;
+      readonly result: SubmissionResult;
     };
 
 const base = (eventId: string) => `/events/${encodeURIComponent(eventId)}`;
-const projectBase = (projectId: string) => `/projects/${encodeURIComponent(projectId)}`;
 
-function sameName(a: string, b: string): boolean {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
+/** A key is a UUID, exactly as the API requires; anything else is not forwarded (the API would answer 400). */
+export function isSubmissionKey(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** Statuses after which the server may have processed the request although no usable answer reached us. */
+function outcomeIsUnknown(status: number, code: string): boolean {
+  return code === 'API_UNREACHABLE' || code === 'UNKNOWN_ERROR' || status >= 500;
 }
 
 export async function runSubmission(
   api: ApiFn,
   eventId: string,
   input: SubmissionInput,
+  idempotencyKey: string,
 ): Promise<SubmissionOutcome> {
   const checked = validateSubmission(input);
   if (!checked.ok) return { kind: 'invalid', errors: checked.errors };
+  if (!isSubmissionKey(idempotencyKey)) {
+    return {
+      kind: 'failed',
+      message: 'This form has expired. Reload the page and submit again; nothing was saved.',
+    };
+  }
 
-  // 1. the hackathon must exist and have a LOCKED Event Context (the API enforces it too; this gives the organizer a plain message)
+  // the hackathon must exist and have a LOCKED Event Context (the API enforces it too; this gives the organizer a plain message)
   const event = await api<EventDetail>('GET', base(eventId));
   if (!event.ok) {
     return {
       kind: 'failed',
       message: event.status === 404 ? 'This hackathon does not exist.' : event.message,
+      outcomeUnknown: false,
     };
   }
   if (event.data.lockedVersionId === null) {
@@ -212,117 +233,77 @@ export async function runSubmission(
     };
   }
 
-  // 2. the project: create it, or reuse the one a previous (or concurrent) submission created
-  let projectId: string;
-  let created = true;
-  const createdProject = await api<ProjectRecord>('POST', `${base(eventId)}/projects`, {
-    name: checked.projectName,
-    teamName: null,
-    trackKeys: [],
-  });
-  if (createdProject.ok) {
-    projectId = createdProject.data.id;
-  } else if (createdProject.code === 'PROJECT_NAME_TAKEN') {
-    const listed = await api<{ projects: ProjectRecord[] }>('GET', `${base(eventId)}/projects`);
-    if (!listed.ok) return { kind: 'failed', message: listed.message };
-    const existing = listed.data.projects.find((project) =>
-      sameName(project.name, checked.projectName),
-    );
-    if (!existing) {
+  const response = await api<SubmitProjectResponse>(
+    'POST',
+    `${base(eventId)}/submissions`,
+    {
+      githubUrl: checked.github.canonicalUrl,
+      devpostUrl: checked.devpost.canonicalUrl,
+      // only a name the organizer typed is sent: a derived one is the server's decision
+      ...(checked.nameDerived ? {} : { name: checked.projectName }),
+    },
+    { 'idempotency-key': idempotencyKey },
+  );
+  if (response.ok) {
+    return {
+      kind: 'started',
+      projectId: response.data.project.id,
+      projectName: response.data.project.name,
+      result: response.data.result,
+    };
+  }
+  return explainRefusal(response);
+}
+
+type Refusal = Extract<SubmissionApiResult<never>, { ok: false }>;
+
+/** The project an error points at, when it carries one (`projectIds[0]` for a conflict, `projectId` for a reused key). */
+function projectOf(refusal: Refusal): string | undefined {
+  const ids = refusal.details?.['projectIds'];
+  const first: unknown = Array.isArray(ids) ? ids[0] : refusal.details?.['projectId'];
+  return typeof first === 'string' ? first : undefined;
+}
+
+function explainRefusal(refusal: Refusal): SubmissionOutcome {
+  switch (refusal.code) {
+    case 'SUBMISSION_CONFLICT':
       return {
         kind: 'failed',
-        message: 'A project with this name exists but could not be found. Try again.',
+        message:
+          'Another project in this hackathon already uses this GitHub repository or Devpost page, with a different second link. Nothing was saved and nothing was merged. If it is the same project, use exactly the same two links; if the existing one is wrong, ask an organizer to review it.',
+        projectId: projectOf(refusal),
       };
-    }
-    const detail = await api<ProjectDetail>('GET', projectBase(existing.id));
-    if (!detail.ok) return { kind: 'failed', message: detail.message };
-    const conflicting = detail.data.sources.some(
-      (source) =>
-        (source.sourceType === 'github' && source.url !== checked.github.canonicalUrl) ||
-        (source.sourceType === 'devpost' && source.url !== checked.devpost.canonicalUrl),
-    );
-    if (conflicting) {
+    case 'PROJECT_NAME_TAKEN':
       return {
         kind: 'failed',
         field: 'name',
-        projectId: existing.id,
-        message: `A different project named “${existing.name}” already exists in this hackathon (with other GitHub/Devpost links). Open it, or enter another project name below.`,
+        message:
+          'A project with this name (ignoring capital letters) already exists in this hackathon. Nothing was saved. Enter a different project name.',
       };
-    }
-    projectId = existing.id;
-    created = false;
-  } else if (createdProject.code === 'NO_LOCKED_CONTEXT') {
-    return { kind: 'failed', message: 'This hackathon has no locked Event Context yet.' };
-  } else {
-    return { kind: 'failed', message: createdProject.message };
-  }
-
-  // 3. declare the two sources (skip what is already declared)
-  const before = await api<ProjectDetail>('GET', projectBase(projectId));
-  if (!before.ok) return { kind: 'failed', message: before.message, projectId };
-  const declare: { sourceType: 'github' | 'devpost'; url: string; field: SubmissionField }[] = [
-    { sourceType: 'github', url: checked.github.canonicalUrl, field: 'github' },
-    { sourceType: 'devpost', url: checked.devpost.canonicalUrl, field: 'devpost' },
-  ];
-  for (const wanted of declare) {
-    const already = before.data.sources.some(
-      (source) => source.sourceType === wanted.sourceType && source.url === wanted.url,
-    );
-    if (already) continue;
-    const added = await api('POST', `${projectBase(projectId)}/sources`, {
-      sourceType: wanted.sourceType,
-      url: wanted.url,
-    });
-    if (added.ok || added.code === 'DUPLICATE_SOURCE') continue;
-    return {
-      kind: 'failed',
-      field: added.code === 'INVALID_SOURCE_URL' ? wanted.field : undefined,
-      projectId,
-      message:
-        added.code === 'INVALID_SOURCE_URL'
-          ? 'The server did not accept this URL for that source. Check the link and try again.'
-          : `${added.message} The project was created; submitting again continues from here.`,
-    };
-  }
-
-  // 4. request captures where they are missing or a previous attempt failed
-  const after = await api<ProjectDetail>('GET', projectBase(projectId));
-  if (!after.ok) return { kind: 'failed', message: after.message, projectId };
-  let capturesRequested = 0;
-  let capturesLeftAlone = 0;
-  for (const wanted of declare) {
-    const source = after.data.sources.find(
-      (candidate) => candidate.sourceType === wanted.sourceType && candidate.url === wanted.url,
-    );
-    if (!source) {
+    case 'IDEMPOTENCY_KEY_REUSED':
       return {
         kind: 'failed',
-        projectId,
-        message: 'A declared source could not be found afterwards. Try again.',
+        message:
+          'This form was already used to submit different links. Nothing new was saved. Reload the page to start a new submission.',
+        projectId: projectOf(refusal),
       };
-    }
-    const latest = source.latestSnapshot;
-    const needsCapture =
-      latest === null || latest.status === 'failed' || latest.status === 'rejected';
-    if (!needsCapture) {
-      capturesLeftAlone += 1;
-      continue;
-    }
-    const requested = await api(
-      'POST',
-      `${projectBase(projectId)}/sources/${encodeURIComponent(source.id)}/captures`,
-    );
-    if (requested.ok) {
-      capturesRequested += 1;
-    } else if (requested.code === 'CAPTURE_ALREADY_PENDING') {
-      capturesLeftAlone += 1;
-    } else {
+    case 'INVALID_SOURCE_URL':
       return {
         kind: 'failed',
-        projectId,
-        message: `${requested.message} The project and its sources exist; submitting again retries the capture.`,
+        message:
+          'The server did not accept one of the links. Check both links and try again. Nothing was saved.',
       };
-    }
+    case 'NO_LOCKED_CONTEXT':
+      return { kind: 'failed', message: 'This hackathon has no locked Event Context yet.' };
+    default:
+      if (outcomeIsUnknown(refusal.status, refusal.code)) {
+        return {
+          kind: 'failed',
+          outcomeUnknown: true,
+          message:
+            'We could not confirm whether the submission was saved: no usable answer arrived. Press the button again. Submitting the same form twice is safe and never creates a second project. If the problem continues, check the hackathon page for the project before retrying.',
+        };
+      }
+      return { kind: 'failed', message: refusal.message };
   }
-  return { kind: 'started', projectId, created, capturesRequested, capturesLeftAlone };
 }

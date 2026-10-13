@@ -138,6 +138,8 @@ export {
   evidenceItems,
   evidenceRelations,
   projectSources,
+  projectSubmissionRequests,
+  projectSubmissions,
   projects,
   projectTrackSelections,
   rubricAnchors,

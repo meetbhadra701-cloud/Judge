@@ -21,7 +21,14 @@ export interface ApiIssue {
 
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; status: number; code: string; message: string; issues: ApiIssue[] };
+  | {
+      ok: false;
+      status: number;
+      code: string;
+      message: string;
+      issues: ApiIssue[];
+      details?: Readonly<Record<string, unknown>> | undefined;
+    };
 
 export async function apiRequest<T>(
   method: 'GET' | 'POST' | 'PATCH',
@@ -71,6 +78,7 @@ export async function apiRequest<T>(
     code: parsed.data.error.code,
     message: parsed.data.error.message,
     issues: Array.isArray(issues) ? issues : [],
+    details: parsed.data.error.details,
   };
 }
 

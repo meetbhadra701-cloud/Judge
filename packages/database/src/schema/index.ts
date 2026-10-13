@@ -8,6 +8,7 @@ export { rubricAnchors, rubricCriteria, rubrics } from './rubrics.js';
 export { tracks } from './tracks.js';
 export { projectSources } from './project-sources.js';
 export { projects, projectTrackSelections } from './projects.js';
+export { projectSubmissionRequests, projectSubmissions } from './submissions.js';
 export { sourceSnapshotArtifacts, sourceSnapshots } from './source-snapshots.js';
 export {
   claims,

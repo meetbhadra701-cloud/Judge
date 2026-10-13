@@ -11,6 +11,7 @@ const INITIAL: SubmitState = {
   errors: {},
   formError: null,
   projectId: null,
+  outcomeUnknown: false,
 };
 
 /** Disabled while the submission is in flight: a double click cannot send it twice from this page. */
@@ -32,11 +33,19 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
   );
 }
 
-export function SubmitForm({ eventId }: { eventId: string }) {
+export function SubmitForm({
+  eventId,
+  submissionKey,
+}: {
+  eventId: string;
+  /** The request identity of THIS form: stable across retries, new for every page load. */
+  submissionKey: string;
+}) {
   const [state, action] = useActionState(submitProjectAction, INITIAL);
   return (
     <form action={action} className="stack" noValidate>
       <input type="hidden" name="eventId" value={eventId} />
+      <input type="hidden" name="submissionKey" value={submissionKey} />
       {state.formError ? (
         <p role="alert" className="error">
           {state.formError}{' '}

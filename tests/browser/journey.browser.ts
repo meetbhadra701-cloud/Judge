@@ -89,6 +89,7 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
   let webUrl = '';
   let apiUrl = '';
   let eventId = '';
+  let newLockedEvent: () => Promise<string>;
   const entries: Entry[] = [];
 
   const shot = async (name: string) => {
@@ -187,12 +188,14 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     });
     await app.listen({ port: 0, host: '127.0.0.1' });
     apiUrl = `http://127.0.0.1:${String((app.server.address() as AddressInfo).port)}`;
-    eventId = (
-      await lockedEventFromRecording(
-        eventContext,
-        requireValue(fixtures.get('fixture-e-multiple-tracks')),
-      )
-    ).eventId;
+    newLockedEvent = async () =>
+      (
+        await lockedEventFromRecording(
+          eventContext,
+          requireValue(fixtures.get('fixture-e-multiple-tracks')),
+        )
+      ).eventId;
+    eventId = await newLockedEvent();
 
     // 3. the real web server (production build)
     const webPort = 3940 + Math.floor(Math.random() * 50);
@@ -328,7 +331,9 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
   });
 
   it('a failed capture is reported for that source only, and Retry makes a new attempt', async () => {
-    await page.goto(`${webUrl}/events/${eventId}/submit`);
+    // its own hackathon: one Devpost page can belong to only one submission of an event
+    const failingEventId = await newLockedEvent();
+    await page.goto(`${webUrl}/events/${failingEventId}/submit`);
     await page
       .getByLabel('GitHub repository URL')
       .fill('https://github.com/synthetic/does-not-exist');
@@ -353,6 +358,96 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await page.reload();
     await page.locator('[data-testid=source-github][data-stage=failed]').waitFor();
     await shot('08-retried');
+  });
+
+  it('R7-1/R7-2 in a real browser: two tabs sending the same repository with different Devpost pages never share a project', async () => {
+    const raceEventId = await newLockedEvent();
+    const context = await browser.newContext();
+    for (let round = 0; round < 6; round += 1) {
+      const tabs = [await context.newPage(), await context.newPage()];
+      const github = `https://github.com/synthetic/race-${String(round)}`;
+      for (const [index, tab] of tabs.entries()) {
+        await tab.goto(`${webUrl}/events/${raceEventId}/submit`);
+        await tab.getByLabel('GitHub repository URL').fill(github);
+        await tab
+          .getByLabel('Devpost project URL')
+          .fill(`https://devpost.com/software/race-${String(round)}-${index === 0 ? 'a' : 'b'}`);
+      }
+      await Promise.all(
+        tabs.map((tab) => tab.getByRole('button', { name: 'Start analysis' }).click()),
+      );
+      // each tab ends either on the capture page (it won) or on the form with an explanation (it lost): never both on a capture page
+      await Promise.all(
+        tabs.map((tab) =>
+          Promise.race([
+            tab.waitForURL(/\/capture/, { timeout: 30_000 }),
+            tab.locator('main [role=alert]').first().waitFor({ timeout: 30_000 }),
+          ]),
+        ),
+      );
+      const landed = tabs.filter((tab) => /\/capture/.test(tab.url()));
+      expect(landed).toHaveLength(1);
+      const loser = tabs.find((tab) => !/\/capture/.test(tab.url()));
+      expect(await loser?.locator('main [role=alert]').first().innerText()).toContain(
+        'nothing was merged',
+      );
+      const stored = (await testDb.db.select().from(projects)).filter(
+        (p) => p.eventId === raceEventId,
+      );
+      const mine = stored.filter((p) => p.name === `synthetic/race-${String(round)}`);
+      expect(mine).toHaveLength(1);
+      const sources = (await api(`/projects/${mine[0]?.id ?? ''}`))['sources'] as {
+        sourceType: string;
+      }[];
+      expect(sources.map((source) => source.sourceType).sort()).toEqual(['devpost', 'github']);
+      await Promise.all(tabs.map((tab) => tab.close()));
+    }
+    await context.close();
+  });
+
+  it('refresh and back/forward navigation never create or change anything', async () => {
+    const navEventId = await newLockedEvent();
+    await page.goto(`${webUrl}/events/${navEventId}/submit`);
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/navigate');
+    await page.getByLabel('Devpost project URL').fill('https://devpost.com/software/navigate');
+    await page.getByRole('button', { name: 'Start analysis' }).click();
+    await page.waitForURL(/\/capture/);
+    const captureUrl = page.url();
+    const count = async () =>
+      (await testDb.db.select().from(projects)).filter((p) => p.eventId === navEventId).length;
+    const snapshotCount = async () => (await testDb.db.select().from(sourceSnapshots)).length;
+    expect(await count()).toBe(1);
+    const snapshotsBefore = await snapshotCount();
+    await page.reload();
+    await page.reload();
+    expect(await count()).toBe(1);
+    // back to the form, press the same form again (the browser may restore the very same key), then forward and back once more
+    await page.goBack();
+    await page.waitForURL(/\/submit/);
+    await page.getByLabel('GitHub repository URL').waitFor({ timeout: 25_000 });
+    const form = page.getByRole('button', { name: 'Start analysis' });
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/navigate');
+    await page.getByLabel('Devpost project URL').fill('https://devpost.com/software/navigate');
+    await form.click();
+    await page.waitForURL(/\/capture/);
+    expect(page.url()).toBe(captureUrl); // converged on the same project
+    await page.goBack();
+    await page.goForward();
+    await page.reload();
+    expect(await count()).toBe(1);
+    expect(await snapshotCount()).toBe(snapshotsBefore);
+    // changing a link after the first submission is a different submission, never an edit of the first
+    await page.goto(`${webUrl}/events/${navEventId}/submit`);
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/navigate');
+    await page
+      .getByLabel('Devpost project URL')
+      .fill('https://devpost.com/software/navigate-other');
+    await page.getByRole('button', { name: 'Start analysis' }).click();
+    await page.locator('main [role=alert]').first().waitFor();
+    expect(await page.locator('main [role=alert]').first().innerText()).toContain(
+      'nothing was merged',
+    );
+    expect(await count()).toBe(1);
   });
 
   it('a verified report shows its scores, relative highs/lows, unknowns and limits; corrupting it withholds everything', async () => {
