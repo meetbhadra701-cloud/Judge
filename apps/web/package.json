@@ -11,6 +11,7 @@
     "typecheck": "next typegen && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@judge-copilot/capture": "workspace:*",
     "@judge-copilot/context": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
     "next": "16.3.8",

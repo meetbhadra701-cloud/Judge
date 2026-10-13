@@ -89,6 +89,13 @@ export default async function EventPage({
 
       <section>
         <h2>Projects</h2>
+        {lockedVersionId ? (
+          <p>
+            <Link href={`/events/${event.id}/submit`}>
+              Submit a project with its GitHub and Devpost links →
+            </Link>
+          </p>
+        ) : null}
         {projectsResult.ok ? null : <ErrorBanner message={projectsResult.message} />}
         {projectList.length === 0 ? (
           <p>No projects yet.</p>

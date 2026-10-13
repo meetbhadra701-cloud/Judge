@@ -136,6 +136,51 @@ describe('verifyJudgmentsAgainstReport', () => {
   });
 });
 
+describe('D15: a no_usable_citation row must keep the `scored` disposition (pure verifier, no database)', () => {
+  // The database CHECK `disposition_matches_outcome` makes this state unreachable in every DB-backed test, so the verifier's own check
+  // is only exercised here. Removing it must fail this test (mutation proof in the P6B-alpha report).
+  const report = {
+    dimensions: [
+      {
+        id: 'a.one',
+        state: 'insufficient_evidence',
+        reason: 'no_usable_citation',
+        citedEvidenceIds: [E1],
+      },
+    ],
+  } as unknown as ScoreReport;
+  const row = (disposition: string): StoredJudgmentFacts[] => [
+    {
+      dimensionId: 'a.one',
+      outcomeKind: 'scored',
+      score: 7.33333,
+      disposition,
+      citationEvidenceIds: [E1],
+    },
+  ];
+
+  it('accepts the legitimate shape (scored row, `scored` disposition)', () => {
+    expect(verifyJudgmentsAgainstReport(report, row('scored'))).toEqual({ ok: true });
+  });
+
+  it.each(UNIT_DISPOSITION_VALUES.filter((value) => value !== 'scored'))(
+    'refuses the disposition %s on a scored row for a no_usable_citation dimension',
+    (disposition) => {
+      expect(verifyJudgmentsAgainstReport(report, row(disposition))).toEqual({
+        ok: false,
+        mismatch: 'disposition',
+      });
+    },
+  );
+
+  it('refuses a made-up disposition string too (the check is "must be scored", not a deny-list)', () => {
+    expect(verifyJudgmentsAgainstReport(report, row('something_else'))).toEqual({
+      ok: false,
+      mismatch: 'disposition',
+    });
+  });
+});
+
 describe('attributeDisposition (who decided that a dimension has no number)', () => {
   it('attributes every disposition, and never calls an insufficiency "valid"', () => {
     const table = Object.fromEntries(

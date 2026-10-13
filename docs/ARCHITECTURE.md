@@ -385,7 +385,7 @@ api        → audit, auth, capture, context, database, domain, evidence, llm, p
              (llm, prompts: only the offline assessment runtime gate and the shared pipeline configuration, in `apps/api/src/assessments`; no model call)
 worker     → assessment, audit, capture, context, database, deployment, devpost, domain, evidence, github, llm, prompts,
              safe-http, schemas, shared, video   (assessment, context, evidence, llm, prompts: the offline assessment pipeline, M5 P5)
-web        → context, schemas
+web        → capture, context, schemas   (capture: only the pure declared-URL parsers, used by the submission form to explain a bad URL before any request)
 ```
 
 The capture adapters cannot depend on `safe-http` (both are layer 3). They depend only on the
@@ -458,6 +458,10 @@ its own migrations; existing migrations are never edited after being committed.
   M3 adds a read-only evidence view per project. M5 P6A adds the advisory assessment page
   (`/projects/:id/assessment`): it shows only what the verified API read model returns, never a number for an
   insufficient dimension, and always states that the human judge's final score is authoritative. No fake judging UI exists.
+  M5 P6B-alpha adds `/events/:id/submit` (GitHub + Devpost links → project, sources and capture requests through the existing
+  API only; it never starts an assessment) and `/projects/:id/capture` (per-source capture status, retry); the assessment page is
+  titled "Preliminary report" and adds the stored unknowns and a relative highest/lowest comparison of assessed dimensions only.
+  See [P6B_ALPHA_IMPLEMENTATION_REPORT](./milestones/P6B_ALPHA_IMPLEMENTATION_REPORT.md).
 
 Only the worker contacts external services, and only through `safe-http` (source capture) or, for
 JWT verification, the configured identity provider's JWKS (API). The database pool connects lazily.

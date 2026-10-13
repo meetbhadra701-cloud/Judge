@@ -115,6 +115,12 @@ stored.
 Copy `.env.example` to `.env` for local overrides. Never commit real values.
 Package scripts use POSIX `VAR=value cmd` syntax; on Windows use WSL.
 
+### Offline demonstration (P6B-alpha)
+
+[docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md) runs the whole current journey offline (hackathon → GitHub + Devpost links →
+capture → preliminary report on a recorded replay provider) and says exactly what it does and does not show.
+`pnpm test:browser` replays it in a real Chromium (pinned, development-only `playwright`).
+
 ### Evidence graph (M3)
 
 The graph (`claims`, `evidence_items`, `evidence_relations`, `unknowns`, `contradictions`) is

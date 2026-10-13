@@ -3,6 +3,7 @@ import type {
   AssessmentDetail,
   AssessmentListResponse,
   ProjectDetail,
+  UnknownsPage,
 } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, projectPath } from '../../../../lib/api';
@@ -59,6 +60,11 @@ export default async function AssessmentPage({
         `${base}/assessments/${encodeURIComponent(shown.id)}`,
       )
     : null;
+  // the project's recorded unknowns (evidence-graph route); only used for a verified assessment, loaded failure-tolerantly
+  const unknownsResult =
+    detailResult?.ok && detailResult.data.verified
+      ? await apiRequest<UnknownsPage>('GET', `${base}/unknowns?limit=50`)
+      : null;
   return (
     <AssessmentPageView
       projectId={projectId}
@@ -67,6 +73,14 @@ export default async function AssessmentPage({
       detail={detailResult?.ok ? detailResult.data : null}
       detailError={detailResult && !detailResult.ok ? detailResult.message : undefined}
       error={error}
+      unknowns={
+        unknownsResult?.ok
+          ? {
+              items: unknownsResult.data.items,
+              hasMore: unknownsResult.data.page.nextAfter !== null,
+            }
+          : null
+      }
       requestKeys={{ assess: randomUUID(), reassess: randomUUID() }}
       requestAction={requestAssessmentAction}
     />

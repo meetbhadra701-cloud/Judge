@@ -34,7 +34,8 @@ export default async function HomePage({
           <ul>
             {result.data.events.map((event) => (
               <li key={event.id}>
-                <Link href={`/events/${event.id}`}>{event.name}</Link> <code>{event.slug}</code>
+                <Link href={`/events/${event.id}`}>{event.name}</Link> <code>{event.slug}</code> ·{' '}
+                <Link href={`/events/${event.id}/submit`}>Submit a project</Link>
               </li>
             ))}
           </ul>
