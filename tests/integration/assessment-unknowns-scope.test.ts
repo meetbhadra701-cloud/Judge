@@ -12,6 +12,7 @@ import { ApiErrorBody } from '../../packages/schemas/src/index.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   graphExtractionItems,
+  groupUnknowns,
   preInterviewAssessments,
   unknowns,
   type JudgeDatabase,
@@ -222,5 +223,32 @@ describe.each(testDatabaseTargets())('assessment-scoped unknowns on %s', (_name,
     expect((await get(url, TEST_TOKENS.noRole)).status).toBe(403);
     expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
     expect((await get(url, TEST_TOKENS.judge)).status).toBe(200);
+  });
+});
+
+describe('groupUnknowns (one entry per distinct type + text)', () => {
+  const row = (id: string, unknownType: 'missing' | 'ambiguous', text: string, seq: number) => ({
+    id,
+    seq,
+    unknownType,
+    text,
+    claimIds: [],
+    evidenceIds: [],
+  });
+
+  it('collapses identical records, keeps the first, counts the rest, and never merges across type or text', () => {
+    const grouped = groupUnknowns([
+      row('u1', 'missing', 'No deployment link was found.', 1),
+      row('u2', 'ambiguous', 'No deployment link was found.', 2), // same text, other type: a different gap
+      row('u3', 'missing', 'No deployment link was found.', 3), // identical to u1
+      row('u4', 'missing', 'No deployment link was found. ', 4), // differs by a character: not merged
+      row('u5', 'missing', 'No deployment link was found.', 5), // identical to u1 again
+    ]);
+    expect(grouped.map((item) => [item.id, item.occurrences])).toEqual([
+      ['u1', 3],
+      ['u2', 1],
+      ['u4', 1],
+    ]);
+    expect(groupUnknowns([])).toEqual([]);
   });
 });

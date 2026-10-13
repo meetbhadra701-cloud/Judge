@@ -61,7 +61,7 @@ export {
   type PersistAssessmentResult,
   type StoredAssessment,
 } from './assessment-store.js';
-export { AssessmentReadStore } from './assessment-read.js';
+export { AssessmentReadStore, groupUnknowns } from './assessment-read.js';
 export {
   ExtractionInputError,
   GraphExtractionStore,

@@ -97,6 +97,12 @@ export interface ProjectServiceOptions {
   db: JudgeDatabase;
   now?: () => Date;
   newId?: () => string;
+  /**
+   * Test seam: awaited by a submission after all its read checks and before its first write. Tests hold concurrent submissions here so
+   * every contender decides on stale state, which makes the database's constraints (not scheduling luck) decide the race. Production
+   * never sets it.
+   */
+  beforeSubmissionWrite?: () => Promise<void>;
 }
 
 /**
@@ -108,11 +114,13 @@ export class ProjectService {
   private readonly db: JudgeDatabase;
   private readonly now: () => Date;
   private readonly newId: () => string;
+  private readonly beforeSubmissionWrite: () => Promise<void>;
 
   constructor(options: ProjectServiceOptions) {
     this.db = options.db;
     this.now = options.now ?? (() => new Date());
     this.newId = options.newId ?? randomUUID;
+    this.beforeSubmissionWrite = options.beforeSubmissionWrite ?? (() => Promise.resolve());
   }
 
   // -- Projects ------------------------------------------------------------------------------
@@ -440,6 +448,7 @@ export class ProjectService {
         ),
       );
     if (same) {
+      await this.beforeSubmissionWrite();
       await this.insertSubmissionRequest(tx, intent, same.id, same.projectId, 'already_submitted');
       await this.audit(tx, intent.actorId, {
         entityType: 'project',
@@ -518,6 +527,7 @@ export class ProjectService {
     }
 
     // 5. write everything, or nothing
+    await this.beforeSubmissionWrite();
     const now = this.now();
     const project = await this.insertProject(tx, {
       eventId: intent.eventId,

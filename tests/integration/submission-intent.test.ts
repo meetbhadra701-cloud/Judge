@@ -56,27 +56,32 @@ const dp = (name: string) => `https://devpost.com/software/${name}`;
 describe.each(testDatabaseTargets())('submission intents on %s', (_name, open) => {
   let testDb: TestDatabase;
   let db: JudgeDatabase;
+  /** What the API under test uses: separate connections on PostgreSQL (so requests really run in parallel transactions), the in-process database on PGlite. */
+  let contendersDb: JudgeDatabase;
+  let closeContenders: () => Promise<void> = () => Promise.resolve();
   let app: ApiApp;
   let eventContext: EventContextService;
-  let service: ProjectService;
 
   beforeAll(async () => {
     testDb = await open();
     db = testDb.db;
+    const extra = testDb.parallel?.();
+    contendersDb = extra?.db ?? db;
+    closeContenders = extra?.close ?? (() => Promise.resolve());
     const fixtures = await loadFixtures();
     eventContext = replayService(db, fixtures.values());
-    service = new ProjectService({ db });
     app = buildApp({
       logger,
-      db,
+      db: contendersDb,
       verifier: fakeVerifier(),
       eventContext,
-      projects: service,
-      assessments: new AssessmentService({ db, offline: null }),
+      projects: new ProjectService({ db: contendersDb }),
+      assessments: new AssessmentService({ db: contendersDb, offline: null }),
     });
   });
   afterAll(async () => {
     await app.close();
+    await closeContenders();
     await testDb.close();
   });
 

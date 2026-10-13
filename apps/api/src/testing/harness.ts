@@ -6,7 +6,13 @@ import {
   type EventContextExtractor,
   type ReplayRecordingInput,
 } from '@judge-copilot/context';
-import { auditEvents, migrationsFolder, schema, type JudgeDatabase } from '@judge-copilot/database';
+import {
+  auditEvents,
+  createDatabase,
+  migrationsFolder,
+  schema,
+  type JudgeDatabase,
+} from '@judge-copilot/database';
 import type { AuthVerifier, VerifiedIdentity } from '@judge-copilot/domain';
 import { asc, eq } from 'drizzle-orm';
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
@@ -22,6 +28,12 @@ export const FIXTURE_DIR = resolve(import.meta.dirname, '../../../../tests/fixtu
 export interface TestDatabase {
   db: JudgeDatabase;
   close: () => Promise<void>;
+  /**
+   * PostgreSQL only: opens ANOTHER pool on the same (already migrated) database. `db` itself uses ONE connection, so requests sent through
+   * it are serialized by the pool; a test of real concurrency builds its services on `parallel().db` so contenders run in separate
+   * transactions on separate connections. Absent for PGlite, which can only run one transaction at a time.
+   */
+  parallel?: () => { db: JudgeDatabase; close: () => Promise<void> };
 }
 
 async function openPglite(): Promise<TestDatabase> {
@@ -41,7 +53,11 @@ async function openPostgres(url: string): Promise<TestDatabase> {
   );
   const db = drizzlePostgres(client, { schema });
   await migratePostgres(db, { migrationsFolder });
-  return { db, close: () => client.end() };
+  return {
+    db,
+    close: () => client.end(),
+    parallel: () => createDatabase(url, { maxConnections: 8 }),
+  };
 }
 
 /** PGlite always; real PostgreSQL too when TEST_DATABASE_URL is set. */

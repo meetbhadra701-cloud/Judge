@@ -43,6 +43,9 @@ const DEVPOST = 'https://devpost.com/software/synthetic-atlas';
 describe.each(testDatabaseTargets())('project submission flow on %s', (_name, open) => {
   let testDb: TestDatabase;
   let db: JudgeDatabase;
+  /** What the API under test uses: separate connections on PostgreSQL (so requests really run in parallel transactions), the in-process database on PGlite. */
+  let contendersDb: JudgeDatabase;
+  let closeContenders: () => Promise<void> = () => Promise.resolve();
   let app: ApiApp;
   let eventContext: EventContextService;
   const calls: { method: string; path: string }[] = [];
@@ -81,19 +84,23 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
   beforeAll(async () => {
     testDb = await open();
     db = testDb.db;
+    const extra = testDb.parallel?.();
+    contendersDb = extra?.db ?? db;
+    closeContenders = extra?.close ?? (() => Promise.resolve());
     const fixtures = await loadFixtures();
     eventContext = replayService(db, fixtures.values());
     app = buildApp({
       logger,
-      db,
+      db: contendersDb,
       verifier: fakeVerifier(),
       eventContext,
-      projects: new ProjectService({ db }),
-      assessments: new AssessmentService({ db, offline: null }),
+      projects: new ProjectService({ db: contendersDb }),
+      assessments: new AssessmentService({ db: contendersDb, offline: null }),
     });
   });
   afterAll(async () => {
     await app.close();
+    await closeContenders();
     await testDb.close();
   });
 

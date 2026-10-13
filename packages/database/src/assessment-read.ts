@@ -96,6 +96,42 @@ const isDemonstration = (mode: ProviderMode | null): boolean =>
 const REPLAY_NOTICE =
   'REPLAY DEMONSTRATION — replayed hand-written synthetic outputs, not a live model assessment.';
 
+/**
+ * One entry per distinct (type, text) of an assessment's unknowns, in the order of first appearance, with how many identical records the
+ * extraction holds. Two unknowns that say the same thing are not two gaps; nothing is merged across types, texts or assessments.
+ */
+export function groupUnknowns(
+  rows: readonly {
+    id: string;
+    seq: number;
+    unknownType: AssessmentUnknownView['unknownType'];
+    text: string;
+    claimIds: string[];
+    evidenceIds: string[];
+  }[],
+): AssessmentUnknownView[] {
+  const grouped = new Map<string, AssessmentUnknownView>();
+  for (const unknown of rows) {
+    const key = `${unknown.unknownType}\u0000${unknown.text}`;
+    const seen = grouped.get(key);
+    grouped.set(
+      key,
+      seen
+        ? { ...seen, occurrences: seen.occurrences + 1 }
+        : {
+            id: unknown.id,
+            seq: unknown.seq,
+            unknownType: unknown.unknownType,
+            text: unknown.text,
+            claimIds: unknown.claimIds,
+            evidenceIds: unknown.evidenceIds,
+            occurrences: 1,
+          },
+    );
+  }
+  return [...grouped.values()];
+}
+
 export class AssessmentReadStore {
   private readonly store: AssessmentStore;
 
@@ -364,25 +400,7 @@ export class AssessmentReadStore {
         ),
       )
       .orderBy(asc(graphExtractionItems.ordinal));
-    const grouped = new Map<string, AssessmentUnknownView>();
-    for (const { unknown } of members) {
-      const key = `${unknown.unknownType}\u0000${unknown.text}`;
-      const seen = grouped.get(key);
-      grouped.set(
-        key,
-        seen
-          ? { ...seen, occurrences: seen.occurrences + 1 }
-          : {
-              id: unknown.id,
-              seq: unknown.seq,
-              unknownType: unknown.unknownType,
-              text: unknown.text,
-              claimIds: unknown.claimIds,
-              evidenceIds: unknown.evidenceIds,
-              occurrences: 1,
-            },
-      );
-    }
+    const grouped = groupUnknowns(members.map(({ unknown }) => unknown));
 
     // captures newer than the ones this assessment used (any status: a failed newer capture matters too)
     const captures = await this.db
@@ -420,7 +438,7 @@ export class AssessmentReadStore {
     return {
       ...base,
       verified: true,
-      items: [...grouped.values()],
+      items: grouped,
       currency: { upToDate: newerCaptures.length === 0, newerCaptures },
     };
   }

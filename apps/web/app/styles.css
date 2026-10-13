@@ -156,11 +156,3 @@ pre {
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
 }
-
-/* a wide table scrolls inside itself on a narrow screen; the page never scrolls sideways */
-@media (max-width: 40rem) {
-  table {
-    display: block;
-    overflow-x: auto;
-  }
-}
