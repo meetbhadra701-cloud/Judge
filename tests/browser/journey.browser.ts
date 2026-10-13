@@ -1,5 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+/// <reference lib="dom" />
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import { join, resolve } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
@@ -49,12 +51,13 @@ import { createLogger } from '../../packages/shared/src/index.js';
  * Everything is real except the model and the network: the real Next.js server (`next start` of the production build), the real API
  * routes over a loopback socket, the real capture worker loop in front of the synthetic fixture network, the real assessment loop on the
  * OFFLINE replay provider. No external connection is opened and no model is called. Run with `pnpm test:browser`.
- * Screenshots go to $BROWSER_SMOKE_SHOTS (default: a folder under the OS temp directory).
+ * Screenshots go to $BROWSER_SMOKE_SHOTS (default: a folder under the OS temp directory, never the checkout).
  */
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const WEB_DIR = join(ROOT, 'apps/web');
-const SHOTS = process.env['BROWSER_SMOKE_SHOTS'] ?? join(ROOT, 'tmp-browser-shots');
+// outside the repository by default: a test run must never create or modify a tracked (or untracked) file in the checkout
+const SHOTS = process.env['BROWSER_SMOKE_SHOTS'] ?? join(tmpdir(), 'judge-browser-shots');
 const logger = createLogger({ service: SERVICE_NAME, level: 'silent' });
 const [, openDatabase] = testDatabaseTargets()[0] as [string, () => Promise<TestDatabase>];
 
@@ -80,7 +83,15 @@ async function waitForHttp(url: string, ms = 60_000): Promise<void> {
   }
 }
 
+/** The working tree's state (tracked changes and untracked files), so a run can prove it left the checkout exactly as it found it. */
+const checkoutState = (): string =>
+  execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+
 describe('browser smoke: submit -> capture -> preliminary report', () => {
+  const checkoutBefore = checkoutState();
   let testDb: TestDatabase;
   let app: ApiApp;
   let web: ChildProcess | null = null;
@@ -232,6 +243,10 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await testDb.close();
   });
 
+  it('leaves the checkout exactly as it found it (no screenshot, report or build artifact lands in a tracked or untracked file)', () => {
+    expect(checkoutState()).toBe(checkoutBefore);
+  });
+
   it('the submit page identifies the hackathon and its locked Event Context, and explains this is a temporary offline workflow', async () => {
     await page.goto(`${webUrl}/events/${eventId}/submit`);
     await expect(page.locator('[data-testid=active-event]').innerText()).resolves.toMatch(/\S/);
@@ -252,7 +267,7 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
       .getByLabel('GitHub repository URL')
       .fill('https://devpost.com/software/synthetic-atlas');
     await page.getByLabel('Devpost project URL').fill('https://github.com/synthetic/atlas');
-    await page.getByRole('button', { name: 'Start analysis' }).click();
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
     await page.locator('#github-error').waitFor();
     expect(await page.locator('#github-error').innerText()).toContain(
       'belongs in the Devpost field',
@@ -272,7 +287,7 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await page
       .getByLabel('Devpost project URL')
       .fill('https://devpost.com/software/synthetic-atlas');
-    await page.getByRole('button', { name: 'Start analysis' }).dblclick();
+    await page.getByRole('button', { name: 'Submit and start capture' }).dblclick();
     await page.waitForURL(/\/projects\/[0-9a-f-]+\/capture/);
     await page.locator('[data-testid=source-github][data-stage=waiting]').waitFor();
     await page.locator('[data-testid=source-devpost][data-stage=waiting]').waitFor();
@@ -340,7 +355,7 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await page
       .getByLabel('Devpost project URL')
       .fill('https://devpost.com/software/synthetic-atlas');
-    await page.getByRole('button', { name: 'Start analysis' }).click();
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
     await page.waitForURL(/\/capture/);
     await drainCaptures();
     await page.reload();
@@ -374,7 +389,7 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
           .fill(`https://devpost.com/software/race-${String(round)}-${index === 0 ? 'a' : 'b'}`);
       }
       await Promise.all(
-        tabs.map((tab) => tab.getByRole('button', { name: 'Start analysis' }).click()),
+        tabs.map((tab) => tab.getByRole('button', { name: 'Submit and start capture' }).click()),
       );
       // each tab ends either on the capture page (it won) or on the form with an explanation (it lost): never both on a capture page
       await Promise.all(
@@ -410,7 +425,7 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await page.goto(`${webUrl}/events/${navEventId}/submit`);
     await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/navigate');
     await page.getByLabel('Devpost project URL').fill('https://devpost.com/software/navigate');
-    await page.getByRole('button', { name: 'Start analysis' }).click();
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
     await page.waitForURL(/\/capture/);
     const captureUrl = page.url();
     const count = async () =>
@@ -421,11 +436,16 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await page.reload();
     await page.reload();
     expect(await count()).toBe(1);
+    // Next.js attaches its history handling only once the page has hydrated; going back inside that window is a framework race, not a
+    // behavior of this application, so the test waits for hydration like a person who has seen the page appear would
+    await page.waitForFunction(
+      () => 'next' in window && Boolean((window as { next?: { router?: unknown } }).next?.router),
+    );
     // back to the form, press the same form again (the browser may restore the very same key), then forward and back once more
     await page.goBack();
     await page.waitForURL(/\/submit/);
-    await page.getByLabel('GitHub repository URL').waitFor({ timeout: 25_000 });
-    const form = page.getByRole('button', { name: 'Start analysis' });
+    await page.getByLabel('GitHub repository URL').waitFor();
+    const form = page.getByRole('button', { name: 'Submit and start capture' });
     await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/navigate');
     await page.getByLabel('Devpost project URL').fill('https://devpost.com/software/navigate');
     await form.click();
@@ -442,12 +462,190 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await page
       .getByLabel('Devpost project URL')
       .fill('https://devpost.com/software/navigate-other');
-    await page.getByRole('button', { name: 'Start analysis' }).click();
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
     await page.locator('main [role=alert]').first().waitFor();
     expect(await page.locator('main [role=alert]').first().innerText()).toContain(
       'nothing was merged',
     );
     expect(await count()).toBe(1);
+  });
+
+  it('R7-5: the progress checker says what it does, refreshes on a real change, and tells the truth after its five minutes', async () => {
+    const watchEventId = await newLockedEvent();
+    const tab = await browser.newPage();
+    await tab.clock.install();
+    await tab.goto(`${webUrl}/events/${watchEventId}/submit`);
+    await tab.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/atlas');
+    await tab
+      .getByLabel('Devpost project URL')
+      .fill('https://devpost.com/software/synthetic-atlas');
+    await tab.getByRole('button', { name: 'Submit and start capture' }).click();
+    await tab.waitForURL(/\/capture/);
+    const note = tab.locator('[data-testid=auto-refresh]');
+    await note.waitFor();
+    expect(await note.getAttribute('data-state')).toBe('watching');
+    expect(await note.innerText()).toBe(
+      'This page checks for progress every 3 seconds, for up to 5 minutes.',
+    );
+    // a real change (the worker captures) is picked up on the next check, without a reload
+    await drainCaptures();
+    await tab.clock.fastForward(4000);
+    await tab
+      .locator('[data-testid=source-github][data-stage=captured]')
+      .waitFor({ timeout: 20_000 });
+    expect(await tab.locator('[data-testid=auto-refresh]').count()).toBe(0); // nothing is waiting any more, so nothing is claimed
+    await tab.close();
+
+    // nothing changes for longer than five minutes: the page must stop claiming it is checking
+    const quietEventId = await newLockedEvent();
+    const quiet = await browser.newPage();
+    await quiet.clock.install();
+    await quiet.goto(`${webUrl}/events/${quietEventId}/submit`);
+    await quiet.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/quiet');
+    await quiet.getByLabel('Devpost project URL').fill('https://devpost.com/software/quiet');
+    await quiet.getByRole('button', { name: 'Submit and start capture' }).click();
+    await quiet.waitForURL(/\/capture/);
+    await quiet.locator('[data-testid=auto-refresh][data-state=watching]').waitFor();
+    await quiet.clock.fastForward('06:00');
+    await quiet
+      .locator('[data-testid=auto-refresh][data-state=expired]')
+      .waitFor({ timeout: 20_000 });
+    const expired = await quiet.locator('[data-testid=auto-refresh]').innerText();
+    expect(expired).toBe(
+      'Automatic checking stopped after 5 minutes. Reload the page to check again.',
+    );
+    expect(expired).not.toMatch(/every 3 seconds/);
+    await quiet.close();
+  });
+
+  it('R7-6: every page has its own title, and a refused submission moves focus to what must be fixed', async () => {
+    const titleEventId = await newLockedEvent();
+    const eventName = (
+      (await api(`/events/${titleEventId}`))['event'] as { name: string }
+    ).name.trim();
+    const visited: [string, string][] = [];
+    const visit = async (url: string, expected: RegExp) => {
+      await page.goto(`${webUrl}${url}`);
+      const title = await page.title();
+      expect(title).toMatch(expected);
+      visited.push([url, title]);
+    };
+    await visit('/', /^Events · Judge Copilot$/);
+    await visit(`/events/${titleEventId}`, new RegExp(`^${eventName} · Judge Copilot$`));
+    await visit(
+      `/events/${titleEventId}/submit`,
+      new RegExp(`^Submit a project · ${eventName} · Judge Copilot$`),
+    );
+    // a submission, then its project pages
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/titles');
+    await page.getByLabel('Devpost project URL').fill('https://devpost.com/software/titles');
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
+    await page.waitForURL(/\/capture/);
+    const projectId = /\/projects\/([0-9a-f-]+)\//.exec(page.url())?.[1] ?? '';
+    await visit(
+      `/projects/${projectId}/capture`,
+      /^Capture progress · synthetic\/titles · Judge Copilot$/,
+    );
+    await visit(
+      `/projects/${projectId}/assessment`,
+      /^Preliminary report · synthetic\/titles · Judge Copilot$/,
+    );
+    await visit(
+      `/projects/${projectId}/evidence`,
+      /^Evidence · synthetic\/titles · Judge Copilot$/,
+    );
+    await visit(`/projects/${projectId}`, /^synthetic\/titles · Judge Copilot$/);
+    expect(new Set(visited.map(([, title]) => title)).size).toBe(visited.length);
+
+    // focus: a refused field gets focus, so keyboard and screen-reader users land on the problem
+    await page.goto(`${webUrl}/events/${titleEventId}/submit`);
+    await page.getByLabel('GitHub repository URL').fill('not a link');
+    await page.getByLabel('Devpost project URL').fill('https://devpost.com/software/titles');
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
+    await page.locator('#github-error').waitFor();
+    expect(
+      await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.name),
+    ).toBe('github');
+    // a refusal that belongs to no field (the link is already used by another submission) focuses the message itself
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/titles');
+    await page
+      .getByLabel('Devpost project URL')
+      .fill('https://devpost.com/software/titles-different');
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
+    const refusal = page.locator('main p[role=alert]', { hasText: 'nothing was merged' });
+    await refusal.waitFor();
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('role'))).toBe('alert');
+    expect(await page.evaluate(() => document.activeElement?.textContent)).toContain(
+      'nothing was merged',
+    );
+  });
+
+  it('R7-6: no page scrolls sideways on a phone-width screen, even with long names and a wide table', async () => {
+    const phoneEventId = await newLockedEvent();
+    const context = await browser.newContext({ viewport: { width: 375, height: 667 } });
+    const phone = await context.newPage();
+    const overflow = async (label: string) => {
+      const widths = await phone.evaluate(() => ({
+        page: document.documentElement.scrollWidth,
+        window: window.innerWidth,
+      }));
+      expect(
+        widths.page,
+        `${label}: page is ${String(widths.page)}px wide in a ${String(widths.window)}px window`,
+      ).toBeLessThanOrEqual(widths.window);
+    };
+    await phone.goto(`${webUrl}/events/${phoneEventId}/submit`);
+    await overflow('submit');
+    await phone.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/phone');
+    await phone.getByLabel('Devpost project URL').fill('https://devpost.com/software/phone');
+    await phone.getByLabel(/Project name/).fill('A'.repeat(200));
+    await phone.getByRole('button', { name: 'Submit and start capture' }).click();
+    await phone.waitForURL(/\/capture/);
+    await overflow('capture (waiting, 200-character project name)');
+    const projectId = /\/projects\/([0-9a-f-]+)\//.exec(phone.url())?.[1] ?? '';
+    await drainCaptures();
+    await phone.reload();
+    await overflow('capture (failed or captured)');
+    await phone.goto(`${webUrl}/projects/${projectId}/assessment`);
+    await overflow('report (nothing assessed)');
+    const world = await seedWorld(testDb.db);
+    await phone.goto(`${webUrl}/projects/${world.project.id}/assessment`);
+    await phone.getByRole('button', { name: 'Run assessment' }).click();
+    await waitForActiveRun(world.project.id);
+    await drainAssessments();
+    await phone.goto(`${webUrl}/projects/${world.project.id}/assessment`);
+    expect(await phone.locator('main').innerText()).toContain('SCORED');
+    await overflow('report (scored)');
+    await phone.goto(`${webUrl}/events/${phoneEventId}`);
+    await overflow('event');
+    await context.close();
+  });
+
+  it('R7-7: a hand-written ?error= link shows nothing, while a real failure is shown through the sealed message', async () => {
+    const forged = 'Your session expired. Call 0800 123 456 to restore access.';
+    await page.goto(`${webUrl}/?error=${encodeURIComponent(forged)}`);
+    expect(await main()).not.toContain('0800');
+    expect(await page.locator('main [role=alert]').count()).toBe(0);
+    // a genuine failure (a slug that is already taken) is displayed, because this server sealed it
+    const slug = `sealed-${String(Date.now())}`;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await page.goto(`${webUrl}/`);
+      await page.locator('input[name=name]').first().fill('Sealed message hackathon');
+      await page.locator('input[name=slug]').first().fill(slug);
+      await page
+        .getByRole('button', { name: /create/i })
+        .first()
+        .click();
+      await page.waitForLoadState('networkidle');
+    }
+    const alert = page.locator('main [role=alert]').first();
+    await alert.waitFor();
+    expect((await alert.innerText()).length).toBeGreaterThan(5);
+    expect(page.url()).toMatch(/\?error=[A-Za-z0-9_\-.%]+/);
+    // tampering with the sealed value makes it vanish
+    const tampered = page.url().replace(/(error=[A-Za-z0-9_\-%]+)\.[A-Za-z0-9_-]+/, '$1.AAAA');
+    await page.goto(tampered);
+    expect(await page.locator('main [role=alert]').count()).toBe(0);
   });
 
   it('a verified report shows its scores, relative highs/lows, unknowns and limits; corrupting it withholds everything', async () => {
@@ -467,7 +665,8 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     expect(text).toContain('there is no highest or lowest'); // both dimensions score 7
     expect(text).toContain('Unknowns and missing information');
     expect(text).not.toContain('could not be loaded');
-    expect(text).toContain('Gaps recorded when the project material was read');
+    expect(text).toContain('Gaps recorded for the material of version 1');
+    expect(text).toContain('not a list of the project’s current gaps');
     expect(text).toContain('stored text that no integrity hash covers');
     expect(text).toContain('a raw 7.33333 is reported, and shown, as 7.3333');
     await shot('09-report-scored');

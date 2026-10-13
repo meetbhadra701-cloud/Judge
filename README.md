@@ -119,6 +119,7 @@ Package scripts use POSIX `VAR=value cmd` syntax; on Windows use WSL.
 
 [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md) runs the whole current journey offline (hackathon → GitHub + Devpost links →
 capture → preliminary report on a recorded replay provider) and says exactly what it does and does not show.
+`pnpm demo:prepare --seed` creates the labelled synthetic demonstration data and the replay fixture it needs.
 `pnpm test:browser` replays it in a real Chromium (pinned, development-only `playwright`).
 
 ### Evidence graph (M3)

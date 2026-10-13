@@ -367,6 +367,56 @@ export async function seedSnapshot(
   return { snapshot, source, artifacts: stored };
 }
 
+/**
+ * A later capture attempt of an ALREADY declared source (capture number = previous + 1), ending in `status` with the given artifacts.
+ * Test-only: it lets a scenario change a project's material after an assessment was made.
+ */
+export async function seedLaterCapture(
+  db: JudgeDatabase,
+  project: { id: string },
+  source: { id: string; sourceType: ProjectSourceType; url: string },
+  status: 'captured' | 'partial' | 'failed',
+  artifacts: readonly ArtifactSeed[] = [],
+) {
+  const previous = (await db.select().from(sourceSnapshots)).filter(
+    (row) => row.projectSourceId === source.id,
+  );
+  const captureNumber = Math.max(0, ...previous.map((row) => row.captureNumber)) + 1;
+  const [snapshot] = await db
+    .insert(sourceSnapshots)
+    .values({
+      projectId: project.id,
+      projectSourceId: source.id,
+      captureNumber,
+      sourceType: source.sourceType,
+      sourceUrl: source.url,
+      status: 'pending',
+    })
+    .returning();
+  if (!snapshot) throw new Error('snapshot');
+  for (const artifact of artifacts) {
+    await db.insert(sourceSnapshotArtifacts).values({
+      snapshotId: snapshot.id,
+      artifactKey: artifact.key,
+      artifactKind: artifact.kind,
+      mediaType: artifact.mediaType,
+      textContent: artifact.text,
+      byteLength: Buffer.byteLength(artifact.text),
+      contentHash: sha256(artifact.text),
+    });
+  }
+  if (status === 'failed') {
+    await db.execute(sql`UPDATE source_snapshots SET status = 'failed', failure_category = 'timeout',
+      failure_metadata = '{}'::jsonb, completed_at = now() WHERE id = ${snapshot.id}`);
+  } else {
+    const revision = source.sourceType === 'github' ? 'b'.repeat(40) : null;
+    await db.execute(sql`UPDATE source_snapshots SET status = ${status}, revision = ${revision},
+      metadata = '{}'::jsonb, content_hash = ${sha256(snapshot.id)}, captured_at = now(), completed_at = now()
+      WHERE id = ${snapshot.id}`);
+  }
+  return snapshot;
+}
+
 export async function seedWorld(db: JudgeDatabase, options: WorldOptions = {}) {
   const n = next();
   const [event] = await db

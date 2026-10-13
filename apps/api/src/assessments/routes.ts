@@ -55,6 +55,11 @@ export function registerAssessmentRoutes(
     return service.get(projectId, assessmentId);
   });
 
+  app.get('/projects/:projectId/assessments/:assessmentId/unknowns', read, async (request) => {
+    const { projectId, assessmentId } = parseRequest(AssessmentParams, request.params, 'params');
+    return service.getUnknowns(projectId, assessmentId);
+  });
+
   app.get('/projects/:projectId/assessment-runs/:runId', read, async (request) => {
     const { projectId, runId } = parseRequest(RunParams, request.params, 'params');
     return service.getRun(projectId, runId);
@@ -76,6 +81,12 @@ export function registerAssessmentRoutes(
   app.route({
     method: ['POST', 'PUT', 'PATCH', 'DELETE'],
     url: '/projects/:projectId/assessments/:assessmentId',
+    preHandler: guard('assessment.read'),
+    handler: refuse,
+  });
+  app.route({
+    method: ['POST', 'PUT', 'PATCH', 'DELETE'],
+    url: '/projects/:projectId/assessments/:assessmentId/unknowns',
     preHandler: guard('assessment.read'),
     handler: refuse,
   });

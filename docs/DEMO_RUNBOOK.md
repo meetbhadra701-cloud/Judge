@@ -1,4 +1,4 @@
-# Offline demonstration runbook (P6B-alpha)
+# Offline demonstration runbook (P6B-alpha, revised in P6B-beta1)
 
 What this runs: the **offline** Judge Copilot experience that exists today, end to end on one machine: hackathon with a locked Event Context →
 GitHub + Devpost links → capture of the two pages (synthetic fixture network) → the **preliminary report** page, where assessments run on a
@@ -20,47 +20,54 @@ No live model provider exists in this repository, no API key is used, and nothin
 ```sh
 pnpm install
 pnpm build                       # workspace packages
-pnpm test:browser                # builds the web app, then drives Chromium through the whole journey (about 20 s)
-BROWSER_SMOKE_SHOTS=/tmp/shots pnpm test:browser   # keep screenshots 01..10 of each step
+pnpm test:browser                # builds the web app, then drives Chromium through the whole journey (about a minute)
+BROWSER_SMOKE_SHOTS=/tmp/shots pnpm test:browser   # choose where the screenshots 01..10 go (default: your OS temp directory, never the checkout)
 ```
 
 It starts its own database (in-process PGlite), the real API on a loopback port, the real capture worker, the real assessment loop on the replay
 provider and the production web build; it needs no setup beyond a Chromium that Playwright can find (`PLAYWRIGHT_BROWSERS_PATH`, or
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome`). `playwright` is a pinned **development-only** dependency. This test is not part of `pnpm check` (it needs a
-browser); `pnpm check` covers the same pages with rendered-markup component tests.
+browser); `pnpm check` covers the same pages with rendered-markup component tests. A run leaves the checkout exactly as it found it (the test asserts it).
 
 ## 1. The manual path
 
-Requirements: Node ≥ 22.12, pnpm, PostgreSQL 16 with an empty database. Four processes: API, worker, web (and the database).
+Requirements: Node ≥ 22.12, pnpm, PostgreSQL 16 with an **empty database you can drop afterwards**. Four processes: API, worker, web (and the database).
+Run every command from the repository root. **Use absolute paths** for fixture directories and files (`$PWD/...`): `pnpm --filter` starts each
+process inside its own package directory, so a relative path such as `tests/fixtures/...` would not be found.
 
 ```sh
 export DATABASE_URL=postgres://user:pass@127.0.0.1:5432/judge_demo
 pnpm install && pnpm build
 pnpm db:migrate
+pnpm demo:prepare --seed       # writes demo-data/replay-fixture.json and creates the labelled SYNTHETIC DEMO hackathon + project
 ```
+
+`pnpm demo:prepare` records the replay fixture from the hand-written scripted model that tests use (no model is involved), and `--seed` inserts one hackathon
+named `SYNTHETIC DEMO hackathon (offline replay)` with a locked Event Context and one project named `SYNTHETIC DEMO project (HydroTrack)`. It prints the URLs of
+both. It refuses `NODE_ENV=production`, uses no network and writes nothing outside `demo-data/` (git-ignored) except the rows you asked for.
 
 ### 1.1 API (loopback, development actors, offline replay assessments)
 
 ```sh
 AUTH_MODE=dev API_HOST=127.0.0.1 API_PORT=3001 \
-EVENT_CONTEXT_EXTRACTOR=replay EVENT_CONTEXT_REPLAY_DIR=tests/fixtures/event-context \
-ASSESSMENT_PROVIDER=replay ASSESSMENT_REPLAY_FIXTURE=/path/to/replay-fixture.json \
+EVENT_CONTEXT_EXTRACTOR=replay EVENT_CONTEXT_REPLAY_DIR=$PWD/tests/fixtures/event-context \
+ASSESSMENT_PROVIDER=replay ASSESSMENT_REPLAY_FIXTURE=$PWD/demo-data/replay-fixture.json \
 pnpm --filter @judge-copilot/api dev
 ```
 
 `ASSESSMENT_PROVIDER` defaults to `none`: then `POST /projects/:id/assessments` answers `503 ASSESSMENT_PROVIDER_NOT_CONFIGURED` and the page says assessments cannot be run.
-`replay` is refused in production. The replay fixture is a hand-written synthetic file; **one is not shipped for the submit flow** (see 1.5).
+`replay` is refused in production. The fixture is for the models the API freezes by default (`ASSESSMENT_MODEL_EXTRACTION` / `_ASSESSMENT` / `_CRITIC`); leave those at their defaults.
 
 ### 1.2 Worker (capture on the synthetic fixture network; assessments on replay)
 
 ```sh
-CAPTURE_NETWORK=fixture CAPTURE_FIXTURE_DIR=tests/fixtures/source-capture \
-ASSESSMENT_PROVIDER=replay ASSESSMENT_REPLAY_FIXTURE=/path/to/replay-fixture.json \
+CAPTURE_NETWORK=fixture CAPTURE_FIXTURE_DIR=$PWD/tests/fixtures/source-capture \
+ASSESSMENT_PROVIDER=replay ASSESSMENT_REPLAY_FIXTURE=$PWD/demo-data/replay-fixture.json \
 pnpm --filter @judge-copilot/worker dev
 ```
 
-Without `CAPTURE_NETWORK=fixture` the capture worker would use the real network through the SSRF-safe client; that path has **never been smoke-tested against real github.com / devpost.com** and is not
-claimed to be production-ready. Use the fixture network for demonstrations.
+Without `CAPTURE_NETWORK=fixture` the capture worker would use the real network through the SSRF-safe client; that path has **never been smoke-tested against real github.com /
+devpost.com** and is not claimed to be production-ready. Use the fixture network for demonstrations.
 
 ### 1.3 Web (loopback only)
 
@@ -68,31 +75,65 @@ claimed to be production-ready. Use the fixture network for demonstrations.
 JUDGE_API_URL=http://127.0.0.1:3001 JUDGE_API_TOKEN=dev-organizer pnpm --filter @judge-copilot/web dev
 ```
 
+The web app listens on `http://127.0.0.1:3000`. Running it creates no file in the checkout.
+
 ### 1.4 The journey
 
-1. Open `http://127.0.0.1:3000/`, create an event, open it, create a draft Event Context version, paste the sources of a fixture in
-   `tests/fixtures/event-context/` (matching authorities, see the README), **Build**, review and **Lock**. (Or use the Event Context editor to author the JSON.)
-2. On the event page choose **Submit a project …** (`/events/<id>/submit`). The page names the hackathon and its locked Event Context.
-3. Enter the fixture links: GitHub `https://github.com/synthetic/atlas`, Devpost `https://devpost.com/software/synthetic-atlas`. Wrong or swapped links are explained next to the field. Click **Start analysis**.
-4. You land on the capture page (`/projects/<id>/capture`): both sources "WAITING FOR THE CAPTURE WORKER"; within seconds the worker captures them and the page refreshes itself to "CAPTURED".
+1. Open `http://127.0.0.1:3000/`. Open the **SYNTHETIC DEMO** hackathon that `demo:prepare` printed (to build your own, create an event, a draft Event Context version, paste the sources of
+   a fixture in `tests/fixtures/event-context/`, **Build**, review and **Lock**).
+2. Choose **Submit a project …** (`/events/<id>/submit`). The page names the hackathon and its locked Event Context.
+3. Enter the fixture links: GitHub `https://github.com/synthetic/atlas`, Devpost `https://devpost.com/software/synthetic-atlas`. Wrong or swapped links are explained next to the field,
+   and keyboard focus moves to the first field to fix. Click **Submit and start capture** (it registers the two links and queues their capture; it starts no analysis).
+4. You land on the capture page (`/projects/<id>/capture`): both sources "WAITING FOR THE CAPTURE WORKER"; within seconds the worker captures them and the page, which checks
+   for progress every 3 seconds for up to 5 minutes (and says so), re-renders itself to "CAPTURED". After 5 minutes of no change it tells you to reload.
    Try `https://github.com/synthetic/does-not-exist`: that source shows "CAPTURE FAILED" with a plain reason and a **Retry capture** button; the other source is unaffected.
-   Submitting the same links again never creates a second project or a second pending capture.
-5. **Open the preliminary report page.** With replay configured, **Run assessment** is a separate click. For a submitted project the run ends "RUN DID NOT COMPLETE" with the reason (see the table above).
-6. To see a full report offline, use the built-in synthetic project: it is what `pnpm test:browser` does (step 9 of the screenshots): scored report, relative highs and lows, unknowns and missing information,
-   limits, and the withheld view after deliberate corruption.
+5. **Open the preliminary report** of the SYNTHETIC DEMO project (`/projects/<id>/assessment`, URL printed by `demo:prepare`). **Run assessment** is a separate click: the worker replays the recorded
+   answers and the page shows a scored, verified, replay-labelled report with relative highs and lows and the unknowns **of that assessment's own material**.
+   For a project you submitted yourself the run ends "RUN DID NOT COMPLETE" with the reason (§1.5).
 
 ### 1.5 Why a submitted project has no demonstration report
 
 A replay answer is looked up by the digest of the exact request (prompt text, model, the project's captured passages, the event's rubric). Recorded answers exist only for the built-in synthetic
-HydroTrack material (`apps/worker/src/testing/`, hand-authored). Material you submit through the form has no recorded answer, so an offline run on it ends with `replay_miss`, and the page says so.
-Making a submitted project assessable needs either a recorded fixture for that exact material or a real provider, neither of which is part of this slice. If the models the API freezes into a run
-differ from the models a fixture was recorded for, every digest differs and the first call is also a `replay_miss`; the API's models are `ASSESSMENT_MODEL_EXTRACTION` / `_ASSESSMENT` / `_CRITIC`.
+HydroTrack material. Material you submit through the form has no recorded answer, so an offline run on it ends with `replay_miss`, and the page says so. Making a submitted project assessable
+needs either a recorded fixture for that exact material or a real provider, neither of which is part of this version.
+
+### 1.6 What "Submit and start capture" promises: submission identity (P6B-beta1)
+
+A submission is one **GitHub repository + one Devpost page** sent to one hackathon. The server creates the project, both source declarations and both capture requests in **one transaction**
+(`POST /events/:id/submissions`, header `Idempotency-Key`), or nothing at all. The page generates the key when it is rendered, so pressing the button twice, a lost response, or a back-and-forward
+all retry the **same** request. The rules, enforced by unique constraints in the database:
+
+| You send                                                          | You get                                                                                                                  |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| the same form again (same key, same links)                        | the same project (`replayed`); nothing is created or queued again                                                        |
+| the same two links with a new key (a reloaded page, someone else) | the same project (`already_submitted`): identical content is the same submission                                         |
+| the same repository **or** the same Devpost page with other links | refused (`SUBMISSION_CONFLICT`), pointing at the project that holds the link; **nothing is merged and nothing is saved** |
+| a project name that differs from another only by letter case      | refused (`PROJECT_NAME_TAKEN`); a name is a label, never an identity, and an existing project is never adopted by name   |
+| the same key with different links or a different typed name       | refused (`IDEMPOTENCY_KEY_REUSED`); reload the page to start a new submission                                            |
+| the same links in **another hackathon**                           | an independent project: identity is per hackathon                                                                        |
+
+Not guaranteed: the page cannot know whether two _different_ links are the same project in reality (a renamed repository, a second Devpost page). Those are two submissions; the organizer decides.
+
+### 1.7 Mixed projects (created before submission records existed)
+
+Earlier versions composed a submission from separate calls and adopted an existing project by name, so two simultaneous submissions could end up in one project holding both submissions' links.
+Nothing is repaired or deleted automatically.
+
+- **Detect.** `GET /events/<id>/submission-integrity` (any signed-in organizer or judge) lists projects with several GitHub or several Devpost links, and links claimed by more than one project, and
+  counts projects without a submission record. A mixed project also shows a red notice on its capture and report pages.
+- **Handle.** Do not rely on a flagged project's captures or assessments: they mix more than one submission. Leave it as history. Submit each correct GitHub + Devpost pair on its own through the
+  form; a flagged (mixed) project does **not** block the correct submissions of its links, so they create new, clean projects. The mixed project then shows as sharing those links in the integrity list,
+  which is correct: it is the record of what happened.
+- **Why not delete.** Projects, declarations and snapshots are append-only by design (audit and reproducibility). A "void" marker for a project would need a schema change and an owner decision; it is not part of this slice.
+- Legacy routes (`POST /projects/:id/sources`) still exist for operators. A project **created by a submission** refuses any GitHub or Devpost link other than its own (`SUBMISSION_SOURCE_FIXED`, also enforced by a database trigger).
 
 ## 2. Checking the experience does not mislead
 
 | Question                                  | Where the page answers it                                                                                                                                     |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Is capture an analysis?                   | Submit and capture pages: "not an AI analysis", "not verified".                                                                                               |
+| Are these the project's current gaps?     | Report: unknowns are those of _that assessment's_ material; newer captures are listed and a new assessment is needed to refresh them.                         |
+| What does 0.0 / 10 mean on a 1–5 rubric?  | Report: scores show the rubric's own scale and the normalization ("1.0 on the rubric's scale of 1 to 5 (0.0 / 10 normalized)"); no evidence means no number.  |
 | Is a model used?                          | Submit, capture and report pages: "Temporary offline workflow", "recorded demonstration data only", "nothing is spent"; replay banner on every replay report. |
 | Is a missing source a judgment?           | Capture page: "missing evidence, never a negative judgment"; report: "Missing information is not negative evidence".                                          |
 | Is a relative high/low a quality verdict? | Report: "compares … with each other only … not necessarily strong … not necessarily weak".                                                                    |

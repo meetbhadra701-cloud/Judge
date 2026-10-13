@@ -162,3 +162,16 @@ export function captureFingerprint(project: {
     )
     .join('|');
 }
+
+/**
+ * A warning for a project whose declared sources cannot belong to ONE submission: more than one GitHub link or more than one Devpost link.
+ * Such projects come from the flow before submission records existed (R7-1). Nothing is rewritten; the page just refuses to let the project
+ * look like a single clean submission. Null when the sources are consistent.
+ */
+export function sourceIntegrityNotice(sources: readonly ProjectSourceRecord[]): string | null {
+  const count = (type: string) => sources.filter((source) => source.sourceType === type).length;
+  const github = count('github');
+  const devpost = count('devpost');
+  if (github <= 1 && devpost <= 1) return null;
+  return `This project does not form a single submission: it declares ${String(github)} GitHub link${github === 1 ? '' : 's'} and ${String(devpost)} Devpost link${devpost === 1 ? '' : 's'}. Its captures and any assessment mix the material of more than one submission, so do not rely on them. Nothing was changed or deleted. Submit each GitHub + Devpost pair on its own (see “Mixed projects” in docs/DEMO_RUNBOOK.md).`;
+}

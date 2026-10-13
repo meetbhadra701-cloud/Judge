@@ -4,14 +4,16 @@ import type { ContextVersionDetail, EventRecord } from '@judge-copilot/schemas';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { apiRequest, eventPath, projectPath, versionPath, type ApiIssue } from '../lib/api';
+import { withSealedError } from '../lib/flash';
 
 function field(formData: FormData, name: string): string {
   const value = formData.get(name);
   return typeof value === 'string' ? value : '';
 }
 
+/** The error travels sealed (lib/flash.ts): a hand-written `?error=` link shows nothing. */
 function withError(path: string, message: string): string {
-  return `${path}?error=${encodeURIComponent(message)}`;
+  return withSealedError(path, message);
 }
 
 function uiVersionPath(eventId: string, versionId: string): string {

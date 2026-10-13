@@ -1,9 +1,20 @@
+import type { Metadata } from 'next';
 import { randomUUID } from 'node:crypto';
 import type { EventContextLockedSnapshot, EventDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, eventPath } from '../../../../lib/api';
 import { ErrorBanner } from '../../../components/ui';
 import { SubmitView } from './view';
+import { eventPageTitle } from '../../../../lib/titles';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ eventId: string }>;
+}): Promise<Metadata> {
+  const { eventId } = await params;
+  return { title: await eventPageTitle(eventId, 'Submit a project') };
+}
 
 export const dynamic = 'force-dynamic';
 

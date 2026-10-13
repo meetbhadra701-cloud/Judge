@@ -443,6 +443,68 @@ describe.each(testDatabaseTargets())('submission intents on %s', (_name, open) =
     expect(await totals()).toEqual(before);
   });
 
+  it('an earlier-flow project that mixes several links does not block the correct submission of its links, and stays flagged', async () => {
+    const eventId = await lockedEvent();
+    const n = unique();
+    const post = (url: string, payload: unknown) =>
+      app.inject({
+        method: 'POST',
+        url,
+        headers: bearer(TEST_TOKENS.organizer),
+        payload: payload as object,
+      });
+    const mixed = (await post(`/events/${eventId}/projects`, { name: `Old mixed ${n}` })).json<{
+      id: string;
+    }>().id;
+    await post(`/projects/${mixed}/sources`, { sourceType: 'github', url: gh(`remedy-${n}`) });
+    await post(`/projects/${mixed}/sources`, { sourceType: 'devpost', url: dp(`remedy-${n}-a`) });
+    await post(`/projects/${mixed}/sources`, { sourceType: 'devpost', url: dp(`remedy-${n}-b`) });
+    const before = await totals();
+    // the correct intent (repository + the first Devpost page) is accepted as a NEW project; nothing about the mixed one is rewritten
+    const fixed = await submit({
+      eventId,
+      github: gh(`remedy-${n}`),
+      devpost: dp(`remedy-${n}-a`),
+    });
+    expect(fixed.status).toBe(201);
+    const after = await state(eventId);
+    expect(after.projects).toHaveLength(2);
+    expect(linksOf(after, mixed)).toEqual({
+      github: [gh(`remedy-${n}`)],
+      devpost: [dp(`remedy-${n}-a`), dp(`remedy-${n}-b`)],
+    });
+    const fixedId = (fixed.body['project'] as { id: string }).id;
+    expect(linksOf(after, fixedId)).toEqual({
+      github: [gh(`remedy-${n}`)],
+      devpost: [dp(`remedy-${n}-a`)],
+    });
+    expect((await totals()).projects).toBe(before.projects + 1);
+    // the mixed project is still reported, and now so is the link both projects hold
+    const report = (
+      await app.inject({
+        method: 'GET',
+        url: `/events/${eventId}/submission-integrity`,
+        headers: bearer(TEST_TOKENS.organizer),
+      })
+    ).json<{
+      findings: { kind: string; sourceType: string; projectIds: string[] }[];
+    }>();
+    expect(
+      report.findings
+        .filter((f) => f.projectIds.includes(mixed))
+        .map((f) => f.kind)
+        .sort(),
+    ).toEqual(['multiple_sources_of_one_type', 'shared_source_url', 'shared_source_url']); // the repository and the first Devpost page are each held by both
+    // a second, DIFFERENT submission of the same repository is still refused (it now conflicts with the clean one)
+    const clash = await submit({
+      eventId,
+      github: gh(`remedy-${n}`),
+      devpost: dp(`remedy-${n}-b`),
+    });
+    expect([clash.status, code(clash.body)]).toEqual([409, 'SUBMISSION_CONFLICT']);
+    expect(ApiErrorBody.parse(clash.body).error.details).toEqual({ projectIds: [fixedId] });
+  });
+
   // -- concurrency (separate requests, separate transactions; separate connections on PostgreSQL) ---------------------------
 
   it('R7-1: two simultaneous submissions that share a GitHub repository but differ in Devpost never share a project', async () => {

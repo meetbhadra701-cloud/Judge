@@ -7,6 +7,7 @@ import { canonicalJson, sha256Hex } from '@judge-copilot/context';
 import {
   ASSESSMENT_API_NOTICE,
   ASSESSMENT_RUN_TYPE,
+  ASSESSMENT_UNKNOWNS_NOTICE,
   ScoreReport,
   type AssessmentDetail,
   type AssessmentGuardView,
@@ -14,11 +15,14 @@ import {
   type AssessmentLimitationView,
   type AssessmentRunView,
   type AssessmentSummary,
+  type AssessmentUnknownsResponse,
+  type AssessmentUnknownView,
   type AssessmentUsageView,
   type JudgmentCitationView,
+  type NewerCaptureView,
   type ProviderMode,
 } from '@judge-copilot/schemas';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AssessmentStore } from './assessment-store.js';
 import type { JudgeDatabase } from './client.js';
 import {
@@ -29,8 +33,11 @@ import {
   assessmentRunInputs,
   assessmentRunOutcomes,
   evidenceItems,
+  graphExtractionItems,
   preInterviewAssessments,
   projects,
+  sourceSnapshots,
+  unknowns,
 } from './schema/index.js';
 
 /*
@@ -310,6 +317,112 @@ export class AssessmentReadStore {
       });
     }
     return summaries;
+  }
+
+  /**
+   * The unknowns of ONE assessment: the members of the graph extraction it was scored from (immutable membership), not the project's
+   * unknowns in general. Fails closed like the report: an assessment that does not verify yields no items and no currency. Also says
+   * whether captures newer than the ones this assessment used exist, which is the only honest statement about "current" gaps this
+   * read model can make (it does not rebuild a graph).
+   */
+  async getUnknowns(
+    projectId: string,
+    assessmentId: string,
+  ): Promise<AssessmentUnknownsResponse | null> {
+    const [row] = await this.db
+      .select()
+      .from(preInterviewAssessments)
+      .where(
+        and(
+          eq(preInterviewAssessments.id, assessmentId),
+          eq(preInterviewAssessments.projectId, projectId),
+        ),
+      );
+    if (!row) return null;
+    const base = {
+      assessmentId: row.id,
+      versionNumber: row.versionNumber,
+      scope: 'assessment_pinned_extraction' as const,
+      notice: ASSESSMENT_UNKNOWNS_NOTICE,
+    };
+    const inspection = await this.inspect(row);
+    if (!inspection.ok) return { ...base, verified: false, items: [], currency: null };
+
+    // members of the SOURCE graph extraction this assessment pinned
+    const members = await this.db
+      .select({ unknown: unknowns })
+      .from(graphExtractionItems)
+      .innerJoin(
+        unknowns,
+        and(eq(unknowns.id, graphExtractionItems.recordId), eq(unknowns.projectId, projectId)),
+      )
+      .where(
+        and(
+          eq(graphExtractionItems.extractionId, row.extractionId),
+          eq(graphExtractionItems.projectId, projectId),
+          eq(graphExtractionItems.recordType, 'unknown'),
+        ),
+      )
+      .orderBy(asc(graphExtractionItems.ordinal));
+    const grouped = new Map<string, AssessmentUnknownView>();
+    for (const { unknown } of members) {
+      const key = `${unknown.unknownType}\u0000${unknown.text}`;
+      const seen = grouped.get(key);
+      grouped.set(
+        key,
+        seen
+          ? { ...seen, occurrences: seen.occurrences + 1 }
+          : {
+              id: unknown.id,
+              seq: unknown.seq,
+              unknownType: unknown.unknownType,
+              text: unknown.text,
+              claimIds: unknown.claimIds,
+              evidenceIds: unknown.evidenceIds,
+              occurrences: 1,
+            },
+      );
+    }
+
+    // captures newer than the ones this assessment used (any status: a failed newer capture matters too)
+    const captures = await this.db
+      .select({
+        id: sourceSnapshots.id,
+        sourceId: sourceSnapshots.projectSourceId,
+        sourceType: sourceSnapshots.sourceType,
+        captureNumber: sourceSnapshots.captureNumber,
+        status: sourceSnapshots.status,
+        createdAt: sourceSnapshots.createdAt,
+      })
+      .from(sourceSnapshots)
+      .where(eq(sourceSnapshots.projectId, projectId))
+      .orderBy(asc(sourceSnapshots.projectSourceId), desc(sourceSnapshots.captureNumber));
+    const pinned = new Set(row.pinnedSnapshotIds);
+    const bySource = new Map<string, typeof captures>();
+    for (const capture of captures) {
+      bySource.set(capture.sourceId, [...(bySource.get(capture.sourceId) ?? []), capture]);
+    }
+    const newerCaptures: NewerCaptureView[] = [];
+    for (const [sourceId, list] of bySource) {
+      const newest = list[0];
+      if (!newest || pinned.has(newest.id)) continue;
+      const used = list.find((capture) => pinned.has(capture.id));
+      if (used && used.captureNumber > newest.captureNumber) continue;
+      newerCaptures.push({
+        sourceId,
+        sourceType: newest.sourceType,
+        pinnedCaptureNumber: used?.captureNumber ?? null,
+        newerCaptureNumber: newest.captureNumber,
+        newerStatus: newest.status,
+        newerAt: newest.createdAt.toISOString(),
+      });
+    }
+    return {
+      ...base,
+      verified: true,
+      items: [...grouped.values()],
+      currency: { upToDate: newerCaptures.length === 0, newerCaptures },
+    };
   }
 
   /** The assessment of THIS project with its judgments, citations and evidence, or null. */

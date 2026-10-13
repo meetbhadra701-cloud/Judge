@@ -5,6 +5,8 @@ import type { CreateAssessmentResponse } from '@judge-copilot/schemas';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { apiRequest, projectPath } from '../../../../lib/api';
+import { ASSESSMENT_REQUEST_RECOVERY, describeFailure } from '../../../../lib/action-errors';
+import { withSealedError } from '../../../../lib/flash';
 
 function field(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -29,7 +31,7 @@ export async function requestAssessmentAction(formData: FormData): Promise<void>
   );
   revalidatePath(page);
   if (!result.ok) {
-    redirect(`${page}?error=${encodeURIComponent(result.message)}`);
+    redirect(withSealedError(page, describeFailure(result, ASSESSMENT_REQUEST_RECOVERY)));
   }
   redirect(page);
 }

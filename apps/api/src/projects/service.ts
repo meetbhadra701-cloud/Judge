@@ -479,7 +479,17 @@ export class ProjectService {
           ),
         ),
       );
-    const conflicting = [...new Set([...overlapping, ...legacy].map((row) => row.projectId))];
+    // an earlier-flow project that itself holds several GitHub (or Devpost) links is not a valid single submission: it must not block the
+    // correct submissions of its links (integrity detection lists it; nothing is rewritten)
+    const legacyIds = [...new Set(legacy.map((row) => row.projectId))];
+    const mixed = new Set(await this.mixedProjectIds(tx, legacyIds));
+    const conflicting = [
+      ...new Set(
+        [...overlapping, ...legacy.filter((row) => !mixed.has(row.projectId))].map(
+          (row) => row.projectId,
+        ),
+      ),
+    ];
     if (conflicting.length > 0) {
       throw new SourceIngestionError(
         'SUBMISSION_CONFLICT',
@@ -704,6 +714,29 @@ export class ProjectService {
   }
 
   // -- Internals -----------------------------------------------------------------------------
+
+  /** Of these projects, the ones that declare more than one GitHub link or more than one Devpost link. */
+  private async mixedProjectIds(tx: JudgeDatabase, projectIds: string[]): Promise<string[]> {
+    if (projectIds.length === 0) return [];
+    const rows = await tx
+      .select({ projectId: projectSources.projectId, sourceType: projectSources.sourceType })
+      .from(projectSources)
+      .where(
+        and(
+          inArray(projectSources.projectId, projectIds),
+          inArray(projectSources.sourceType, ['github', 'devpost']),
+        ),
+      );
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const key = `${row.projectId}\u0000${row.sourceType}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return projectIds.filter(
+      (id) =>
+        (counts.get(`${id}\u0000github`) ?? 0) > 1 || (counts.get(`${id}\u0000devpost`) ?? 0) > 1,
+    );
+  }
 
   private async lockedContextOf(tx: JudgeDatabase, eventId: string): Promise<{ id: string }> {
     const [event] = await tx.select({ id: events.id }).from(events).where(eq(events.id, eventId));

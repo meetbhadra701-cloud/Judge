@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import type {
   EventContextLockedSnapshot,
   EventDetail,
@@ -5,8 +6,19 @@ import type {
 } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, eventPath } from '../../../lib/api';
+import { openMessage } from '../../../lib/flash';
 import { createProjectAction, createVersionAction } from '../../actions';
 import { ErrorBanner, formatDate, StatusBadge } from '../../components/ui';
+import { eventPageTitle } from '../../../lib/titles';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ eventId: string }>;
+}): Promise<Metadata> {
+  const { eventId } = await params;
+  return { title: await eventPageTitle(eventId) };
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +30,9 @@ export default async function EventPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { eventId } = await params;
-  const { error } = await searchParams;
+  const { error: sealedError } = await searchParams;
+  // only a message this server sealed is shown; a hand-written ?error= link shows nothing (lib/flash.ts)
+  const error = openMessage(sealedError) ?? undefined;
   const result = await apiRequest<EventDetail>('GET', eventPath(eventId));
   if (!result.ok) {
     return (

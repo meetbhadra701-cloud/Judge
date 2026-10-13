@@ -93,6 +93,38 @@ export function formatScore10(value: number): string {
   return `${sign}${parts.whole}.${fraction}`;
 }
 
+/** The rubric's own scale, exactly as the verified report states it. */
+export interface RubricScale {
+  readonly min: number;
+  readonly max: number;
+}
+
+/** True for the fallback rubric's 0-10 scale, where the normalized figure IS the native one. */
+export function isTenPointScale(scale: RubricScale): boolean {
+  return scale.min === 0 && scale.max === 10;
+}
+
+/**
+ * A reported score in BOTH terms where they differ: the value on the rubric's own scale, then the same value normalized to 0-10 (the
+ * form the engine aggregates in). For a 0-10 rubric it is just "7.0 / 10". Both numbers come from the verified report; nothing is
+ * computed here, so no presentation choice can change a stored score. A rubric's lowest value is normalized to 0.0, which is a real
+ * low score on that rubric, never "no evidence" (a dimension without enough evidence has no number at all).
+ */
+export function formatScoreOnRubric(
+  score10: number,
+  scoreOnScale: number,
+  scale: RubricScale,
+): string {
+  if (isTenPointScale(scale)) return `${formatScore10(score10)} / 10`;
+  return `${formatScore10(scoreOnScale)} on the rubric’s scale of ${String(scale.min)} to ${String(scale.max)} (${formatScore10(score10)} / 10 normalized)`;
+}
+
+/** The explanation that goes with {@link formatScoreOnRubric}; null when the scale is the plain 0-10 one. */
+export function scaleExplanation(scale: RubricScale): string | null {
+  if (isTenPointScale(scale)) return null;
+  return `Scale: this rubric scores from ${String(scale.min)} (lowest) to ${String(scale.max)} (highest). The “/ 10” figures are the same scores normalized to 0–10, where the rubric’s lowest value (${String(scale.min)}) is 0 and its highest (${String(scale.max)}) is 10. A score at the bottom of the scale is a real, low score, not missing evidence: a dimension without enough evidence has no number at all.`;
+}
+
 /** A ratio in [0, 1] as a whole percent, rounded half-up on its decimal digits. */
 export function formatRatio(value: number): string {
   const parts = decimalParts(value);
@@ -163,6 +195,8 @@ export interface RelativeEntry {
   readonly dimensionId: string;
   readonly name: string;
   readonly score10: number;
+  /** The same score on the rubric's own scale. */
+  readonly scoreOnScale: number;
   readonly confidence: number;
   /** The verified judgment of the dimension (citations, limitation codes), or null if the rows hold none. */
   readonly judgment: AssessmentJudgmentView | null;
@@ -175,6 +209,7 @@ export type RelativeDimensions =
       readonly assessed: number;
       readonly notAssessed: number;
       readonly score10: number;
+      readonly scoreOnScale: number;
     }
   | {
       readonly kind: 'ranked';
@@ -200,6 +235,7 @@ export function relativeDimensions(
       dimensionId: dimension.id,
       name: dimension.name,
       score10: dimension.score10,
+      scoreOnScale: dimension.scoreOnScale,
       confidence: dimension.confidence,
       judgment: byId.get(dimension.id) ?? null,
     });
@@ -209,7 +245,16 @@ export function relativeDimensions(
   const scores = entries.map((entry) => entry.score10);
   const max = Math.max(...scores);
   const min = Math.min(...scores);
-  if (max === min) return { kind: 'all_equal', assessed, notAssessed, score10: max };
+  if (max === min) {
+    const first = entries[0];
+    return {
+      kind: 'all_equal',
+      assessed,
+      notAssessed,
+      score10: max,
+      scoreOnScale: first?.scoreOnScale ?? max,
+    };
+  }
   const byIdOrder = (a: RelativeEntry, b: RelativeEntry) =>
     a.dimensionId < b.dimensionId ? -1 : a.dimensionId > b.dimensionId ? 1 : 0;
   return {

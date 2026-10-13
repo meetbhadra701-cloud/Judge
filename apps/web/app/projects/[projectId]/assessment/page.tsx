@@ -1,15 +1,28 @@
+import type { Metadata } from 'next';
 import { randomUUID } from 'node:crypto';
 import type {
   AssessmentDetail,
   AssessmentListResponse,
+  AssessmentUnknownsResponse,
   ProjectDetail,
-  UnknownsPage,
 } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, projectPath } from '../../../../lib/api';
+import { sourceIntegrityNotice } from '../../../../lib/capture-status';
+import { openMessage } from '../../../../lib/flash';
 import { ErrorBanner } from '../../../components/ui';
 import { requestAssessmentAction } from './actions';
 import { AssessmentPageView } from './view';
+import { projectPageTitle } from '../../../../lib/titles';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}): Promise<Metadata> {
+  const { projectId } = await params;
+  return { title: await projectPageTitle(projectId, 'Preliminary report') };
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +38,9 @@ export default async function AssessmentPage({
   searchParams: Promise<{ error?: string; version?: string }>;
 }) {
   const { projectId } = await params;
-  const { error, version } = await searchParams;
+  const { error: sealedError, version } = await searchParams;
+  // only a message this server sealed is shown; a hand-written ?error= link shows nothing (lib/flash.ts)
+  const error = openMessage(sealedError) ?? undefined;
   const base = projectPath(projectId);
   const [project, list] = await Promise.all([
     apiRequest<ProjectDetail>('GET', base),
@@ -60,24 +75,30 @@ export default async function AssessmentPage({
         `${base}/assessments/${encodeURIComponent(shown.id)}`,
       )
     : null;
-  // the project's recorded unknowns (evidence-graph route); only used for a verified assessment, loaded failure-tolerantly
+  // the unknowns of THIS assessment's own pinned extraction (never the project's later or earlier ones); only for a verified
+  // assessment, loaded failure-tolerantly
   const unknownsResult =
-    detailResult?.ok && detailResult.data.verified
-      ? await apiRequest<UnknownsPage>('GET', `${base}/unknowns?limit=50`)
+    shown && detailResult?.ok && detailResult.data.verified
+      ? await apiRequest<AssessmentUnknownsResponse>(
+          'GET',
+          `${base}/assessments/${encodeURIComponent(shown.id)}/unknowns`,
+        )
       : null;
   return (
     <AssessmentPageView
       projectId={projectId}
       projectName={project.data.name}
+      integrityNotice={sourceIntegrityNotice(project.data.sources)}
       list={list.data}
       detail={detailResult?.ok ? detailResult.data : null}
       detailError={detailResult && !detailResult.ok ? detailResult.message : undefined}
       error={error}
       unknowns={
-        unknownsResult?.ok
+        unknownsResult?.ok && unknownsResult.data.verified
           ? {
               items: unknownsResult.data.items,
-              hasMore: unknownsResult.data.page.nextAfter !== null,
+              currency: unknownsResult.data.currency,
+              versionNumber: unknownsResult.data.versionNumber,
             }
           : null
       }

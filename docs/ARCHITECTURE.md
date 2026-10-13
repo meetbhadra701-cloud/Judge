@@ -406,18 +406,20 @@ Adding a new package requires assigning it a layer in the test and in this table
 Migrations live in `packages/database/drizzle/` and are applied in order. Each milestone adds
 its own migrations; existing migrations are never edited after being committed.
 
-| Migration                                     | Contents                                                                                                                                                                                                            |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0000_m0_foundation`                          | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                                                 |
-| `0001_audit_events_append_only`               | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                                                          |
-| `0002_m1_event_context`                       | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id`                               |
-| `0003_m1_event_context_immutability`          | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                                                 |
-| `0004_m2_source_ingestion`                    | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK |
-| `0005_m2_source_ingestion_immutability`       | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                      |
-| `0006_m2_partial_reason_html_structure_limit` | adds `html_structure_limit` to the `source_snapshots` partial-reason CHECK (the vocabulary is generated from the shared tuple)                                                                                      |
-| `0007_m3_evidence_graph`                      | `claims`, `evidence_items`, `evidence_relations`, `unknowns`, `contradictions`; the composite-key target `source_snapshot_artifacts(id, snapshot_id)`                                                               |
-| `0008_m3_evidence_graph_integrity`            | append-only triggers (UPDATE/DELETE/TRUNCATE), supersession verification guard, evidence provenance guard, relation/contradiction kind guards, unknown reference guard                                              |
-| `0009_m3_supersession_guard_hardening`        | redefines `claims_supersession_guard`: a predecessor that is not already visible is rejected (no forward references) instead of deferring to the end-of-statement foreign key                                       |
+| Migration                                     | Contents                                                                                                                                                                                                                   |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0000_m0_foundation`                          | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                                                        |
+| `0001_audit_events_append_only`               | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                                                                 |
+| `0002_m1_event_context`                       | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id`                                      |
+| `0003_m1_event_context_immutability`          | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                                                        |
+| `0004_m2_source_ingestion`                    | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK        |
+| `0005_m2_source_ingestion_immutability`       | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                             |
+| `0006_m2_partial_reason_html_structure_limit` | adds `html_structure_limit` to the `source_snapshots` partial-reason CHECK (the vocabulary is generated from the shared tuple)                                                                                             |
+| `0007_m3_evidence_graph`                      | `claims`, `evidence_items`, `evidence_relations`, `unknowns`, `contradictions`; the composite-key target `source_snapshot_artifacts(id, snapshot_id)`                                                                      |
+| `0008_m3_evidence_graph_integrity`            | append-only triggers (UPDATE/DELETE/TRUNCATE), supersession verification guard, evidence provenance guard, relation/contradiction kind guards, unknown reference guard                                                     |
+| `0009_m3_supersession_guard_hardening`        | redefines `claims_supersession_guard`: a predecessor that is not already visible is rejected (no forward references) instead of deferring to the end-of-statement foreign key                                              |
+| `0015_p6b_submission_intents`                 | `project_submissions` (one per project: event, canonical GitHub + Devpost URLs, case-folded name key; unique per event on each) and `project_submission_requests` (idempotency records: actor + key, request hash, result) |
+| `0016_p6b_submission_integrity`               | append-only triggers on both tables; `project_sources` refuses a GitHub/Devpost URL different from the project's submission; a submission cannot be recorded over a project that already holds other links                 |
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` timestamps.
 - Vocabulary CHECK constraints are generated from the same tuples as the Zod schemas
@@ -435,12 +437,22 @@ its own migrations; existing migrations are never edited after being committed.
   `503 DATABASE_NOT_CONFIGURED`. It closes cleanly on SIGINT/SIGTERM. M5 P6A adds the four
   offline assessment routes (`apps/api/src/assessments`, [M5-P6A-report](./milestones/M5-P6A-report.md)):
   `POST|GET /projects/:projectId/assessments`, `GET …/assessments/:assessmentId` and
-  `GET …/assessment-runs/:runId` (`assessment.read` / `assessment.run`, organizer and judge). `POST`
+  `GET …/assessment-runs/:runId` (`assessment.read` / `assessment.run`, organizer and judge), plus (P6B-beta1)
+  `GET …/assessments/:assessmentId/unknowns`: the unknowns of that assessment's **own pinned extraction** (never the
+  project's later or earlier ones) with a note when newer captures exist; a project-wide unknown list is history, not the
+  current gaps. `POST`
   requires an `Idempotency-Key`, only creates a pending run (it never executes a worker or calls a model) and
   answers `503 ASSESSMENT_PROVIDER_NOT_CONFIGURED` unless the explicit offline `ASSESSMENT_PROVIDER=replay` mode is
   configured and approved by the runtime gate. The API and the worker build the pipeline configuration from the same
   function (`buildPipelineConfig`, composed once in `@judge-copilot/prompts` over the pure builder in
   `@judge-copilot/assessment`), so one logical request has one identity.
+  P6B-beta1 adds `POST /events/:eventId/submissions` (header `Idempotency-Key`, permissions `project.write` + `source.capture`):
+  one transaction creates the project, both source declarations and both capture requests, or nothing. Identity is the
+  canonical (event, GitHub URL, Devpost URL); a name is a label. Unique constraints in the database decide races (a request
+  that loses one is rolled back whole and re-evaluated against the committed winner); a repeated key replays, the same pair
+  with another key converges on the same project, a partially shared link or a case-insensitively equal name is refused and
+  nothing is merged. `GET /events/:eventId/submission-integrity` is the read-only detection of projects that mix several
+  submissions (created before this existed). See [P6B_BETA1_IMPLEMENTATION_REPORT](./milestones/P6B_BETA1_IMPLEMENTATION_REPORT.md).
 - **worker** without `DATABASE_URL` idles with `jobHandlers: 0` and contacts nothing. With a
   database it runs the project-source capture loop (§10) with bounded concurrency and stops
   cleanly on SIGINT/SIGTERM. With a database **and** `ASSESSMENT_PROVIDER=replay` (development and
@@ -461,6 +473,10 @@ its own migrations; existing migrations are never edited after being committed.
   M5 P6B-alpha adds `/events/:id/submit` (GitHub + Devpost links → project, sources and capture requests through the existing
   API only; it never starts an assessment) and `/projects/:id/capture` (per-source capture status, retry); the assessment page is
   titled "Preliminary report" and adds the stored unknowns and a relative highest/lowest comparison of assessed dimensions only.
+  P6B-beta1: the submit page sends one atomic request and keeps its key in the form; the capture page polls a read-only status
+  probe (`/projects/:id/capture/status`) instead of refreshing the router; errors cross redirects only as HMAC-sealed messages
+  (`apps/web/lib/flash.ts`), so a hand-written `?error=` link shows nothing; every page has its own title; scores are shown on the
+  rubric's own scale next to the 0–10 normalization.
   See [P6B_ALPHA_IMPLEMENTATION_REPORT](./milestones/P6B_ALPHA_IMPLEMENTATION_REPORT.md).
 
 Only the worker contacts external services, and only through `safe-http` (source capture) or, for
@@ -587,6 +603,10 @@ locked Event Context → project (+ declared tracks) → declared sources
 - **`project_sources`** — immutable declarations (`devpost`, `github`, `deployment`, `video`) with
   a canonical URL (`normalizeDeclaredSourceUrl`); identical declarations are rejected; a
   replacement URL is a new declaration.
+- **`project_submissions` / `project_submission_requests`** (P6B-beta1) — the identity of a submission (event + canonical
+  GitHub URL + canonical Devpost URL, each unique per event, plus a case-folded name key) and the idempotency record of each
+  request (actor + key + content hash + result). Append-only; the same links cannot reach two projects of one event through a
+  submission.
 - **`source_snapshots`** — one capture of one declaration: `capture_number` (gapless, monotonic per
   source, trigger), source type and URL (composite FK to the declaration), status, `revision`
   (exact commit SHA, required exactly for GitHub content snapshots), normalized `metadata`,

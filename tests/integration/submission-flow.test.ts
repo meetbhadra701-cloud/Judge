@@ -26,6 +26,7 @@ import {
 } from '../../apps/api/src/testing/harness.js';
 import { captureSetup } from '../../apps/worker/src/testing/harness.js';
 import { describeCapture } from '../../apps/web/lib/capture-status.js';
+import { runCaptureRetry } from '../../apps/web/lib/action-errors.js';
 import { runSubmission, type ApiFn } from '../../apps/web/lib/submission.js';
 
 /*
@@ -264,6 +265,34 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
       afterRetry.sources.find((s) => s.sourceType === 'devpost')?.latestSnapshot?.captureNumber,
     ).toBe(1);
     expect(await snapshotsOf(first.projectId)).toHaveLength(3); // history is kept
+  });
+
+  it('R7-12: the capture retry treats an already-pending capture as success, against the real routes', async () => {
+    const eventId = await lockedEvent();
+    const first = await run(eventId);
+    if (first.kind !== 'started') throw new Error('not started');
+    const source = (await detail(first.projectId)).sources[0];
+    const request = (path: string) => api('POST', path);
+    // the capture requested by the submission is still pending: asking again must not fail, and must not queue a second one
+    const again = await runCaptureRetry(request, first.projectId, source?.id ?? '');
+    expect(again).toEqual({ kind: 'already_pending' });
+    expect(await snapshotsOf(first.projectId)).toHaveLength(2);
+    // after the worker finished (failed or captured), a retry is a new attempt; a second click while it waits is "already pending" again
+    await drainCaptures();
+    const retried = await runCaptureRetry(request, first.projectId, source?.id ?? '');
+    expect(retried).toEqual({ kind: 'requested' });
+    expect(await runCaptureRetry(request, first.projectId, source?.id ?? '')).toEqual({
+      kind: 'already_pending',
+    });
+    expect(await snapshotsOf(first.projectId)).toHaveLength(3);
+    // a source of another project is not found, and that is a real failure
+    const other = await run(eventId, {
+      github: 'https://github.com/synthetic/another',
+      devpost: 'https://devpost.com/software/another',
+    });
+    if (other.kind !== 'started') throw new Error('not started');
+    const foreign = await runCaptureRetry(request, other.projectId, source?.id ?? '');
+    expect(foreign.kind).toBe('failed');
   });
 
   it('isolates projects: two submissions in one event do not share sources, snapshots or captures', async () => {

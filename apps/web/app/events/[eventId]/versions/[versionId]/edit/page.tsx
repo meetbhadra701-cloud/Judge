@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { blankDocumentInput } from '@judge-copilot/context';
 import type { ContextVersionDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
@@ -5,6 +6,16 @@ import { apiRequest, versionPath } from '../../../../../../lib/api';
 import { toEditableInput } from '../../../../../../lib/editable';
 import { ErrorBanner } from '../../../../../components/ui';
 import { EditDraftForm } from './edit-form';
+import { eventPageTitle } from '../../../../../../lib/titles';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ eventId: string }>;
+}): Promise<Metadata> {
+  const { eventId } = await params;
+  return { title: await eventPageTitle(eventId, 'Edit Event Context') };
+}
 
 export const dynamic = 'force-dynamic';
 

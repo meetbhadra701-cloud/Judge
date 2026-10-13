@@ -1,9 +1,21 @@
+import type { Metadata } from 'next';
 import type { EventDetail, ProjectDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, eventPath, projectPath } from '../../../../lib/api';
+import { openMessage } from '../../../../lib/flash';
 import { ErrorBanner } from '../../../components/ui';
 import { retryCaptureAction } from './actions';
 import { CaptureView } from './view';
+import { projectPageTitle } from '../../../../lib/titles';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}): Promise<Metadata> {
+  const { projectId } = await params;
+  return { title: await projectPageTitle(projectId, 'Capture progress') };
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +28,9 @@ export default async function CapturePage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { projectId } = await params;
-  const { error } = await searchParams;
+  const { error: sealedError } = await searchParams;
+  // only a message this server sealed is shown; a hand-written ?error= link shows nothing (lib/flash.ts)
+  const error = openMessage(sealedError) ?? undefined;
   const project = await apiRequest<ProjectDetail>('GET', projectPath(projectId));
   if (!project.ok) {
     return (

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProviderMode } from './assessment.js';
+import type { SourceSnapshotStatus, UnknownType } from './enums.js';
 import { AssessmentRequestMode } from './assessment.js';
 import { Uuid } from './primitives.js';
 import type { ScoreReport } from './scoring.js';
@@ -253,3 +254,52 @@ export type CreateAssessmentResponse =
       readonly failureCategory: string | null;
       readonly replayed: true;
     };
+
+/**
+ * One unknown (a recorded gap in what the project material shows) that belongs to ONE assessment: a member of the graph extraction that
+ * assessment was scored from. Unknowns that were recorded for the same type and text are shown once, with how many times.
+ */
+export interface AssessmentUnknownView {
+  readonly id: string;
+  readonly seq: number;
+  readonly unknownType: UnknownType;
+  readonly text: string;
+  readonly claimIds: readonly string[];
+  readonly evidenceIds: readonly string[];
+  /** How many identical records (same type and text) the extraction holds; 1 when it is unique. */
+  readonly occurrences: number;
+}
+
+/** A source that has a capture newer than the one this assessment was scored from. */
+export interface NewerCaptureView {
+  readonly sourceId: string;
+  readonly sourceType: string;
+  /** The capture number this assessment used for the source, or null when it used none of that source. */
+  readonly pinnedCaptureNumber: number | null;
+  readonly newerCaptureNumber: number;
+  readonly newerStatus: SourceSnapshotStatus;
+  readonly newerAt: string;
+}
+
+/**
+ * `GET /projects/:projectId/assessments/:assessmentId/unknowns`. SCOPE: the unknowns of that assessment's own pinned graph extraction
+ * (immutable membership), never the project's later or earlier ones. It describes the material the assessment was scored from, NOT the
+ * project's current gaps: `currency` says whether newer captures exist since, in which case a new assessment is needed to learn what is
+ * still unknown. An assessment that does not verify returns no items (the same fail-closed rule as the report).
+ */
+export interface AssessmentUnknownsResponse {
+  readonly assessmentId: string;
+  readonly versionNumber: number;
+  readonly verified: boolean;
+  readonly scope: 'assessment_pinned_extraction';
+  readonly items: readonly AssessmentUnknownView[];
+  /** null for an assessment that does not verify. */
+  readonly currency: {
+    readonly upToDate: boolean;
+    readonly newerCaptures: readonly NewerCaptureView[];
+  } | null;
+  readonly notice: string;
+}
+
+export const ASSESSMENT_UNKNOWNS_NOTICE =
+  'These unknowns were recorded for the material this assessment was scored from. They are not a list of the project’s current gaps: a capture made since may have resolved or changed them.';

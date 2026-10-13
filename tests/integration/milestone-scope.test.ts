@@ -284,7 +284,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013) plus the one additive P6A column migration 0014, and no other', () => {
+  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013), the one additive P6A column migration 0014 and the two P6B-beta1 submission-intent migrations 0015/0016, and no other', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -305,6 +305,11 @@ describe('M5 milestone scope (phase P6A)', () => {
       '0013_r4_assessment_integrity.sql',
       // P6A (R5 F-5): one additive nullable column, graph_extractions.recorded_limitations; no table, trigger or constraint
       '0014_p6a_extraction_limitations.sql',
+      // P6B-beta1 (R7-1): submission intents. 0015 adds exactly two tables (project_submissions, project_submission_requests); 0016 adds their
+      // append-only triggers and the guard that a project of a submission cannot gain a different GitHub/Devpost source. No question,
+      // answer, interview, final-score or delta table, and nothing that touches scoring or assessments.
+      '0015_p6b_submission_intents.sql',
+      '0016_p6b_submission_integrity.sql',
     ]);
   });
 
@@ -588,7 +593,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('exposes exactly the four approved assessment routes: one POST, three GETs, every other method refused', () => {
+  it('exposes exactly the five approved assessment routes: one POST, four GETs (the fifth is the assessment-scoped unknowns read), every other method refused', () => {
     const routes = readFileSync(join(ROOT, 'apps/api/src/assessments/routes.ts'), 'utf8');
     const handlers = [
       ...routes.matchAll(/app\.(get|post|put|patch|delete|all)\(\s*'([^']+)'/g),
@@ -597,6 +602,8 @@ describe('M5 milestone scope (phase P6A)', () => {
       'GET /projects/:projectId/assessment-runs/:runId',
       'GET /projects/:projectId/assessments',
       'GET /projects/:projectId/assessments/:assessmentId',
+      // P6B-beta1: the unknowns of ONE assessment's pinned extraction (read-only, same permission and fail-closed verification)
+      'GET /projects/:projectId/assessments/:assessmentId/unknowns',
       'POST /projects/:projectId/assessments',
     ]);
     expect(routes).toContain("guard('assessment.run')");

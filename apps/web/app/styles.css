@@ -9,6 +9,8 @@ main {
   max-width: 64rem;
   margin: 0 auto;
   padding: 2rem 1rem 4rem;
+  /* long unbroken text (URLs, repository paths, project names, identifiers) wraps instead of widening the page */
+  overflow-wrap: anywhere;
 }
 a {
   color: #1d4ed8;
@@ -40,6 +42,8 @@ select,
 textarea {
   font: inherit;
   padding: 0.35rem;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 textarea.code {
   font-family: ui-monospace, monospace;
@@ -151,4 +155,12 @@ pre {
   padding: 0.35rem 0.5rem;
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
+}
+
+/* a wide table scrolls inside itself on a narrow screen; the page never scrolls sideways */
+@media (max-width: 40rem) {
+  table {
+    display: block;
+    overflow-x: auto;
+  }
 }

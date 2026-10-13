@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
 import { useFormStatus } from 'react-dom';
 import { submitProjectAction, type SubmitState } from './actions';
 
@@ -19,7 +19,7 @@ function SubmitButton() {
   const { pending } = useFormStatus();
   return (
     <button type="submit" disabled={pending} aria-disabled={pending}>
-      {pending ? 'Starting…' : 'Start analysis'}
+      {pending ? 'Submitting…' : 'Submit and start capture'}
     </button>
   );
 }
@@ -42,12 +42,20 @@ export function SubmitForm({
   submissionKey: string;
 }) {
   const [state, action] = useActionState(submitProjectAction, INITIAL);
+  const form = useRef<HTMLFormElement>(null);
+  const formError = useRef<HTMLParagraphElement>(null);
+  // after a refused submission, put keyboard and screen-reader focus on the first thing to fix (a field, else the form-level message)
+  useEffect(() => {
+    if (state.attempt === 0) return;
+    const invalid = form.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    (invalid ?? formError.current)?.focus();
+  }, [state.attempt]);
   return (
-    <form action={action} className="stack" noValidate>
+    <form ref={form} action={action} className="stack" noValidate>
       <input type="hidden" name="eventId" value={eventId} />
       <input type="hidden" name="submissionKey" value={submissionKey} />
       {state.formError ? (
-        <p role="alert" className="error">
+        <p ref={formError} tabIndex={-1} role="alert" className="error">
           {state.formError}{' '}
           {state.projectId ? (
             <Link href={`/projects/${state.projectId}/capture`}>Open the project →</Link>

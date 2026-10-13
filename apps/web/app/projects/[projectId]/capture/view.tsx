@@ -1,7 +1,12 @@
 import type { EventDetail, ProjectDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { captureFingerprint, describeCapture, overviewOf } from '../../../../lib/capture-status';
+import {
+  captureFingerprint,
+  describeCapture,
+  overviewOf,
+  sourceIntegrityNotice,
+} from '../../../../lib/capture-status';
 import { AutoRefresh } from './auto-refresh';
 import { RetryButton } from './retry-button';
 
@@ -42,6 +47,11 @@ export function CaptureView({ project, event, error, retryAction }: CaptureViewP
       {error ? (
         <p role="alert" className="error">
           {error}
+        </p>
+      ) : null}
+      {sourceIntegrityNotice(project.sources) !== null ? (
+        <p role="alert" className="error" data-testid="mixed-project">
+          {sourceIntegrityNotice(project.sources)}
         </p>
       ) : null}
       <AutoRefresh
@@ -134,7 +144,9 @@ export function CaptureView({ project, event, error, retryAction }: CaptureViewP
           <strong>Temporary offline workflow.</strong> The report runs on recorded demonstration
           data only; no live model is used and nothing is spent. It is advisory: the human judge’s
           final score is separate and authoritative. Starting it is a separate click on the next
-          page.
+          page. Recorded answers exist only for the built-in synthetic demonstration project, so for
+          the links you submitted the offline run is expected to end without a report, and the page
+          will say why.
         </p>
         {contentCount === 0 ? (
           <p data-testid="next-blocked">

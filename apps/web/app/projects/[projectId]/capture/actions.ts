@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { apiRequest, projectPath } from '../../../../lib/api';
+import { runCaptureRetry } from '../../../../lib/action-errors';
+import { apiRequest } from '../../../../lib/api';
+import { withSealedError } from '../../../../lib/flash';
 
 function text(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -11,19 +13,14 @@ function text(formData: FormData, name: string): string {
 
 /**
  * Retries ONE source's capture (a new immutable snapshot; the failed one stays on record). A capture that is already pending is not an
- * error: the page just shows it waiting. Never requests an assessment.
+ * error: the page just shows it waiting (`runCaptureRetry`, covered by tests). Never requests an assessment.
  */
 export async function retryCaptureAction(formData: FormData): Promise<void> {
   const projectId = text(formData, 'projectId');
   const sourceId = text(formData, 'sourceId');
   const page = `/projects/${encodeURIComponent(projectId)}/capture`;
-  const result = await apiRequest(
-    'POST',
-    `${projectPath(projectId)}/sources/${encodeURIComponent(sourceId)}/captures`,
-  );
+  const outcome = await runCaptureRetry((path) => apiRequest('POST', path), projectId, sourceId);
   revalidatePath(page);
-  if (!result.ok && result.code !== 'CAPTURE_ALREADY_PENDING') {
-    redirect(`${page}?error=${encodeURIComponent(result.message)}`);
-  }
+  if (outcome.kind === 'failed') redirect(withSealedError(page, outcome.message));
   redirect(page);
 }

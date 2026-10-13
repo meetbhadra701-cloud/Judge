@@ -1,7 +1,18 @@
+import type { Metadata } from 'next';
 import type { ArtifactDetail, SnapshotDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, projectPath } from '../../../../../lib/api';
 import { ErrorBanner, formatDate, StatusBadge } from '../../../../components/ui';
+import { projectPageTitle } from '../../../../../lib/titles';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}): Promise<Metadata> {
+  const { projectId } = await params;
+  return { title: await projectPageTitle(projectId, 'Snapshot') };
+}
 
 export const dynamic = 'force-dynamic';
 

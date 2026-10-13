@@ -11,7 +11,10 @@ import {
   explainFailure,
   formatRatio,
   formatScore10,
+  formatScoreOnRubric,
+  isTenPointScale,
   relativeDimensions,
+  scaleExplanation,
   runToExplain,
   WITHHELD_GUIDANCE,
   withheldGuidance,
@@ -318,5 +321,60 @@ describe('failure explanations by code', () => {
     ).toContain('known limitation');
     expect(explainFailure(failed('something_new', 'timeout'))).toContain('time limit');
     expect(explainFailure(failed(null, null))).toContain('did not complete');
+  });
+});
+
+describe('P6B-beta1: the rubric’s own scale (pure formatter)', () => {
+  it('keeps the plain form for a 0-10 scale and labels both figures otherwise', () => {
+    expect(isTenPointScale({ min: 0, max: 10 })).toBe(true);
+    expect(isTenPointScale({ min: 1, max: 10 })).toBe(false);
+    expect(formatScoreOnRubric(7, 7, { min: 0, max: 10 })).toBe('7.0 / 10');
+    expect(formatScoreOnRubric(0, 1, { min: 1, max: 5 })).toBe(
+      '1.0 on the rubric’s scale of 1 to 5 (0.0 / 10 normalized)',
+    );
+    expect(formatScoreOnRubric(10, 5, { min: 1, max: 5 })).toBe(
+      '5.0 on the rubric’s scale of 1 to 5 (10.0 / 10 normalized)',
+    );
+    expect(formatScoreOnRubric(7.33333, 4.3333, { min: 1, max: 5 })).toBe(
+      '4.3333 on the rubric’s scale of 1 to 5 (7.33333 / 10 normalized)',
+    );
+  });
+
+  it('is purely presentational: both numbers are printed exactly as given, whatever the scale', () => {
+    // no combination of stored values is altered, clamped or recomputed by the formatter
+    for (const [score10, native] of [
+      [0, 1],
+      [2.5, 1.5],
+      [10, 5],
+      [9.99999, 4.99999],
+    ] as const) {
+      const text = formatScoreOnRubric(score10, native, { min: 1, max: 5 });
+      expect(text).toContain(`(${formatScore10(score10)} / 10 normalized)`);
+      expect(text.startsWith(formatScore10(native))).toBe(true);
+    }
+  });
+
+  it('explains the normalization only when the scale is not the plain 0-10 one', () => {
+    expect(scaleExplanation({ min: 0, max: 10 })).toBeNull();
+    const note = scaleExplanation({ min: 1, max: 5 }) ?? '';
+    expect(note).toContain('from 1 (lowest) to 5 (highest)');
+    expect(note).toContain('real, low score, not missing evidence');
+    expect(note).toContain('has no number at all');
+  });
+
+  it('the relative comparison carries the native score of each dimension', () => {
+    const report = {
+      rubric: { scale: { min: 1, max: 5 } },
+      dimensions: [
+        { id: 'd.a', name: 'A', state: 'assessed', score10: 10, scoreOnScale: 5, confidence: 0.3 },
+        { id: 'd.b', name: 'B', state: 'assessed', score10: 0, scoreOnScale: 1, confidence: 0.3 },
+      ],
+    } as unknown as ScoreReport;
+    const result = relativeDimensions(report, []);
+    expect(result.kind).toBe('ranked');
+    if (result.kind === 'ranked') {
+      expect(result.highest[0]?.scoreOnScale).toBe(5);
+      expect(result.lowest[0]?.scoreOnScale).toBe(1);
+    }
   });
 });

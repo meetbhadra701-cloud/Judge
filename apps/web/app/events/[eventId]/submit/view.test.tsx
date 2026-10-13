@@ -38,7 +38,7 @@ describe('submit page', () => {
     expect(html).toContain('Devpost project URL');
     expect(html).toContain('name="github"');
     expect(html).toContain('name="devpost"');
-    expect(html).toContain('Start analysis');
+    expect(html).toContain('Submit and start capture');
     // the request identity of THIS form travels with it, so a retry can only converge
     expect(html).toContain(`name="submissionKey" value="${KEY}"`);
   });
@@ -59,7 +59,7 @@ describe('submit page', () => {
     );
     expect(html).toContain('no locked Event Context');
     expect(html).not.toContain('name="github"');
-    expect(html).not.toContain('Start analysis');
+    expect(html).not.toContain('Submit and start capture');
     expect(html).toContain('href="/events/e1"');
   });
 

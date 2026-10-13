@@ -22,11 +22,10 @@ export function SubmitView({ event, locked, rubric, submissionKey }: SubmitViewP
       </p>
       <h1>Submit a project</h1>
       <p className="notice" role="note">
-        <strong>Temporary offline workflow.</strong> Starting the analysis only registers your two
-        links and asks a worker to <em>capture</em> the public pages. Capturing is not an AI
-        analysis, and nothing here calls a live model. The preliminary report is a separate,
-        explicit step on the next pages, and in this version it runs on recorded demonstration data
-        only.
+        <strong>Temporary offline workflow.</strong> Submitting only registers your two links and
+        asks a worker to <em>capture</em> the public pages. Capturing is not an AI analysis, and
+        nothing here calls a live model. The preliminary report is a separate, explicit step on the
+        next pages, and in this version it runs on recorded demonstration data only.
       </p>
 
       <section aria-labelledby="event-heading">

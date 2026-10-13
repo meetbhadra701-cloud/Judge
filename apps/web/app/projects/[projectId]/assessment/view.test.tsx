@@ -102,7 +102,7 @@ const dimension = (id: string, assessed: boolean) =>
 
 function reportWith(overall: unknown, assessed: boolean): ScoreReport {
   return {
-    rubric: { name: 'Official rubric', official: true },
+    rubric: { name: 'Official rubric', official: true, scale: { min: 0, max: 10 } },
     overall,
     criteria: [
       assessed
@@ -111,6 +111,7 @@ function reportWith(overall: unknown, assessed: boolean): ScoreReport {
             name: 'Problem fit',
             weight: 1,
             state: 'assessed',
+            scoreOnScale: 7,
             score10: 7,
             confidence: 0.35,
             coverage: null,
@@ -202,7 +203,11 @@ const detail = (overrides: Partial<AssessmentDetail>): AssessmentDetail => ({
 function render(
   listValue: AssessmentListResponse,
   detailValue: AssessmentDetail | null,
-  unknowns: UnknownsView | null = { items: [], hasMore: false },
+  unknowns: UnknownsView | null = {
+    items: [],
+    currency: { upToDate: true, newerCaptures: [] },
+    versionNumber: 1,
+  },
 ): string {
   return renderToStaticMarkup(
     <AssessmentPageView
@@ -426,7 +431,7 @@ const missingDimension = (id: string, name: string, reason = 'assessor_reported_
 
 function reportOf(dimensions: unknown[], overall: unknown = SCORED): ScoreReport {
   return {
-    rubric: { name: 'Official rubric', official: true },
+    rubric: { name: 'Official rubric', official: true, scale: { min: 0, max: 10 } },
     overall,
     criteria: [],
     dimensions,
@@ -603,17 +608,12 @@ describe('P6B-alpha: relative highs and lows (DG-5 safeguards)', () => {
 
 describe('P6B-alpha: unknowns and missing information', () => {
   const scoredList = list([summary({ overall: { state: 'scored', score10: 7 } })]);
-  const unknown = (id: string, text: string, unknownType: 'missing' | 'ambiguous' = 'missing') => ({
-    id,
-    projectId: 'p1',
-    seq: 1,
-    unknownType,
-    text,
-    claimIds: [],
-    evidenceIds: [],
-    createdByActorId: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  });
+  const unknown = (
+    id: string,
+    text: string,
+    unknownType: 'missing' | 'ambiguous' = 'missing',
+    occurrences = 1,
+  ) => ({ id, seq: 1, unknownType, text, claimIds: [], evidenceIds: [], occurrences });
 
   it('lists dimensions without a number (with the reason), incomplete criteria, limitations and the recorded unknowns', () => {
     const html = render(
@@ -633,6 +633,7 @@ describe('P6B-alpha: unknowns and missing information', () => {
               name: 'Idea',
               weight: 1,
               state: 'partial',
+              scoreOnScale: 7,
               score10: 7,
               confidence: 0.3,
               coverage: null,
@@ -666,7 +667,8 @@ describe('P6B-alpha: unknowns and missing information', () => {
           unknown('u1', 'No deployment link was found.'),
           unknown('u2', 'Team size is unclear.', 'ambiguous'),
         ],
-        hasMore: true,
+        currency: { upToDate: true, newerCaptures: [] },
+        versionNumber: 3,
       },
     );
     const section = html.slice(html.indexOf('data-testid="unknowns-section"'));
@@ -678,21 +680,65 @@ describe('P6B-alpha: unknowns and missing information', () => {
     expect(section).toContain('source_sampled');
     expect(section).toContain('No deployment link was found.');
     expect(section).toContain('Team size is unclear.');
-    expect(section).toContain('as text that is not verified');
-    expect(section).toContain('More unknowns exist than are listed');
+    expect(section).toContain('stored text that no integrity hash covers');
+    expect(section).toContain('Gaps recorded for the material of version 3');
+    expect(section).toContain('not a list of the project’s current gaps');
+    expect(section).not.toContain('Newer captures exist');
     expect(section).toContain('not part of this version');
   });
 
   it('renders unknown text as inert text and does not create unknowns of its own', () => {
     const html = render(scoredList, detail({}), {
       items: [unknown('u1', '<script>alert(1)</script>')],
-      hasMore: false,
+      currency: { upToDate: true, newerCaptures: [] },
+      versionNumber: 1,
     });
     expect(html).not.toContain('<script>alert');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
-    const none = render(scoredList, detail({}), { items: [], hasMore: false });
-    expect(none).toContain('No unknowns are recorded for this project.');
+    const none = render(scoredList, detail({}), {
+      items: [],
+      currency: { upToDate: true, newerCaptures: [] },
+      versionNumber: 1,
+    });
+    expect(none).toContain(
+      'No unknowns were recorded for the material this assessment was scored from.',
+    );
     expect(none).toContain('Every dimension had enough evidence for a number.');
+  });
+
+  it('says which captures are newer than the assessed material, so old gaps are never presented as current ones', () => {
+    const html = render(scoredList, detail({}), {
+      items: [unknown('u1', 'No deployment link was found.', 'missing', 2)],
+      currency: {
+        upToDate: false,
+        newerCaptures: [
+          {
+            sourceId: 's1',
+            sourceType: 'github',
+            pinnedCaptureNumber: 1,
+            newerCaptureNumber: 2,
+            newerStatus: 'failed',
+            newerAt: '2026-01-02T00:00:00.000Z',
+          },
+          {
+            sourceId: 's2',
+            sourceType: 'devpost',
+            pinnedCaptureNumber: null,
+            newerCaptureNumber: 1,
+            newerStatus: 'captured',
+            newerAt: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+      },
+      versionNumber: 1,
+    });
+    expect(html).toContain('data-testid="newer-captures"');
+    expect(html).toContain('github capture #2 (failed; this assessment used #1)');
+    expect(html).toContain(
+      'devpost capture #1 (captured; this assessment used none of that source)',
+    );
+    expect(html).toContain('Request a new assessment to learn what is still unknown');
+    expect(html).toContain('(recorded 2 times)');
   });
 
   it('says so when the unknowns could not be loaded', () => {
@@ -727,5 +773,162 @@ describe('P6B-alpha: preliminary and withheld presentation', () => {
     expect(html).not.toContain('Show assessment for current material');
     expect(html).toContain('Reassess (creates a new version)');
     expect(html).not.toMatch(NUMBER_OF_ANY_KIND);
+  });
+});
+
+// -- P6B-beta1: the rubric's own scale ---------------------------------------------------------------------------------------------------
+
+/*
+ * R7A saw a score on a native 1-5 rubric rendered "0.0 / 10" with no explanation. The stored report carries BOTH the value on the
+ * rubric's scale (`scoreOnScale`) and its normalization (`score10`); the page prints both, labelled, and never computes either.
+ */
+
+type Scale = { min: number; max: number };
+const normalize = (native: number, scale: Scale): number =>
+  (10 * (native - scale.min)) / (scale.max - scale.min);
+
+function scaledReport(
+  scale: Scale,
+  natives: readonly (number | null)[],
+  overallNative: number | 'insufficient' = natives.find((n): n is number => n !== null) ??
+    scale.min,
+): ScoreReport {
+  const dimensions = natives.map((native, index) =>
+    native === null
+      ? missingDimension(`d.${String(index)}`, `Dimension ${String(index)}`)
+      : {
+          ...assessedDimension(`d.${String(index)}`, `Dimension ${String(index)}`, 0),
+          scoreOnScale: native,
+          score10: normalize(native, scale),
+        },
+  );
+  const overall =
+    overallNative === 'insufficient'
+      ? INSUFFICIENT
+      : { ...SCORED, scoreOnScale: overallNative, score10: normalize(overallNative, scale) };
+  return {
+    rubric: { name: 'Organizer rubric', official: true, scale },
+    overall,
+    criteria: [
+      {
+        key: 'k',
+        name: 'Criterion K',
+        weight: 1,
+        state: natives.some((n) => n === null) ? 'partial' : 'assessed',
+        scoreOnScale: overallNative === 'insufficient' ? scale.min : overallNative,
+        score10: normalize(overallNative === 'insufficient' ? scale.min : overallNative, scale),
+        confidence: 0.3,
+        coverage: null,
+        assessedWeightShare: 1,
+        citationPresenceShare: 1,
+        dimensionIds: dimensions.map((d) => d.id),
+        missingDimensionIds: dimensions.flatMap((d) => (d.state === 'assessed' ? [] : [d.id])),
+      },
+    ],
+    dimensions,
+  } as unknown as ScoreReport;
+}
+
+const renderScaled = (report: ScoreReport) =>
+  render(
+    list([summary({ overall: { state: 'scored', score10: 5 } })]),
+    detail({ report, judgments: [] }),
+  );
+
+describe('P6B-beta1: scores are shown on the rubric’s own scale, with the normalization explained', () => {
+  it('a 0-10 rubric keeps the plain "x / 10" form and has no scale note', () => {
+    const html = renderScaled(scaledReport({ min: 0, max: 10 }, [7, 4], 5.5));
+    expect(html).toContain('5.5 / 10');
+    expect(html).not.toContain('on the rubric’s scale of');
+    expect(html).not.toContain('data-testid="scale-note"');
+  });
+
+  it.each([
+    [{ min: 1, max: 5 }, 1, '1.0 on the rubric’s scale of 1 to 5 (0.0 / 10 normalized)'],
+    [{ min: 1, max: 5 }, 3, '3.0 on the rubric’s scale of 1 to 5 (5.0 / 10 normalized)'],
+    [{ min: 1, max: 5 }, 5, '5.0 on the rubric’s scale of 1 to 5 (10.0 / 10 normalized)'],
+    [{ min: 1, max: 5 }, 3.5, '3.5 on the rubric’s scale of 1 to 5 (6.25 / 10 normalized)'],
+    [{ min: 1, max: 10 }, 1, '1.0 on the rubric’s scale of 1 to 10 (0.0 / 10 normalized)'],
+    [{ min: 0, max: 5 }, 0, '0.0 on the rubric’s scale of 0 to 5 (0.0 / 10 normalized)'],
+    [{ min: 0, max: 100 }, 50, '50.0 on the rubric’s scale of 0 to 100 (5.0 / 10 normalized)'],
+    [{ min: -5, max: 5 }, 0, '0.0 on the rubric’s scale of -5 to 5 (5.0 / 10 normalized)'],
+  ])(
+    'scale %j, native %d: shows "%s" for the overall, a criterion and a dimension',
+    (scale, native, expected) => {
+      const html = renderScaled(scaledReport(scale, [native, native], native));
+      // overall, the criterion row and each of the two dimensions
+      expect(html.split(expected).length - 1).toBeGreaterThanOrEqual(4);
+      expect(html).toContain('data-testid="scale-note"');
+      expect(html).toContain(
+        `from ${String(scale.min)} (lowest) to ${String(scale.max)} (highest)`,
+      );
+    },
+  );
+
+  it('says that the lowest value on the scale is a real low score, not missing evidence', () => {
+    const html = renderScaled(scaledReport({ min: 1, max: 5 }, [1, 1], 1));
+    const note = html.slice(html.indexOf('data-testid="scale-note"'));
+    expect(note).toContain('is 0 and its highest');
+    expect(note).toContain('a real, low score, not missing evidence');
+    expect(note).toContain('a dimension without enough evidence has no number at all');
+  });
+
+  it('a partial report keeps the native form and still names what is missing; the insufficient dimension has no number of any kind', () => {
+    const html = renderScaled(scaledReport({ min: 1, max: 5 }, [4, null], 4));
+    expect(html).toContain('4.0 on the rubric’s scale of 1 to 5 (7.5 / 10 normalized)');
+    expect(html).toContain('(partial; missing d.1)');
+    const card = html.slice(html.indexOf('Dimension 1'));
+    expect(card).toContain('no number is given');
+    const insufficientCard = card.slice(0, card.indexOf('</div></div>') + 1 || undefined);
+    expect(insufficientCard).not.toMatch(/normalized/);
+  });
+
+  it('an insufficient overall shows no number in either scale, only the scale note', () => {
+    const html = renderScaled(scaledReport({ min: 1, max: 5 }, [null, null], 'insufficient'));
+    expect(html).toContain('Insufficient evidence for an overall score');
+    expect(html).not.toMatch(/Overall[^<]*<\/h2><p><strong>\d/);
+    expect(html).toContain('data-testid="scale-note"');
+  });
+
+  it('the relative section prints both forms too, for a ranked pair and for equal scores', () => {
+    const ranked = renderScaled(scaledReport({ min: 1, max: 5 }, [5, 1, 3], 3));
+    const rankedSection = ranked.slice(ranked.indexOf('data-testid="relative-section"'));
+    expect(rankedSection).toContain('5.0 on the rubric’s scale of 1 to 5 (10.0 / 10 normalized)');
+    expect(rankedSection).toContain('1.0 on the rubric’s scale of 1 to 5 (0.0 / 10 normalized)');
+    const equal = renderScaled(scaledReport({ min: 1, max: 5 }, [1, 1], 1));
+    const equalSection = equal.slice(equal.indexOf('data-testid="relative-equal"'));
+    expect(equalSection).toContain('1.0 on the rubric’s scale of 1 to 5 (0.0 / 10 normalized)');
+    expect(equalSection).toContain('there is no highest or lowest');
+  });
+
+  it('prints the stored values as given: it neither recomputes nor re-rounds either figure', () => {
+    // an oddly specific pair: if the page computed the normalization it would print 3.3333333, not the stored 3.3333
+    const report = scaledReport({ min: 1, max: 4 }, [3], 3);
+    (report.dimensions[0] as { score10: number }).score10 = 6.6667;
+    const html = renderScaled(report);
+    expect(html).toContain('3.0 on the rubric’s scale of 1 to 4 (6.6667 / 10 normalized)');
+  });
+});
+
+describe('P6B-beta1: the report of a project that mixes several submissions carries the warning', () => {
+  it('shows the notice above the report when one is given, and none otherwise', () => {
+    const scoredList = list([summary({ overall: { state: 'scored', score10: 7 } })]);
+    const withNotice = renderToStaticMarkup(
+      <AssessmentPageView
+        unknowns={null}
+        projectId="p1"
+        projectName="Project"
+        integrityNotice="This project does not form a single submission: it declares 1 GitHub link and 2 Devpost links."
+        list={scoredList}
+        detail={detail({})}
+        detailError={undefined}
+        error={undefined}
+        requestKeys={{ assess: 'k1', reassess: 'k2' }}
+        requestAction={() => undefined}
+      />,
+    );
+    expect(withNotice).toContain('data-testid="mixed-project"');
+    expect(withNotice).toContain('does not form a single submission');
+    expect(render(scoredList, detail({}))).not.toContain('mixed-project');
   });
 });

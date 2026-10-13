@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import './styles.css';
 
 export const metadata: Metadata = {
-  title: 'Judge Copilot',
+  title: { default: 'Judge Copilot', template: '%s · Judge Copilot' },
   description: 'Human-in-the-loop hackathon judging.',
 };
 

@@ -30,7 +30,7 @@ const snapshot = (overrides: Partial<SnapshotSummary>): SnapshotSummary => ({
 const source = (
   sourceType: 'github' | 'devpost',
   latest: SnapshotSummary | null,
-  id = sourceType,
+  id: string = sourceType,
 ) => ({
   id,
   projectId: 'p1',
@@ -169,6 +169,35 @@ describe('capture progress page', () => {
   it('says the later steps are not part of this version', () => {
     expect(render(project([source('github', snapshot({}))]))).toContain(
       'five questions, answers, final report) are not part of this version',
+    );
+  });
+});
+
+describe('P6B-beta1: a project that mixes several submissions is flagged, never presented as clean', () => {
+  it('warns when a project declares two Devpost links (the flow before submission records), and says nothing was changed', () => {
+    const html = render(
+      project([
+        source('github', snapshot({ status: 'captured' })),
+        source('devpost', snapshot({ status: 'captured', sourceType: 'devpost' }), 'devpost-1'),
+        source('devpost', snapshot({ status: 'captured', sourceType: 'devpost' }), 'devpost-2'),
+      ]),
+    );
+    expect(html).toContain('data-testid="mixed-project"');
+    expect(html).toContain('declares 1 GitHub link and 2 Devpost links');
+    expect(html).toContain('do not rely on them');
+    expect(html).toContain('Nothing was changed or deleted');
+  });
+
+  it('shows no warning for one GitHub link and one Devpost link, or for fewer', () => {
+    const clean = render(
+      project([
+        source('github', snapshot({ status: 'captured' })),
+        source('devpost', snapshot({ status: 'captured', sourceType: 'devpost' })),
+      ]),
+    );
+    expect(clean).not.toContain('mixed-project');
+    expect(render(project([source('github', snapshot({ status: 'captured' }))]))).not.toContain(
+      'mixed-project',
     );
   });
 });

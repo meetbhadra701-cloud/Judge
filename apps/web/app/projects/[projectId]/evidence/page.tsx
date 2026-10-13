@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import type {
   ClaimsPage,
   ContradictionRecord,
@@ -10,6 +11,16 @@ import type {
 import Link from 'next/link';
 import { apiRequest, projectPath } from '../../../../lib/api';
 import { ErrorBanner } from '../../../components/ui';
+import { projectPageTitle } from '../../../../lib/titles';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}): Promise<Metadata> {
+  const { projectId } = await params;
+  return { title: await projectPageTitle(projectId, 'Evidence') };
+}
 
 export const dynamic = 'force-dynamic';
 

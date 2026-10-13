@@ -1,8 +1,13 @@
+import type { Metadata } from 'next';
 import type { EventRecord } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest } from '../lib/api';
+import { openMessage } from '../lib/flash';
 import { createEventAction } from './actions';
 import { ErrorBanner } from './components/ui';
+
+// the root layout's title template applies to child segments only, so the home page states its full title
+export const metadata: Metadata = { title: { absolute: 'Events · Judge Copilot' } };
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +16,9 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error: sealedError } = await searchParams;
+  // only a message this server sealed is shown; a hand-written ?error= link shows nothing (lib/flash.ts)
+  const error = openMessage(sealedError) ?? undefined;
   const result = await apiRequest<{ events: EventRecord[] }>('GET', '/events');
 
   return (
