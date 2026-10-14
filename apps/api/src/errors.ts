@@ -42,6 +42,14 @@ const STATUS_BY_CODE: Record<EventContextErrorCode, number> = {
   CONTEXT_CONTENT_MISSING: 422,
 };
 
+function hasPgCode(error: unknown, codes: readonly string[]): boolean {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && codes.includes(code)) return true;
+  }
+  return false;
+}
+
 export function httpStatusFor(code: EventContextErrorCode): number {
   return STATUS_BY_CODE[code];
 }
@@ -105,6 +113,13 @@ export function installErrorHandling(app: ApiApp): void {
           issues: error.issues,
         }),
       );
+    }
+    // Text the database cannot store (a NUL character, invalid UTF-8) is the caller's input, never a server fault. Request schemas already refuse
+    // control characters in labels; this is the backstop for any path that reaches the database with such text.
+    if (hasPgCode(error, ['22021', '22P05'])) {
+      return reply
+        .code(422)
+        .send(body('INVALID_REQUEST', 'The request contains text that cannot be stored'));
     }
     const statusCode = (error as { statusCode?: unknown }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {

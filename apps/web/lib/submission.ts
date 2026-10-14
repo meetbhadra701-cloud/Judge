@@ -8,8 +8,10 @@ import {
 import {
   SOURCE_INGESTION_LIMITS,
   type EventDetail,
+  type ProjectDetail,
   type SubmissionResult,
   type SubmitProjectResponse,
+  type VoidProjectResponse,
 } from '@judge-copilot/schemas';
 
 /*
@@ -198,7 +200,8 @@ export function isSubmissionKey(value: string): boolean {
 
 /** Statuses after which the server may have processed the request although no usable answer reached us. */
 function outcomeIsUnknown(status: number, code: string): boolean {
-  return code === 'API_UNREACHABLE' || code === 'UNKNOWN_ERROR' || status >= 500;
+  if (code === 'API_UNREACHABLE') return false; // the connection was never established: nothing was sent, nothing was saved
+  return code === 'API_NO_ANSWER' || code === 'UNKNOWN_ERROR' || status >= 500;
 }
 
 export async function runSubmission(
@@ -295,6 +298,13 @@ function explainRefusal(refusal: Refusal): SubmissionOutcome {
       };
     case 'NO_LOCKED_CONTEXT':
       return { kind: 'failed', message: 'This hackathon has no locked Event Context yet.' };
+    case 'API_UNREACHABLE':
+      return {
+        kind: 'failed',
+        outcomeUnknown: false,
+        message:
+          'The Judge Copilot API is not reachable, so the submission was not sent and nothing was saved. Try again in a moment.',
+      };
     default:
       if (outcomeIsUnknown(refusal.status, refusal.code)) {
         return {
@@ -306,4 +316,205 @@ function explainRefusal(refusal: Refusal): SubmissionOutcome {
       }
       return { kind: 'failed', message: refusal.message };
   }
+}
+
+/*
+ * Correcting an erroneous submission (P6B-beta2). A submission is never edited in place: an authorized organizer VOIDS the project (with a
+ * reason that stays on record) and, in the same operation, submits the corrected GitHub + Devpost pair as a NEW project. The voided project
+ * keeps everything that was captured and assessed for it; it only stops accepting new work. One server operation, one idempotency key
+ * (generated when the form is rendered), so a retry after a lost answer can only return the original result.
+ */
+
+export const REASON_MAX_CHARS = 1_000;
+const REASON_CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+
+export type CorrectionField = SubmissionField | 'reason';
+
+export interface CorrectionInput {
+  /** Why the project is being voided (organizer free text, a single line). */
+  readonly reason: string;
+  /** True: submit the corrected pair as a replacement. False: only void (the project stays on record, nothing replaces it). */
+  readonly replace: boolean;
+  readonly github: string;
+  readonly devpost: string;
+  readonly name: string;
+}
+
+export type CorrectionOutcome =
+  | {
+      readonly kind: 'invalid';
+      readonly errors: Readonly<Partial<Record<CorrectionField, string>>>;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly message: string;
+      readonly field?: CorrectionField | undefined;
+      readonly projectId?: string | undefined;
+      /** True when the request may or may not have been applied: sending the SAME form again is the safe recovery. */
+      readonly outcomeUnknown?: boolean | undefined;
+    }
+  | {
+      readonly kind: 'done';
+      readonly result: VoidProjectResponse['result'];
+      readonly voidedProjectId: string;
+      /** The corrected project, when there is one. */
+      readonly replacementProjectId: string | null;
+    };
+
+export function validateCorrection(
+  input: CorrectionInput,
+): { readonly ok: true } | Extract<CorrectionOutcome, { kind: 'invalid' }> {
+  const errors: Partial<Record<CorrectionField, string>> = {};
+  const reason = input.reason.trim();
+  if (reason === '')
+    errors.reason = 'Say why this project is being voided. The reason stays on record.';
+  else if (reason.length > REASON_MAX_CHARS)
+    errors.reason = `The reason is too long (the limit is ${String(REASON_MAX_CHARS)} characters).`;
+  else if (REASON_CONTROL.test(reason))
+    errors.reason = 'The reason must be a single line without control characters.';
+  if (input.replace) {
+    const checked = validateSubmission({
+      github: input.github,
+      devpost: input.devpost,
+      name: input.name,
+    });
+    if (!checked.ok) Object.assign(errors, checked.errors);
+  }
+  return Object.keys(errors).length > 0 ? { kind: 'invalid', errors } : { ok: true };
+}
+
+type CorrectionRefusal = Extract<SubmissionApiResult<never>, { ok: false }>;
+
+function correctionProjectOf(refusal: CorrectionRefusal): string | undefined {
+  const ids = refusal.details?.['projectIds'];
+  const first: unknown = Array.isArray(ids) ? ids[0] : refusal.details?.['projectId'];
+  return typeof first === 'string' ? first : undefined;
+}
+
+function explainCorrection(refusal: CorrectionRefusal): CorrectionOutcome {
+  switch (refusal.code) {
+    case 'PROJECT_ALREADY_VOIDED':
+      return {
+        kind: 'failed',
+        message: 'This project was already voided. Nothing was changed.',
+        projectId: correctionProjectOf(refusal),
+      };
+    case 'PROJECT_HAS_PENDING_WORK':
+      return {
+        kind: 'failed',
+        message:
+          'A capture or run of this project is still in progress. Wait until it has finished (the capture page shows its progress), then try again. Nothing was changed.',
+      };
+    case 'SUBMISSION_CONFLICT':
+      return {
+        kind: 'failed',
+        message:
+          'Another project in this hackathon already uses one of the corrected links, or already is the corrected submission. Nothing was changed: the project is not voided. Open that project instead, or choose different links.',
+        projectId: correctionProjectOf(refusal),
+      };
+    case 'PROJECT_NAME_TAKEN':
+      return {
+        kind: 'failed',
+        field: 'name',
+        message:
+          'A project with this name (ignoring capital letters) already exists in this hackathon. Nothing was changed. Enter a different project name.',
+      };
+    case 'IDEMPOTENCY_KEY_REUSED':
+      return {
+        kind: 'failed',
+        message:
+          'This form was already used for a different correction. Nothing new was changed. Reload the page to start again.',
+        projectId: correctionProjectOf(refusal),
+      };
+    case 'INVALID_SOURCE_URL':
+      return {
+        kind: 'failed',
+        message:
+          'The server did not accept one of the corrected links. Check them. Nothing was changed.',
+      };
+    case 'PROJECT_NOT_FOUND':
+      return { kind: 'failed', message: 'This project does not exist.' };
+    case 'API_UNREACHABLE':
+      return {
+        kind: 'failed',
+        outcomeUnknown: false,
+        message:
+          'The Judge Copilot API is not reachable, so the correction was not sent and nothing was changed. Try again in a moment.',
+      };
+    default:
+      if (
+        refusal.code === 'API_NO_ANSWER' ||
+        refusal.code === 'UNKNOWN_ERROR' ||
+        refusal.status >= 500
+      ) {
+        return {
+          kind: 'failed',
+          outcomeUnknown: true,
+          message:
+            'We could not confirm whether the correction was applied: no usable answer arrived. Reload the project page to see whether it is marked as voided. Sending this same form again is safe: it can only return the original result and never creates a second replacement.',
+        };
+      }
+      return { kind: 'failed', message: refusal.message };
+  }
+}
+
+export async function runCorrection(
+  api: ApiFn,
+  projectId: string,
+  input: CorrectionInput,
+  idempotencyKey: string,
+): Promise<CorrectionOutcome> {
+  const checked = validateCorrection(input);
+  if (!('ok' in checked)) return checked;
+  if (!isSubmissionKey(idempotencyKey)) {
+    return {
+      kind: 'failed',
+      message: 'This form has expired. Reload the page and submit again; nothing was changed.',
+    };
+  }
+  const submission = input.replace
+    ? validateSubmission({ github: input.github, devpost: input.devpost, name: input.name })
+    : null;
+  if (submission && !submission.ok) return { kind: 'invalid', errors: submission.errors };
+  const response = await api<VoidProjectResponse>(
+    'POST',
+    `/projects/${encodeURIComponent(projectId)}/void`,
+    {
+      reason: input.reason.trim(),
+      ...(submission?.ok
+        ? {
+            replacement: {
+              githubUrl: submission.github.canonicalUrl,
+              devpostUrl: submission.devpost.canonicalUrl,
+              // only a name the organizer typed is sent: a derived one is the server's decision
+              ...(submission.nameDerived ? {} : { name: submission.projectName }),
+            },
+          }
+        : {}),
+    },
+    { 'idempotency-key': idempotencyKey },
+  );
+  if (response.ok) {
+    return {
+      kind: 'done',
+      result: response.data.result,
+      voidedProjectId: response.data.project.id,
+      replacementProjectId: response.data.replacement?.project.id ?? null,
+    };
+  }
+  return explainCorrection(response);
+}
+
+/** Whether a project is shown as history: voided projects accept no new capture, source or assessment. */
+export function isVoided(project: Pick<ProjectDetail, 'voided'>): boolean {
+  return project.voided !== null;
+}
+
+/** The sentence every page shows for a voided project. The organizer's reason is untrusted text: it is rendered, never interpreted. */
+export function voidedNotice(project: Pick<ProjectDetail, 'voided'>): string | null {
+  const info = project.voided;
+  if (info === null) return null;
+  return info.replacedByProjectId === null
+    ? 'This project was voided by an organizer. It is kept as history; no new capture, source or assessment can be started for it, and nothing was replaced.'
+    : 'This project was voided by an organizer and replaced by a corrected submission. It is kept as history; no new capture, source or assessment can be started for it.';
 }

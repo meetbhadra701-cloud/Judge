@@ -120,6 +120,20 @@
       "when": 1791868735637,
       "tag": "0016_p6b_submission_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791995397549,
+      "tag": "0017_p6b_beta2_claims_and_voids",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791995433511,
+      "tag": "0018_p6b_beta2_integrity",
+      "breakpoints": true
     }
   ]
 }

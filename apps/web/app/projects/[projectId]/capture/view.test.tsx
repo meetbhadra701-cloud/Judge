@@ -51,6 +51,7 @@ const project = (sources: ProjectDetail['sources'], name = 'o/r'): ProjectDetail
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
   tracks: [],
+  voided: null,
   sources,
 });
 
@@ -199,5 +200,43 @@ describe('P6B-beta1: a project that mixes several submissions is flagged, never 
     expect(render(project([source('github', snapshot({ status: 'captured' }))]))).not.toContain(
       'mixed-project',
     );
+  });
+});
+
+describe('P6B-beta2: a voided project is presented as history, and a live one offers the correction', () => {
+  const voidedProject = (replacedBy: string | null): ProjectDetail => ({
+    ...project([source('github', snapshot({ status: 'failed', failureCategory: 'timeout' }))]),
+    voided: {
+      voidedAt: '2026-02-01T00:00:00.000Z',
+      voidedByActorId: 'a1',
+      reason: 'Pasted the wrong <b>Devpost</b> link',
+      nameBefore: 'o/r',
+      replacedByProjectId: replacedBy,
+    },
+  });
+
+  it('shows the void notice and the reason as text, links to the replacement, and offers no retry', () => {
+    const html = render(voidedProject('p2'));
+    expect(html).toContain('data-testid="voided-project"');
+    expect(html).toContain('kept as history');
+    expect(html).toContain('replaced by a corrected submission');
+    // the organizer's words are rendered as text, never as markup
+    expect(html).toContain('Pasted the wrong &lt;b&gt;Devpost&lt;/b&gt; link');
+    expect(html).not.toContain('<b>Devpost</b>');
+    expect(html).toContain('href="/projects/p2/capture"');
+    expect(html).not.toContain('Retry capture');
+    expect(html).not.toContain('data-testid="correct-link"');
+  });
+
+  it('a void without a replacement says nothing replaced it', () => {
+    const html = render(voidedProject(null));
+    expect(html).toContain('nothing was replaced');
+    expect(html).not.toContain('Open the replacement project');
+  });
+
+  it('a live project links to the void-and-replace page', () => {
+    const html = render(project([source('github', snapshot({ status: 'captured' }))]));
+    expect(html).toContain('href="/projects/p1/correct"');
+    expect(html).not.toContain('data-testid="voided-project"');
   });
 });

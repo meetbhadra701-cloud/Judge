@@ -204,6 +204,7 @@ describe.each(testDatabaseTargets())('P6B-beta1 submission guards on %s', (_name
           devpostUrl: 'https://devpost.com/software/free-1',
           nameKey: 'free 1',
         },
+        'Second owner',
       ],
       [
         'devpost_url',
@@ -212,38 +213,34 @@ describe.each(testDatabaseTargets())('P6B-beta1 submission guards on %s', (_name
           devpostUrl: 'https://devpost.com/software/taken',
           nameKey: 'free 2',
         },
+        'Second owner',
       ],
-      [
-        'name_key',
-        {
-          githubUrl: 'https://github.com/guard/free-3',
-          devpostUrl: 'https://devpost.com/software/free-3',
-          nameKey: 'taken',
-        },
-      ],
-    ])('within one event the same %s cannot belong to two submissions', async (_column, clash) => {
-      const e = await event();
-      const owner = await actor();
-      const first = await project(e.id, 'First owner');
-      await testDb.db.insert(projectSubmissions).values({
-        eventId: e.id,
-        projectId: first.id,
-        submittedByActorId: owner.id,
-        githubUrl: 'https://github.com/guard/taken',
-        devpostUrl: 'https://devpost.com/software/taken',
-        nameKey: 'taken',
-      });
-      const second = await project(e.id, 'Second owner');
-      await expectPgError(
-        testDb.db.insert(projectSubmissions).values({
+    ])(
+      'within one event the same %s cannot belong to two submissions',
+      async (_column, clash, secondName) => {
+        const e = await event();
+        const owner = await actor();
+        const first = await project(e.id, 'First owner');
+        await testDb.db.insert(projectSubmissions).values({
           eventId: e.id,
-          projectId: second.id,
+          projectId: first.id,
           submittedByActorId: owner.id,
-          ...clash,
-        }),
-        SQLSTATE.UNIQUE_VIOLATION,
-      );
-    });
+          githubUrl: 'https://github.com/guard/taken',
+          devpostUrl: 'https://devpost.com/software/taken',
+          nameKey: 'taken',
+        });
+        const second = await project(e.id, secondName);
+        await expectPgError(
+          testDb.db.insert(projectSubmissions).values({
+            eventId: e.id,
+            projectId: second.id,
+            submittedByActorId: owner.id,
+            ...clash,
+          }),
+          SQLSTATE.UNIQUE_VIOLATION,
+        );
+      },
+    );
 
     it('the same links in ANOTHER event are independent submissions', async () => {
       const owner = await actor();
@@ -357,8 +354,6 @@ describe.each(testDatabaseTargets())('P6B-beta1 submission guards on %s', (_name
         { devpostUrl: 'https://devpost.com/hackathons' },
       ],
       ['a Devpost URL on another host', { devpostUrl: 'https://example.com/software/valid' }],
-      ['an empty name key', { nameKey: '' }],
-      ['a name key with surrounding space', { nameKey: ' valid ' }],
     ])('rejects %s', async (_label, overrides) => {
       await expectPgError(attempt(overrides), SQLSTATE.CHECK_VIOLATION);
     });

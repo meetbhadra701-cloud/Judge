@@ -19,7 +19,8 @@
     "db:check": "pnpm --filter @judge-copilot/database run db:check",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm db:check && pnpm test && pnpm build",
     "test:browser": "pnpm --filter @judge-copilot/web build && vitest run --config vitest.browser.config.ts",
-    "demo:prepare": "tsx --conditions=@judge-copilot/source apps/worker/src/testing/demo-cli.ts"
+    "demo:prepare": "tsx --conditions=@judge-copilot/source apps/worker/src/testing/demo-cli.ts",
+    "capture:smoke": "tsx --conditions=@judge-copilot/source apps/worker/src/testing/real-capture-smoke.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

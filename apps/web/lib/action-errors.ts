@@ -13,8 +13,10 @@ export interface FailedRequest {
 
 /** True when the server may have processed the request although no usable answer reached us. */
 export function outcomeIsUnknown(failure: FailedRequest): boolean {
+  // the connection was never established: the request did not leave this machine, so nothing was saved (lib/api.ts)
+  if (failure.code === 'API_UNREACHABLE') return false;
   return (
-    failure.code === 'API_UNREACHABLE' || failure.code === 'UNKNOWN_ERROR' || failure.status >= 500
+    failure.code === 'API_NO_ANSWER' || failure.code === 'UNKNOWN_ERROR' || failure.status >= 500
   );
 }
 

@@ -39,6 +39,13 @@ export interface ArtifactSeed {
   text: string;
 }
 
+/** A declaration URL in the canonical form the database requires for GitHub and Devpost sources (test hosts for the other kinds). */
+function declaredTestUrl(sourceType: string, unique: string): string {
+  if (sourceType === 'github') return `https://github.com/test-org/repo-${unique}`;
+  if (sourceType === 'devpost') return `https://devpost.com/software/test-${unique}`;
+  return `https://example.test/${sourceType}/${unique}`;
+}
+
 export async function seedSnapshot(
   db: JudgeDatabase,
   project: { id: string },
@@ -47,7 +54,7 @@ export async function seedSnapshot(
   artifacts: readonly ArtifactSeed[] = [],
 ) {
   const n = next();
-  const url = `https://example.test/${sourceType}/${String(n)}`;
+  const url = declaredTestUrl(sourceType, String(n));
   const [source] = await db
     .insert(projectSources)
     .values({ projectId: project.id, sourceType, url, position: n })

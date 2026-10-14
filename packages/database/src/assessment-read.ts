@@ -402,7 +402,14 @@ export class AssessmentReadStore {
       .orderBy(asc(graphExtractionItems.ordinal));
     const grouped = groupUnknowns(members.map(({ unknown }) => unknown));
 
-    // captures newer than the ones this assessment used (any status: a failed newer capture matters too)
+    // captures that came into being AFTER this assessment's material was pinned (any status: a failed newer capture matters too). A capture
+    // that was requested and finished before the pins were taken, but was not used (a failed attempt, an older attempt), predates the
+    // assessment and is not "newer". One that was requested before but finished after the pinning is newer material the assessment never saw.
+    const [pinRow] = await this.db
+      .select({ pinnedAt: assessmentRunInputs.createdAt })
+      .from(assessmentRunInputs)
+      .where(eq(assessmentRunInputs.runId, row.runId));
+    const pinnedAt = pinRow?.pinnedAt ?? row.createdAt;
     const captures = await this.db
       .select({
         id: sourceSnapshots.id,
@@ -411,6 +418,7 @@ export class AssessmentReadStore {
         captureNumber: sourceSnapshots.captureNumber,
         status: sourceSnapshots.status,
         createdAt: sourceSnapshots.createdAt,
+        completedAt: sourceSnapshots.completedAt,
       })
       .from(sourceSnapshots)
       .where(eq(sourceSnapshots.projectId, projectId))
@@ -422,10 +430,13 @@ export class AssessmentReadStore {
     }
     const newerCaptures: NewerCaptureView[] = [];
     for (const [sourceId, list] of bySource) {
-      const newest = list[0];
-      if (!newest || pinned.has(newest.id)) continue;
+      const newest = list.find(
+        (capture) =>
+          !pinned.has(capture.id) &&
+          (capture.createdAt > pinnedAt || (capture.completedAt ?? capture.createdAt) > pinnedAt),
+      );
+      if (!newest) continue;
       const used = list.find((capture) => pinned.has(capture.id));
-      if (used && used.captureNumber > newest.captureNumber) continue;
       newerCaptures.push({
         sourceId,
         sourceType: newest.sourceType,

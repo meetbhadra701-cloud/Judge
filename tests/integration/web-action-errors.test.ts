@@ -48,7 +48,7 @@ describe('runCaptureRetry', () => {
   });
 
   it.each([
-    [503, 'API_UNREACHABLE'],
+    [503, 'API_NO_ANSWER'],
     [502, 'UNKNOWN_ERROR'],
     [500, 'INTERNAL'],
   ])(
@@ -67,15 +67,20 @@ describe('runCaptureRetry', () => {
 describe('describeFailure', () => {
   it('distinguishes a refusal from an unknown outcome', () => {
     expect(outcomeIsUnknown({ status: 409, code: 'X', message: 'm' })).toBe(false);
-    expect(outcomeIsUnknown({ status: 503, code: 'API_UNREACHABLE', message: 'm' })).toBe(true);
+    expect(outcomeIsUnknown({ status: 503, code: 'API_NO_ANSWER', message: 'm' })).toBe(true);
+    // the connection was never established: the request did not leave, so the outcome is known (nothing saved)
+    expect(outcomeIsUnknown({ status: 503, code: 'API_UNREACHABLE', message: 'm' })).toBe(false);
     expect(outcomeIsUnknown({ status: 200, code: 'UNKNOWN_ERROR', message: 'm' })).toBe(true);
     expect(outcomeIsUnknown({ status: 500, code: 'Y', message: 'm' })).toBe(true);
     expect(describeFailure({ status: 422, code: 'V', message: 'Name is too long.' }, 'r')).toBe(
       'Name is too long.',
     );
-    expect(describeFailure({ status: 503, code: 'API_UNREACHABLE', message: 'm' }, 'Do r.')).toBe(
+    expect(describeFailure({ status: 503, code: 'API_NO_ANSWER', message: 'm' }, 'Do r.')).toBe(
       'We could not confirm whether this was saved, because no usable answer arrived. Do r.',
     );
+    expect(
+      describeFailure({ status: 503, code: 'API_UNREACHABLE', message: 'not sent' }, 'Do r.'),
+    ).toBe('not sent');
   });
 
   it('the recovery advice only claims what the API guarantees', () => {

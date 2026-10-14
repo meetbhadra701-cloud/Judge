@@ -11,11 +11,14 @@ import {
   createDatabaseAuditSink,
   eventContextVersions,
   events,
+  projectReplacements,
   projectSources,
+  projectSubmissionClaims,
   projectSubmissionRequests,
   projectSubmissions,
   projects,
   projectTrackSelections,
+  projectVoids,
   sourceSnapshotArtifacts,
   sourceSnapshots,
   tracks,
@@ -32,14 +35,17 @@ import {
   type ProjectRecord,
   type ProjectSourceRecord,
   type ProjectTrackSelectionRecord,
+  type ProjectVoidInfo,
   type SubmissionIntegrityFinding,
   type SubmissionIntegrityReport,
   type SubmitProjectRequest,
   type SubmitProjectResponse,
+  type VoidProjectRequest,
+  type VoidProjectResponse,
   type SnapshotDetail,
   type SnapshotSummary,
 } from '@judge-copilot/schemas';
-import { and, asc, count, desc, eq, inArray, max, or, sql, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, max, or, sql, sum } from 'drizzle-orm';
 import { SourceIngestionError } from './errors.js';
 import {
   toArtifactSummary,
@@ -62,6 +68,8 @@ export const SOURCE_INGESTION_AUDIT_ACTIONS = {
   captureRequested: 'source_capture_requested',
   submissionCreated: 'project_submission_created',
   submissionConverged: 'project_submission_converged',
+  projectVoided: 'project_voided',
+  projectReplaced: 'project_replaced',
 } as const;
 
 const PG_UNIQUE_VIOLATION = '23505';
@@ -75,6 +83,67 @@ function hasPgCode(error: unknown, code: string): boolean {
     if ((current as { code?: unknown }).code === code) return true;
   }
   return false;
+}
+
+/** True when the database error (anywhere in its cause chain) has this SQLSTATE and, when given, was raised for this named constraint. */
+function hasPgViolation(error: unknown, code: string, constraint?: string): boolean {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    const candidate = current as {
+      code?: unknown;
+      constraint?: unknown;
+      constraint_name?: unknown;
+    };
+    if (candidate.code !== code) continue;
+    if (constraint === undefined) return true;
+    if (candidate.constraint === constraint || candidate.constraint_name === constraint)
+      return true;
+  }
+  return false;
+}
+const PG_OBJECT_IN_USE = '55006';
+const PG_RESTRICT_VIOLATION = '23001';
+const PG_CHECK_VIOLATION = '23514';
+
+/**
+ * Database refusals that the application checks should already have answered (a race, or a direct caller of the schema) become the same typed
+ * errors those checks would have produced. Anything else is rethrown untouched.
+ */
+function translateIntegrityError(error: unknown): unknown {
+  if (error instanceof SourceIngestionError) return error;
+  if (hasPgViolation(error, PG_RESTRICT_VIOLATION, 'project_not_voided')) {
+    return new SourceIngestionError(
+      'PROJECT_VOIDED',
+      'This project was voided by an organizer; start the work on its replacement',
+    );
+  }
+  if (hasPgViolation(error, PG_OBJECT_IN_USE, 'project_voids_pending_work')) {
+    return new SourceIngestionError(
+      'PROJECT_HAS_PENDING_WORK',
+      'A capture or run of this project is still pending; wait for it to finish, then void the project',
+    );
+  }
+  if (hasPgViolation(error, PG_UNIQUE_VIOLATION, 'project_sources_claimed_by_submission')) {
+    return new SourceIngestionError(
+      'SUBMISSION_CONFLICT',
+      'Another submission of this event owns this link; void that submission first if it is the erroneous one',
+    );
+  }
+  if (hasPgViolation(error, PG_CHECK_VIOLATION, 'project_sources_submission_fixed')) {
+    return new SourceIngestionError(
+      'SUBMISSION_SOURCE_FIXED',
+      'This project belongs to a submission with a different link; void the project and submit the corrected pair',
+    );
+  }
+  if (hasPgViolation(error, PG_CHECK_VIOLATION, 'project_sources_canonical_url')) {
+    return new SourceIngestionError('INVALID_SOURCE_URL', 'The URL is not in canonical form');
+  }
+  if (hasPgViolation(error, PG_UNIQUE_VIOLATION, 'projects_name_claimed')) {
+    return new SourceIngestionError(
+      'PROJECT_NAME_TAKEN',
+      'A submission of this event already uses this name (ignoring letter case)',
+    );
+  }
+  return error;
 }
 
 interface SubmissionIntent {
@@ -184,6 +253,8 @@ export class ProjectService {
       });
       return await this.projectRecord(projectId);
     } catch (error) {
+      const translated = translateIntegrityError(error);
+      if (translated !== error) throw translated;
       if (hasPgCode(error, PG_UNIQUE_VIOLATION)) {
         throw new SourceIngestionError(
           'PROJECT_NAME_TAKEN',
@@ -205,8 +276,12 @@ export class ProjectService {
       .from(projects)
       .where(eq(projects.eventId, eventId))
       .orderBy(asc(projects.createdAt), asc(projects.name));
-    const tracksByProject = await this.trackSelections(rows.map((row) => row.id));
-    return rows.map((row) => toProjectRecord(row, tracksByProject.get(row.id) ?? []));
+    const ids = rows.map((row) => row.id);
+    const tracksByProject = await this.trackSelections(ids);
+    const voids = await this.voidInfos(ids);
+    return rows.map((row) =>
+      toProjectRecord(row, tracksByProject.get(row.id) ?? [], voids.get(row.id) ?? null),
+    );
   }
 
   async getProject(projectId: string): Promise<ProjectDetail> {
@@ -234,7 +309,7 @@ export class ProjectService {
     }
     try {
       const row = await this.db.transaction(async (tx) => {
-        await this.requireProject(tx, projectId, { lock: true });
+        await this.requireProject(tx, projectId, { lock: 'update', active: true });
         const [stats] = await tx
           .select({ total: count(), last: max(projectSources.position) })
           .from(projectSources)
@@ -249,6 +324,7 @@ export class ProjectService {
           );
         }
         await this.requireSubmissionSource(tx, projectId, input.sourceType, normalized.url);
+        await this.requireUnclaimedSource(tx, projectId, input.sourceType, normalized.url);
         const inserted = await this.insertSource(tx, {
           projectId,
           sourceType: input.sourceType,
@@ -260,6 +336,8 @@ export class ProjectService {
       });
       return toSourceRecord(row, null);
     } catch (error) {
+      const translated = translateIntegrityError(error);
+      if (translated !== error) throw translated;
       if (hasPgCode(error, PG_UNIQUE_VIOLATION)) {
         throw new SourceIngestionError(
           'DUPLICATE_SOURCE',
@@ -293,37 +371,41 @@ export class ProjectService {
     sourceId: string,
     actorId: string | null,
   ): Promise<CaptureRequestedResponse> {
-    const { snapshot, runId } = await this.db.transaction(async (tx) => {
-      const project = await this.requireProject(tx, projectId);
-      return this.createCapture(tx, project, sourceId, actorId);
-    });
+    const { snapshot, runId } = await this.translating(() =>
+      this.db.transaction(async (tx) => {
+        const project = await this.requireProject(tx, projectId, { lock: 'share', active: true });
+        return this.createCapture(tx, project, sourceId, actorId);
+      }),
+    );
     return { snapshot: toSnapshotSummary(snapshot, { artifactCount: 0, artifactBytes: 0 }), runId };
   }
 
   async requestAllCaptures(projectId: string, actorId: string | null): Promise<CaptureAllResponse> {
-    return this.db.transaction(async (tx) => {
-      const project = await this.requireProject(tx, projectId);
-      const sources = await tx
-        .select({ id: projectSources.id })
-        .from(projectSources)
-        .where(eq(projectSources.projectId, projectId))
-        .orderBy(asc(projectSources.position));
-      const requested: CaptureRequestedResponse[] = [];
-      const skippedSourceIds: string[] = [];
-      for (const source of sources) {
-        const pending = await this.pendingSnapshot(tx, source.id);
-        if (pending) {
-          skippedSourceIds.push(source.id);
-          continue;
+    return this.translating(() =>
+      this.db.transaction(async (tx) => {
+        const project = await this.requireProject(tx, projectId, { lock: 'share', active: true });
+        const sources = await tx
+          .select({ id: projectSources.id })
+          .from(projectSources)
+          .where(eq(projectSources.projectId, projectId))
+          .orderBy(asc(projectSources.position));
+        const requested: CaptureRequestedResponse[] = [];
+        const skippedSourceIds: string[] = [];
+        for (const source of sources) {
+          const pending = await this.pendingSnapshot(tx, source.id);
+          if (pending) {
+            skippedSourceIds.push(source.id);
+            continue;
+          }
+          const created = await this.createCapture(tx, project, source.id, actorId);
+          requested.push({
+            snapshot: toSnapshotSummary(created.snapshot, { artifactCount: 0, artifactBytes: 0 }),
+            runId: created.runId,
+          });
         }
-        const created = await this.createCapture(tx, project, source.id, actorId);
-        requested.push({
-          snapshot: toSnapshotSummary(created.snapshot, { artifactCount: 0, artifactBytes: 0 }),
-          runId: created.runId,
-        });
-      }
-      return { requested, skippedSourceIds };
-    });
+        return { requested, skippedSourceIds };
+      }),
+    );
   }
 
   // -- Submissions (P6B-beta1) -----------------------------------------------------------------
@@ -349,6 +431,40 @@ export class ProjectService {
     actorId: string,
     idempotencyKey: string,
   ): Promise<SubmitProjectResponse> {
+    const intent = this.submissionIntent(eventId, input, actorId, idempotencyKey);
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const outcome = await this.db.transaction((tx) => this.submitOnce(tx, intent));
+        return {
+          result: outcome.result,
+          project: await this.getProject(outcome.projectId),
+          captureRuns: outcome.captureRuns,
+        };
+      } catch (error) {
+        const translated = translateIntegrityError(error);
+        if (translated !== error) throw translated;
+        const lostRace =
+          hasPgCode(error, PG_UNIQUE_VIOLATION) ||
+          hasPgCode(error, PG_DEADLOCK) ||
+          hasPgCode(error, PG_SERIALIZATION_FAILURE);
+        if (!lostRace) throw error;
+        if (attempt >= SUBMISSION_ATTEMPTS) {
+          throw new SourceIngestionError(
+            'SUBMISSION_CONFLICT',
+            'This submission conflicts with another one that is being recorded right now. Try again.',
+          );
+        }
+      }
+    }
+  }
+
+  /** Validates and canonicalizes a submission request. The result is the only identity the rest of the flow uses. */
+  private submissionIntent(
+    eventId: string,
+    input: SubmitProjectRequest,
+    actorId: string,
+    idempotencyKey: string,
+  ): SubmissionIntent {
     const github = parseGithubRepositoryUrl(input.githubUrl);
     if (typeof github === 'string') {
       throw new SourceIngestionError('INVALID_SOURCE_URL', 'The GitHub URL is not valid', {
@@ -366,7 +482,7 @@ export class ProjectService {
       });
     }
     const typedName = input.name?.trim() ?? null;
-    const intent: SubmissionIntent = {
+    return {
       eventId,
       actorId,
       idempotencyKey: idempotencyKey.toLowerCase(),
@@ -385,28 +501,6 @@ export class ProjectService {
         )
         .digest('hex'),
     };
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        const outcome = await this.db.transaction((tx) => this.submitOnce(tx, intent));
-        return {
-          result: outcome.result,
-          project: await this.getProject(outcome.projectId),
-          captureRuns: outcome.captureRuns,
-        };
-      } catch (error) {
-        const lostRace =
-          hasPgCode(error, PG_UNIQUE_VIOLATION) ||
-          hasPgCode(error, PG_DEADLOCK) ||
-          hasPgCode(error, PG_SERIALIZATION_FAILURE);
-        if (!lostRace) throw error;
-        if (attempt >= SUBMISSION_ATTEMPTS) {
-          throw new SourceIngestionError(
-            'SUBMISSION_CONFLICT',
-            'This submission conflicts with another one that is being recorded right now. Try again.',
-          );
-        }
-      }
-    }
   }
 
   private async submitOnce(
@@ -438,13 +532,15 @@ export class ProjectService {
 
     // 2. an identical pair already submitted to this event: proven-equivalent content converges on that project
     const [same] = await tx
-      .select()
+      .select({ id: projectSubmissions.id, projectId: projectSubmissions.projectId })
       .from(projectSubmissions)
+      .leftJoin(projectVoids, eq(projectVoids.projectId, projectSubmissions.projectId))
       .where(
         and(
           eq(projectSubmissions.eventId, intent.eventId),
           eq(projectSubmissions.githubUrl, intent.githubUrl),
           eq(projectSubmissions.devpostUrl, intent.devpostUrl),
+          isNull(projectVoids.id),
         ),
       );
     if (same) {
@@ -460,15 +556,22 @@ export class ProjectService {
     }
 
     // 3. a partial overlap is a DIFFERENT intent: never merged, never silently adopted
+    // the ownership registry holds exactly the links of the ACTIVE submissions (a void releases them)
     const overlapping = await tx
-      .select({ projectId: projectSubmissions.projectId })
-      .from(projectSubmissions)
+      .select({ projectId: projectSubmissionClaims.projectId })
+      .from(projectSubmissionClaims)
       .where(
         and(
-          eq(projectSubmissions.eventId, intent.eventId),
+          eq(projectSubmissionClaims.eventId, intent.eventId),
           or(
-            eq(projectSubmissions.githubUrl, intent.githubUrl),
-            eq(projectSubmissions.devpostUrl, intent.devpostUrl),
+            and(
+              eq(projectSubmissionClaims.kind, 'github'),
+              eq(projectSubmissionClaims.value, intent.githubUrl),
+            ),
+            and(
+              eq(projectSubmissionClaims.kind, 'devpost'),
+              eq(projectSubmissionClaims.value, intent.devpostUrl),
+            ),
           ),
         ),
       );
@@ -476,9 +579,11 @@ export class ProjectService {
       .select({ projectId: projectSources.projectId })
       .from(projectSources)
       .innerJoin(projects, eq(projects.id, projectSources.projectId))
+      .leftJoin(projectVoids, eq(projectVoids.projectId, projects.id))
       .where(
         and(
           eq(projects.eventId, intent.eventId),
+          isNull(projectVoids.id),
           or(
             and(eq(projectSources.sourceType, 'github'), eq(projectSources.url, intent.githubUrl)),
             and(
@@ -507,14 +612,16 @@ export class ProjectService {
       );
     }
 
-    // 4. a name that differs only by case is the same label
+    // 4. a name that differs only by case is the same label (compared by the database's own case folding, the one its name key uses)
     const [named] = await tx
       .select({ id: projects.id })
       .from(projects)
+      .leftJoin(projectVoids, eq(projectVoids.projectId, projects.id))
       .where(
         and(
           eq(projects.eventId, intent.eventId),
-          sql`lower(btrim(${projects.name})) = ${intent.name.toLowerCase()}`,
+          isNull(projectVoids.id),
+          sql`lower(btrim(${projects.name})) = lower(btrim(${intent.name}))`,
         ),
       )
       .limit(1);
@@ -547,6 +654,7 @@ export class ProjectService {
         submittedByActorId: intent.actorId,
         githubUrl: intent.githubUrl,
         devpostUrl: intent.devpostUrl,
+        // the database derives the stored key from the project's name (trigger); this value only satisfies the NOT NULL column
         nameKey: intent.name.toLowerCase(),
         createdAt: now,
       })
@@ -581,6 +689,217 @@ export class ProjectService {
     return { result: 'created', projectId: project.id, captureRuns };
   }
 
+  // -- Correction: void and replace (P6B-beta2) --------------------------------------------------
+
+  /**
+   * An authorized organizer declares a project erroneous (wrong GitHub or Devpost link, wrong submission) and, optionally in the same operation,
+   * submits the corrected pair. NOTHING about the erroneous project is deleted or rewritten: its sources, snapshots, extractions, assessments
+   * and reports stay exactly as they were (a historical report stays reproducible), and its label alone is marked. What changes is that it can
+   * no longer start work, and the links and label it owned are released, so the corrected submission may take them. The whole operation is one
+   * transaction: either the project is voided (and the replacement exists), or nothing happened.
+   *
+   *   same actor + same Idempotency-Key + same content   -> `replayed` (nothing is written again)
+   *   same key, other content                            -> IDEMPOTENCY_KEY_REUSED
+   *   already voided (any other request)                 -> PROJECT_ALREADY_VOIDED
+   *   a capture or run still pending                     -> PROJECT_HAS_PENDING_WORK (retry when it has finished)
+   *   a replacement that is not a NEW submission         -> SUBMISSION_CONFLICT (the whole correction is refused)
+   *
+   * Locks: the Event Context (share, only with a replacement), then the project row FOR UPDATE -- the order every other writer uses.
+   */
+  async voidProject(
+    projectId: string,
+    input: VoidProjectRequest,
+    actorId: string,
+    idempotencyKey: string,
+  ): Promise<VoidProjectResponse> {
+    const [head] = await this.db
+      .select({ eventId: projects.eventId })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+    if (!head) throw new SourceIngestionError('PROJECT_NOT_FOUND', 'Project not found');
+    const key = idempotencyKey.toLowerCase();
+    const reason = input.reason.trim();
+    const replacement = input.replacement
+      ? this.submissionIntent(head.eventId, input.replacement, actorId, key)
+      : null;
+    const requestHash = createHash('sha256')
+      .update(
+        JSON.stringify(['judge.void.v1', projectId, reason, replacement?.requestHash ?? null]),
+      )
+      .digest('hex');
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const outcome = await this.db.transaction((tx) =>
+          this.voidOnce(
+            tx,
+            { projectId, eventId: head.eventId, actorId, key, reason, requestHash },
+            replacement,
+          ),
+        );
+        return {
+          result: outcome.result,
+          project: await this.getProject(projectId),
+          replacement:
+            outcome.replacementProjectId === null
+              ? null
+              : {
+                  result: outcome.result === 'replayed' ? 'replayed' : 'created',
+                  project: await this.getProject(outcome.replacementProjectId),
+                  captureRuns: outcome.captureRuns,
+                },
+        };
+      } catch (error) {
+        const translated = translateIntegrityError(error);
+        if (translated !== error) throw translated;
+        const lostRace =
+          hasPgCode(error, PG_UNIQUE_VIOLATION) ||
+          hasPgCode(error, PG_DEADLOCK) ||
+          hasPgCode(error, PG_SERIALIZATION_FAILURE);
+        if (!lostRace) throw error;
+        if (attempt >= SUBMISSION_ATTEMPTS) {
+          throw new SourceIngestionError(
+            'SUBMISSION_CONFLICT',
+            'This correction conflicts with another change that is being recorded right now. Try again.',
+          );
+        }
+      }
+    }
+  }
+
+  private async voidOnce(
+    tx: JudgeDatabase,
+    request: {
+      projectId: string;
+      eventId: string;
+      actorId: string;
+      key: string;
+      reason: string;
+      requestHash: string;
+    },
+    replacement: SubmissionIntent | null,
+  ): Promise<{
+    result: 'voided' | 'replayed';
+    replacementProjectId: string | null;
+    captureRuns: SubmitProjectResponse['captureRuns'];
+  }> {
+    if (replacement) await this.lockedContextOf(tx, request.eventId);
+    const project = await this.requireProject(tx, request.projectId, { lock: 'update' });
+
+    // 1. the same key: a retry (same content) or a reuse (different content)
+    const [earlier] = await tx
+      .select()
+      .from(projectVoids)
+      .where(
+        and(
+          eq(projectVoids.voidedByActorId, request.actorId),
+          eq(projectVoids.idempotencyKey, request.key),
+        ),
+      );
+    if (earlier) {
+      if (earlier.requestHash !== request.requestHash) {
+        throw new SourceIngestionError(
+          'IDEMPOTENCY_KEY_REUSED',
+          'This Idempotency-Key was already used for a different correction',
+          { projectId: earlier.projectId },
+        );
+      }
+      const [link] = await tx
+        .select({ replacementProjectId: projectReplacements.replacementProjectId })
+        .from(projectReplacements)
+        .where(eq(projectReplacements.voidedProjectId, earlier.projectId));
+      return {
+        result: 'replayed',
+        replacementProjectId: link?.replacementProjectId ?? null,
+        captureRuns: [],
+      };
+    }
+
+    // 2. one void per project
+    const [already] = await tx
+      .select({ id: projectVoids.id })
+      .from(projectVoids)
+      .where(eq(projectVoids.projectId, project.id));
+    if (already) {
+      throw new SourceIngestionError('PROJECT_ALREADY_VOIDED', 'This project was already voided', {
+        projectId: project.id,
+      });
+    }
+
+    // 3. never while work on the project is in flight: a worker may be writing its snapshot right now (the database refuses it too)
+    const [pendingCapture] = await tx
+      .select({ id: sourceSnapshots.id })
+      .from(sourceSnapshots)
+      .where(and(eq(sourceSnapshots.projectId, project.id), eq(sourceSnapshots.status, 'pending')))
+      .limit(1);
+    const [pendingRun] = await tx
+      .select({ id: analysisRuns.id })
+      .from(analysisRuns)
+      .where(
+        and(
+          eq(analysisRuns.projectId, project.id),
+          inArray(analysisRuns.state, ['pending', 'running']),
+        ),
+      )
+      .limit(1);
+    if (pendingCapture || pendingRun) {
+      throw new SourceIngestionError(
+        'PROJECT_HAS_PENDING_WORK',
+        'A capture or run of this project is still pending; wait for it to finish, then void the project',
+        { projectId: project.id },
+      );
+    }
+
+    await this.beforeSubmissionWrite();
+    const now = this.now();
+    await tx.insert(projectVoids).values({
+      id: this.newId(),
+      eventId: project.eventId,
+      projectId: project.id,
+      voidedByActorId: request.actorId,
+      reason: request.reason,
+      nameBefore: project.name,
+      idempotencyKey: request.key,
+      requestHash: request.requestHash,
+      createdAt: now,
+    });
+    await this.audit(tx, request.actorId, {
+      entityType: 'project',
+      entityId: project.id,
+      action: SOURCE_INGESTION_AUDIT_ACTIONS.projectVoided,
+      // the reason is organizer free text: it is stored in project_voids, never copied into the audit metadata
+      metadata: { eventId: project.eventId, withReplacement: replacement !== null },
+    });
+    if (!replacement) return { result: 'voided', replacementProjectId: null, captureRuns: [] };
+
+    // 4. the corrected submission, in the same transaction; it must be a NEW project (the erroneous one released its links just above)
+    const created = await this.submitOnce(tx, replacement);
+    if (created.result !== 'created') {
+      throw new SourceIngestionError(
+        'SUBMISSION_CONFLICT',
+        'The corrected pair is already submitted as another project of this event; void without a replacement and use that project',
+        { projectId: created.projectId },
+      );
+    }
+    await tx.insert(projectReplacements).values({
+      id: this.newId(),
+      eventId: project.eventId,
+      voidedProjectId: project.id,
+      replacementProjectId: created.projectId,
+      createdAt: now,
+    });
+    await this.audit(tx, request.actorId, {
+      entityType: 'project',
+      entityId: created.projectId,
+      action: SOURCE_INGESTION_AUDIT_ACTIONS.projectReplaced,
+      metadata: { eventId: project.eventId, voidedProjectId: project.id },
+    });
+    return {
+      result: 'voided',
+      replacementProjectId: created.projectId,
+      captureRuns: created.captureRuns,
+    };
+  }
+
   /**
    * Read-only detection of projects that do not form one submission: several GitHub (or Devpost) sources in one project, or one link
    * claimed by several projects. It never repairs or deletes anything; the remediation is an operator decision (docs/DEMO_RUNBOOK.md).
@@ -592,9 +911,13 @@ export class ProjectService {
       .where(eq(events.id, eventId));
     if (!event) throw new SourceIngestionError('EVENT_NOT_FOUND', 'Event not found');
     const projectRows = await this.db
-      .select({ id: projects.id })
+      .select({ id: projects.id, voidId: projectVoids.id })
       .from(projects)
+      .leftJoin(projectVoids, eq(projectVoids.projectId, projects.id))
       .where(eq(projects.eventId, eventId));
+    const activeIds = new Set(
+      projectRows.filter((row) => row.voidId === null).map((row) => row.id),
+    );
     const sources = await this.db
       .select({
         projectId: projectSources.projectId,
@@ -603,9 +926,11 @@ export class ProjectService {
       })
       .from(projectSources)
       .innerJoin(projects, eq(projects.id, projectSources.projectId))
+      .leftJoin(projectVoids, eq(projectVoids.projectId, projects.id))
       .where(
         and(
           eq(projects.eventId, eventId),
+          isNull(projectVoids.id),
           inArray(projectSources.sourceType, ['github', 'devpost']),
         ),
       )
@@ -614,6 +939,7 @@ export class ProjectService {
       .select({ projectId: projectSubmissions.projectId })
       .from(projectSubmissions)
       .where(eq(projectSubmissions.eventId, eventId));
+    const recordedActive = recorded.filter((row) => activeIds.has(row.projectId));
     const findings: SubmissionIntegrityFinding[] = [];
     for (const sourceType of ['github', 'devpost'] as const) {
       const ofType = sources.filter((source) => source.sourceType === sourceType);
@@ -648,8 +974,9 @@ export class ProjectService {
     }
     return {
       eventId,
-      projectsChecked: projectRows.length,
-      projectsWithoutSubmissionRecord: projectRows.length - recorded.length,
+      projectsChecked: activeIds.size,
+      projectsVoided: projectRows.length - activeIds.size,
+      projectsWithoutSubmissionRecord: activeIds.size - recordedActive.length,
       findings,
     };
   }
@@ -998,7 +1325,12 @@ export class ProjectService {
   private async projectRecord(projectId: string): Promise<ProjectRecord> {
     const project = await this.requireProject(this.db, projectId);
     const tracksByProject = await this.trackSelections([project.id]);
-    return toProjectRecord(project, tracksByProject.get(project.id) ?? []);
+    const voids = await this.voidInfos([project.id]);
+    return toProjectRecord(
+      project,
+      tracksByProject.get(project.id) ?? [],
+      voids.get(project.id) ?? null,
+    );
   }
 
   private async trackSelections(
@@ -1036,15 +1368,106 @@ export class ProjectService {
     return result;
   }
 
+  /**
+   * `lock: 'share'` is taken by everything that starts work on a project (a capture request); `'update'` by what must serialize against other
+   * writers of the same project (a source declaration, a void). The two conflict, so a void and new work on the same project are never
+   * interleaved. `active: true` refuses a voided project -- decided AFTER the lock, so a void that committed first is always seen.
+   */
   private async requireProject(
     db: JudgeDatabase,
     projectId: string,
-    options: { lock?: boolean } = {},
+    options: { lock?: 'share' | 'update'; active?: boolean } = {},
   ): Promise<ProjectRow> {
     const query = db.select().from(projects).where(eq(projects.id, projectId));
-    const [project] = options.lock ? await query.for('update') : await query;
+    const [project] =
+      options.lock === 'update'
+        ? await query.for('update')
+        : options.lock === 'share'
+          ? await query.for('share')
+          : await query;
     if (!project) throw new SourceIngestionError('PROJECT_NOT_FOUND', 'Project not found');
+    if (options.active) {
+      const [voided] = await db
+        .select({ id: projectVoids.id })
+        .from(projectVoids)
+        .where(eq(projectVoids.projectId, projectId));
+      if (voided) {
+        throw new SourceIngestionError(
+          'PROJECT_VOIDED',
+          'This project was voided by an organizer; start the work on its replacement',
+          { projectId },
+        );
+      }
+    }
     return project;
+  }
+
+  private async translating<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      throw translateIntegrityError(error);
+    }
+  }
+
+  /** Void records (and the replacement, when there is one) of these projects. */
+  private async voidInfos(projectIds: string[]): Promise<Map<string, ProjectVoidInfo>> {
+    const result = new Map<string, ProjectVoidInfo>();
+    if (projectIds.length === 0) return result;
+    const rows = await this.db
+      .select({
+        projectId: projectVoids.projectId,
+        voidedAt: projectVoids.createdAt,
+        actorId: projectVoids.voidedByActorId,
+        reason: projectVoids.reason,
+        nameBefore: projectVoids.nameBefore,
+        replacementId: projectReplacements.replacementProjectId,
+      })
+      .from(projectVoids)
+      .leftJoin(
+        projectReplacements,
+        eq(projectReplacements.voidedProjectId, projectVoids.projectId),
+      )
+      .where(inArray(projectVoids.projectId, projectIds));
+    for (const row of rows) {
+      result.set(row.projectId, {
+        voidedAt: row.voidedAt.toISOString(),
+        voidedByActorId: row.actorId,
+        reason: row.reason,
+        nameBefore: row.nameBefore,
+        replacedByProjectId: row.replacementId,
+      });
+    }
+    return result;
+  }
+
+  /** A GitHub or Devpost link that another active submission of the event owns cannot be declared by a project that is not that submission. */
+  private async requireUnclaimedSource(
+    tx: JudgeDatabase,
+    projectId: string,
+    sourceType: AddProjectSourceRequest['sourceType'],
+    url: string,
+  ): Promise<void> {
+    if (sourceType !== 'github' && sourceType !== 'devpost') return;
+    const project = await this.requireProject(tx, projectId);
+    const owners = await tx
+      .select({ projectId: projectSubmissionClaims.projectId })
+      .from(projectSubmissionClaims)
+      .where(
+        and(
+          eq(projectSubmissionClaims.eventId, project.eventId),
+          eq(projectSubmissionClaims.kind, sourceType),
+          eq(projectSubmissionClaims.value, url),
+        ),
+      );
+    const others = owners.filter((owner) => owner.projectId !== projectId);
+    if (others.length > 0) {
+      throw new SourceIngestionError(
+        'SUBMISSION_CONFLICT',
+        `Another submission of this event owns this ${sourceType} link; void that submission first if it is the erroneous one`,
+        { sourceType, projectIds: others.map((owner) => owner.projectId) },
+      );
+    }
   }
 
   private async audit(

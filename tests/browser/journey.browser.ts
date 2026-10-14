@@ -420,6 +420,71 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await context.close();
   });
 
+  it('P6B-beta2: a wrong submission is corrected by void-and-replace; the erroneous project stays as history and accepts nothing new', async () => {
+    const fixEventId = await newLockedEvent();
+    await page.goto(`${webUrl}/events/${fixEventId}/submit`);
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/fixme');
+    await page
+      .getByLabel('Devpost project URL')
+      .fill('https://devpost.com/software/synthetic-wrong-page');
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
+    await page.waitForURL(/\/projects\/[0-9a-f-]+\/capture/);
+    const wrongId = /projects\/([0-9a-f-]+)\/capture/.exec(page.url())?.[1] ?? '';
+
+    // while a capture is queued the correction is refused, with a plain explanation, and nothing changes
+    await page.getByTestId('correct-link').click();
+    await page.waitForURL(/\/correct$/);
+    await page.getByLabel('Why is this project being voided?').fill('Wrong Devpost page');
+    await page
+      .getByLabel('Corrected GitHub repository URL')
+      .fill('https://github.com/synthetic/fixme');
+    await page
+      .getByLabel('Corrected Devpost project URL')
+      .fill('https://devpost.com/software/synthetic-right-page');
+    await page.getByRole('button', { name: 'Void this project' }).click();
+    const refusal = page.locator('main [role=alert]').first();
+    await refusal.waitFor();
+    expect(await refusal.innerText()).toContain('still in progress');
+    expect((await api(`/projects/${wrongId}`))['voided']).toBeNull();
+
+    // once the worker has finished, the same form (same key) succeeds and lands on the replacement's capture page
+    await drainCaptures();
+    await page.getByRole('button', { name: 'Void this project' }).click();
+    await page.waitForURL(
+      (url) => /\/capture$/.test(url.pathname) && !url.pathname.includes(wrongId),
+    );
+    const replacementId = /projects\/([0-9a-f-]+)\/capture/.exec(page.url())?.[1] ?? '';
+    expect(replacementId).not.toBe(wrongId);
+    expect(await main()).toContain('synthetic/fixme');
+    await shot('08-replacement');
+
+    // the erroneous project: marked voided with the reason, linked to its replacement, offers no retry or new work
+    await page.goto(`${webUrl}/projects/${wrongId}/capture`);
+    const voided = page.getByTestId('voided-project');
+    await voided.waitFor();
+    const text = await voided.innerText();
+    expect(text).toContain('Voided');
+    expect(text).toContain('Wrong Devpost page');
+    expect(await page.getByRole('button', { name: /retry capture/i }).count()).toBe(0);
+    expect(await page.getByTestId('correct-link').count()).toBe(0);
+    await voided.getByRole('link', { name: /replacement project/i }).click();
+    await page.waitForURL(new RegExp(`/projects/${replacementId}/capture`));
+    await shot('09-voided');
+
+    // both are stored; only the replacement is active; the history of the voided project is intact
+    const rows = (await testDb.db.select().from(projects)).filter((p) => p.eventId === fixEventId);
+    expect(rows).toHaveLength(2);
+    const snapshots = (await testDb.db.select().from(sourceSnapshots)).filter(
+      (s) => s.projectId === wrongId,
+    );
+    // the fixture network knows no such repository, so both captures ended (failed): terminal, kept, and not touched by the void
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots.every((s) => s.status !== 'pending')).toBe(true);
+    const listed = await page.goto(`${webUrl}/events/${fixEventId}`);
+    expect(listed?.ok()).toBe(true);
+    expect(await page.getByTestId('voided-badge').count()).toBe(1);
+  });
+
   it('refresh and back/forward navigation never create or change anything', async () => {
     const navEventId = await newLockedEvent();
     await page.goto(`${webUrl}/events/${navEventId}/submit`);

@@ -31,6 +31,7 @@ import {
   graphExtractions,
   preInterviewAssessments,
   projects,
+  projectVoids,
   projectSources,
   projectTrackSelections,
   sourceSnapshots,
@@ -113,6 +114,7 @@ export type RequestAssessmentResult =
     }
   | { readonly kind: 'key_reused' }
   | { readonly kind: 'run_active_conflict'; readonly runId: string }
+  | { readonly kind: 'project_voided' }
   | { readonly kind: 'no_locked_context' }
   | { readonly kind: 'no_source_snapshots' }
   | { readonly kind: 'track_not_in_context'; readonly trackKey: string };
@@ -262,6 +264,13 @@ export class AssessmentRunStore {
           ),
         );
       if (previous) return this.replayOf(tx, previous, input, requestHash);
+
+      // 1b. a voided project (P6B-beta2) starts no new assessment; its earlier ones stay readable and their replays above still answer
+      const [voided] = await tx
+        .select({ id: projectVoids.id })
+        .from(projectVoids)
+        .where(eq(projectVoids.projectId, project.id));
+      if (voided) return { kind: 'project_voided' };
 
       // 2. pin
       const pins = await this.readPins(tx, project.id, project.eventId);

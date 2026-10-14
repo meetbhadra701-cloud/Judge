@@ -19,15 +19,19 @@ import {
 const IsoDateTime = z.iso.datetime({ offset: true });
 const JsonObject = z.record(z.string(), z.json());
 
+/**
+ * Free text that is a LABEL (a name, a reason): no control characters, no line or paragraph separators. PostgreSQL text cannot store NUL at all
+ * (it would otherwise surface as an unexpected 500), and a label with a line break can impersonate a second line of any page that shows it.
+ */
+export const NO_CONTROL_CHARACTERS = /^[^\p{Cc}\p{Zl}\p{Zp}]*$/u;
+export const LabelText = (max: number) =>
+  z.string().trim().min(1).max(max).regex(NO_CONTROL_CHARACTERS, {
+    message: 'must not contain control characters or line breaks',
+  });
+
 export const CreateProjectRequest = z.strictObject({
-  name: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.projectNameMaxChars),
-  teamName: z
-    .string()
-    .trim()
-    .min(1)
-    .max(SOURCE_INGESTION_LIMITS.teamNameMaxChars)
-    .nullable()
-    .optional(),
+  name: LabelText(SOURCE_INGESTION_LIMITS.projectNameMaxChars),
+  teamName: LabelText(SOURCE_INGESTION_LIMITS.teamNameMaxChars).nullable().optional(),
   /** Track keys of the event's currently locked Event Context. Validated, never invented. */
   trackKeys: z
     .array(Identifier)
@@ -49,6 +53,18 @@ export const ProjectTrackSelectionRecord = z.object({
 });
 export type ProjectTrackSelectionRecord = z.infer<typeof ProjectTrackSelectionRecord>;
 
+/** Set when an authorized organizer voided the project (P6B-beta2). A voided project is history: it starts no new work. */
+export const ProjectVoidInfo = z.object({
+  voidedAt: IsoDateTime,
+  voidedByActorId: Uuid,
+  reason: z.string(),
+  /** The label the project had before it was marked as void. */
+  nameBefore: z.string(),
+  /** The project that replaced it, when the correction was made with a replacement. */
+  replacedByProjectId: Uuid.nullable(),
+});
+export type ProjectVoidInfo = z.infer<typeof ProjectVoidInfo>;
+
 export const ProjectRecord = z.object({
   id: Uuid,
   eventId: Uuid,
@@ -58,6 +74,7 @@ export const ProjectRecord = z.object({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   tracks: z.array(ProjectTrackSelectionRecord),
+  voided: ProjectVoidInfo.nullable(),
 });
 export type ProjectRecord = z.infer<typeof ProjectRecord>;
 
@@ -164,13 +181,7 @@ export const SubmitProjectRequest = z.strictObject({
   githubUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
   devpostUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
   /** Optional label. Derived from the GitHub repository (`owner/repo`) when absent. */
-  name: z
-    .string()
-    .trim()
-    .min(1)
-    .max(SOURCE_INGESTION_LIMITS.projectNameMaxChars)
-    .nullable()
-    .optional(),
+  name: LabelText(SOURCE_INGESTION_LIMITS.projectNameMaxChars).nullable().optional(),
 });
 export type SubmitProjectRequest = z.input<typeof SubmitProjectRequest>;
 
@@ -193,6 +204,32 @@ export const SubmitProjectResponse = z.object({
 });
 export type SubmitProjectResponse = z.infer<typeof SubmitProjectResponse>;
 
+/**
+ * `POST /projects/:projectId/void` (header `Idempotency-Key`; organizer permissions `project.write` + `source.capture`, as for a submission): an authorized
+ * organizer declares the project erroneous, with a reason, and optionally submits the corrected GitHub + Devpost pair in the same operation.
+ * Nothing about the voided project is deleted or rewritten; see ARCHITECTURE.md (submission correction).
+ */
+export const VoidProjectRequest = z.strictObject({
+  reason: LabelText(1_000),
+  replacement: z
+    .strictObject({
+      githubUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
+      devpostUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
+      name: LabelText(SOURCE_INGESTION_LIMITS.projectNameMaxChars).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+});
+export type VoidProjectRequest = z.input<typeof VoidProjectRequest>;
+
+export const VoidProjectResponse = z.object({
+  /** `voided`: this request voided it. `replayed`: the same key and content already did. */
+  result: z.enum(['voided', 'replayed']),
+  project: ProjectDetail,
+  replacement: SubmitProjectResponse.nullable(),
+});
+export type VoidProjectResponse = z.infer<typeof VoidProjectResponse>;
+
 export const SUBMISSION_INTEGRITY_KIND_VALUES = [
   'multiple_sources_of_one_type',
   'shared_source_url',
@@ -210,6 +247,8 @@ export type SubmissionIntegrityFinding = z.infer<typeof SubmissionIntegrityFindi
 export const SubmissionIntegrityReport = z.object({
   eventId: Uuid,
   projectsChecked: z.number().int().min(0),
+  /** Voided projects are history: they are not checked and never appear in the findings. */
+  projectsVoided: z.number().int().min(0),
   /** Projects not created through the submission operation (earlier flows): their provenance cannot be proven either way. */
   projectsWithoutSubmissionRecord: z.number().int().min(0),
   findings: z.array(SubmissionIntegrityFinding),

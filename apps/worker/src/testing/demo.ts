@@ -70,11 +70,8 @@ export interface DemoSeed {
 
 /** Seeds the labelled synthetic hackathon and project. The database must already be migrated. */
 export async function seedDemo(db: JudgeDatabase): Promise<DemoSeed> {
-  const world = await seedWorld(db);
-  // labels that cannot be mistaken for real data (names are the only mutable columns of these rows)
+  // labels that cannot be mistaken for real data (a project's name is fixed at creation: it changes only when the project is voided)
+  const world = await seedWorld(db, { projectName: DEMO_PROJECT_NAME });
   await db.execute(sql`UPDATE events SET name = ${DEMO_EVENT_NAME} WHERE id = ${world.event.id}`);
-  await db.execute(
-    sql`UPDATE projects SET name = ${DEMO_PROJECT_NAME} WHERE id = ${world.project.id}`,
-  );
   return { eventId: world.event.id, projectId: world.project.id };
 }

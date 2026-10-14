@@ -165,6 +165,11 @@ export class AssessmentService {
           'An assessment of this project is already pending or running',
           { runId: result.runId },
         );
+      case 'project_voided':
+        throw new AssessmentApiError(
+          'PROJECT_VOIDED',
+          'This project was voided by an organizer; request the assessment on its replacement',
+        );
       case 'no_locked_context':
         throw new AssessmentApiError(
           'NO_LOCKED_CONTEXT',

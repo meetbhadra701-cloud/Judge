@@ -89,7 +89,20 @@ export default async function AssessmentPage({
       projectId={projectId}
       projectName={project.data.name}
       integrityNotice={sourceIntegrityNotice(project.data.sources)}
-      list={list.data}
+      list={
+        project.data.voided === null
+          ? list.data
+          : {
+              ...list.data,
+              // a voided project starts no new assessment (the API refuses it too); its earlier ones stay readable
+              launch: {
+                available: false,
+                providerMode: null,
+                notice:
+                  'This project was voided by an organizer, so no new assessment can be requested for it. Its earlier assessments stay readable as history.',
+              },
+            }
+      }
       detail={detailResult?.ok ? detailResult.data : null}
       detailError={detailResult && !detailResult.ok ? detailResult.message : undefined}
       error={error}

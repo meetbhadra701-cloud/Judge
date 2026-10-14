@@ -23,6 +23,13 @@ export const DEPLOYMENT_TEXT = '{"status":"ok"}';
 const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 let counter = 0;
 
+/** A declaration URL in the canonical form the database requires for GitHub and Devpost sources (test hosts for the other kinds). */
+function declaredTestUrl(sourceType: string, unique: string): string {
+  if (sourceType === 'github') return `https://github.com/test-org/repo-${unique}`;
+  if (sourceType === 'devpost') return `https://devpost.com/software/test-${unique}`;
+  return `https://example.test/${sourceType}/${unique}`;
+}
+
 export async function seedCapturedSnapshot(
   db: JudgeDatabase,
   projectId: string,
@@ -35,7 +42,7 @@ export async function seedCapturedSnapshot(
   }[],
 ) {
   counter += 1;
-  const url = `https://example.test/${sourceType}/${String(counter)}-${String(Date.now())}`;
+  const url = declaredTestUrl(sourceType, `${String(counter)}-${String(Date.now())}`);
   const [source] = await db
     .insert(projectSources)
     .values({ projectId, sourceType, url, position: counter })

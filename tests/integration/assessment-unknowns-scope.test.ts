@@ -14,6 +14,7 @@ import {
   graphExtractionItems,
   groupUnknowns,
   preInterviewAssessments,
+  projectSources,
   unknowns,
   type JudgeDatabase,
 } from '../../packages/database/src/index.js';
@@ -182,6 +183,35 @@ describe.each(testDatabaseTargets())('assessment-scoped unknowns on %s', (_name,
         newerStatus: 'failed',
       }),
     ]);
+  });
+
+  it('a capture that FAILED BEFORE the assessment was pinned predates it: it is not reported as a newer capture (R7B), while a failure after it is', async () => {
+    const world = await seedWorld(db, { sources: ['devpost'] });
+    // a failed attempt at the repository, finished before anything was assessed; it was never usable, so it was never pinned
+    await seedSnapshot(db, world.project, 'github', 'failed');
+    const run = await execute(db, { world });
+    expect(run.outcome.kind).toBe('succeeded');
+    const [assessment] = await run.assessments();
+    const before = await scoped(world.project.id, assessment?.id ?? '');
+    expect(before.currency).toEqual({ upToDate: true, newerCaptures: [] });
+    // a capture attempt requested AFTER the assessment is newer material (here: another failure), and is reported
+    const failedSource = (await db.select().from(projectSources)).find(
+      (source) => source.projectId === world.project.id && source.sourceType === 'github',
+    );
+    if (!failedSource) throw new Error('no github source');
+    await seedLaterCapture(db, world.project, failedSource, 'failed');
+    const after = await scoped(world.project.id, assessment?.id ?? '');
+    expect(after.currency?.upToDate).toBe(false);
+    expect(after.currency?.newerCaptures).toEqual([
+      expect.objectContaining({
+        sourceType: 'github',
+        pinnedCaptureNumber: null,
+        newerCaptureNumber: 2,
+        newerStatus: 'failed',
+      }),
+    ]);
+    // the answer for the assessment's own report is unchanged by that
+    expect(after.items).toEqual(before.items);
   });
 
   it('fails closed for an assessment that does not verify, and never reveals another project’s assessment', async () => {

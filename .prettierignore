@@ -5,3 +5,4 @@ coverage
 pnpm-lock.yaml
 packages/database/drizzle
 packages/scoring/golden
+tests/fixtures/real-github/*.json

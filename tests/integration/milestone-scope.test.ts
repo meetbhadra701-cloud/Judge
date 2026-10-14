@@ -200,7 +200,12 @@ describe('M5 milestone scope (phase P6A)', () => {
           continue;
         }
         expect(LATER_TABLE_PATTERN.test(table), `${file}: ${table}`).toBe(false);
-        if (/claim|evidence|contradiction|unknown/.test(table)) graphTables.push(table);
+        // project_submission_claims (P6B-beta2) is the ownership registry of submission links and labels, not an evidence-graph claim table
+        if (
+          table !== 'project_submission_claims' &&
+          /claim|evidence|contradiction|unknown/.test(table)
+        )
+          graphTables.push(table);
       }
     }
     expect(graphTables.sort()).toEqual(M3_TABLES);
@@ -284,7 +289,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013), the one additive P6A column migration 0014 and the two P6B-beta1 submission-intent migrations 0015/0016, and no other', () => {
+  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013), the one additive P6A column migration 0014 and the two P6B-beta1 submission-intent migrations 0015/0016 and the two P6B-beta2 correction migrations 0017/0018, and no other', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -310,6 +315,10 @@ describe('M5 milestone scope (phase P6A)', () => {
       // answer, interview, final-score or delta table, and nothing that touches scoring or assessments.
       '0015_p6b_submission_intents.sql',
       '0016_p6b_submission_integrity.sql',
+      // P6B-beta2: the ownership registry of submission links and labels, explicit void-and-replace records, and the database-side invariants
+      // (triggers) that every write path must respect. No question, answer, interview, final-score or delta table, nothing that scores.
+      '0017_p6b_beta2_claims_and_voids.sql',
+      '0018_p6b_beta2_integrity.sql',
     ]);
   });
 

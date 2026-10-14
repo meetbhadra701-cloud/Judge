@@ -346,3 +346,20 @@ not_verified` in every report. Verifying relevance, and meaningful provenance sp
 - **[M4] Reproducibility.** Reports are canonical and hashed over the engine version, every parameter,
   the fallback rubric definition, the rubric, the options, the judgments and the graph facts that can
   influence the result.
+
+## 16. Submission correction and real capture (P6B-beta2)
+
+- **[P6B-beta2] A submission is never edited in place.** An organizer (`project.write` + `source.capture`) can void a project and, in the same transaction, replace it
+  (`docs/ARCHITECTURE.md`, "Submission correction"). Voiding deletes nothing and rewrites nothing except the project's label; every snapshot, extraction, assessment and report stays
+  reproducible. A voided project starts no capture, source or assessment, enforced by database triggers as well as by the application. The organizer's reason is stored in `project_voids`
+  only, rendered as text, and never copied into audit metadata.
+- **[P6B-beta2] Ownership is a database fact.** A link or label owned by an active submission cannot be declared by another project through any route, including the earlier project/source
+  routes; GitHub and Devpost declarations must be in canonical form (a CHECK, not just the parser). Names with control characters, line separators or NUL are refused at the API boundary
+  (`400`), and text PostgreSQL cannot store is a `422`, never a `500`.
+- **[P6B-beta2] Real GitHub capture was exercised** against a real public repository through the production client and adapter (live, rate-limited unauthenticated; recorded, authenticated by the
+  environment's gateway): only `GET` requests to `api.github.com`, every file verified against its Git object id, nothing executed. Permanent tests replay a recording
+  (`tests/fixtures/real-github`, e-mail addresses redacted) and never touch a third-party site. Unauthenticated capture cannot read more than about 55 files per hour per IP address; configure
+  `GITHUB_TOKEN` (read-only, public data) for real use. See `docs/milestones/P6B_BETA2_REAL_CAPTURE_REPORT.md`.
+- **[P6B-beta2] Devpost** was not captured live: the environment's egress policy refuses the connection (HTTP 403 to `CONNECT devpost.com:443`). No access control was bypassed or worked around, and no
+  page text was invented; the source ends as a failed capture with no content. The adapter is verified only against synthetic markup until real access is permitted by whoever owns the policy
+  and the Devpost terms of use have been checked.

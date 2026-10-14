@@ -4,6 +4,7 @@ import {
   IdempotencyKey,
   SubmitProjectRequest,
   Uuid,
+  VoidProjectRequest,
 } from '@judge-copilot/schemas';
 import { z } from 'zod';
 import { actorOf, type Guard } from '../auth.js';
@@ -55,6 +56,19 @@ export function registerProjectRoutes(app: ApiApp, service: ProjectService, guar
       const body = parseRequest(SubmitProjectRequest, request.body, 'body');
       const response = await service.submitProject(eventId, body, actorOf(request).id, key);
       return reply.code(response.result === 'created' ? 201 : 200).send(response);
+    },
+  );
+
+  // Explicit, auditable correction of an erroneous project, optionally with its replacement in the same operation (P6B-beta2).
+  app.post(
+    '/projects/:projectId/void',
+    { preHandler: [guard('project.write'), guard('source.capture')] },
+    async (request, reply) => {
+      const { projectId } = parseRequest(ProjectParams, request.params, 'params');
+      const key = idempotencyKeyOf(request.headers);
+      const body = parseRequest(VoidProjectRequest, request.body, 'body');
+      const response = await service.voidProject(projectId, body, actorOf(request).id, key);
+      return reply.code(response.result === 'voided' ? 201 : 200).send(response);
     },
   );
 

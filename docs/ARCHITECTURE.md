@@ -420,6 +420,8 @@ its own migrations; existing migrations are never edited after being committed.
 | `0009_m3_supersession_guard_hardening`        | redefines `claims_supersession_guard`: a predecessor that is not already visible is rejected (no forward references) instead of deferring to the end-of-statement foreign key                                              |
 | `0015_p6b_submission_intents`                 | `project_submissions` (one per project: event, canonical GitHub + Devpost URLs, case-folded name key; unique per event on each) and `project_submission_requests` (idempotency records: actor + key, request hash, result) |
 | `0016_p6b_submission_integrity`               | append-only triggers on both tables; `project_sources` refuses a GitHub/Devpost URL different from the project's submission; a submission cannot be recorded over a project that already holds other links                 |
+| `0017_p6b_beta2_claims_and_voids`             | `project_submission_claims` (who owns a link or a label, unique per event), `project_voids`, `project_replacements`; the three unique constraints on `project_submissions` are replaced by the claims registry             |
+| `0018_p6b_beta2_integrity`                    | hand-written: claims backfill; ownership, void and voided-project triggers; label key derived by the database; canonical-URL CHECK on `project_sources` (`NOT VALID`). Recovery notes: [MIGRATIONS](./MIGRATIONS.md)       |
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` timestamps.
 - Vocabulary CHECK constraints are generated from the same tuples as the Zod schemas
@@ -453,6 +455,8 @@ its own migrations; existing migrations are never edited after being committed.
   with another key converges on the same project, a partially shared link or a case-insensitively equal name is refused and
   nothing is merged. `GET /events/:eventId/submission-integrity` is the read-only detection of projects that mix several
   submissions (created before this existed). See [P6B_BETA1_IMPLEMENTATION_REPORT](./milestones/P6B_BETA1_IMPLEMENTATION_REPORT.md).
+  P6B-beta2 adds `POST /projects/:projectId/void` (header `Idempotency-Key`, permissions `project.write` + `source.capture`): the
+  **only** way a submission is corrected (see "Submission correction" below). It never edits or deletes anything.
 - **worker** without `DATABASE_URL` idles with `jobHandlers: 0` and contacts nothing. With a
   database it runs the project-source capture loop (§10) with bounded concurrency and stops
   cleanly on SIGINT/SIGTERM. With a database **and** `ASSESSMENT_PROVIDER=replay` (development and
@@ -607,6 +611,7 @@ locked Event Context → project (+ declared tracks) → declared sources
   GitHub URL + canonical Devpost URL, each unique per event, plus a case-folded name key) and the idempotency record of each
   request (actor + key + content hash + result). Append-only; the same links cannot reach two projects of one event through a
   submission.
+- **`project_submission_claims` / `project_voids` / `project_replacements`** (P6B-beta2) — see "Submission correction" below.
 - **`source_snapshots`** — one capture of one declaration: `capture_number` (gapless, monotonic per
   source, trigger), source type and URL (composite FK to the declaration), status, `revision`
   (exact commit SHA, required exactly for GitHub content snapshots), normalized `metadata`,
@@ -911,3 +916,27 @@ is in [SCORING.md](./SCORING.md) §12–13 and the rationale in
   legitimate one. The engine therefore never reads a label as trust (SECURITY §15).
 - **Limits.** Structure is validated, semantic relevance is not (an M5 prerequisite); only recorded
   contradictions are counted; constants are heuristics.
+
+---
+
+## Submission correction: void and replace (P6B-beta2)
+
+A submission is **never edited in place**. When an organizer entered the wrong GitHub repository or Devpost page, an authorized organizer **voids** the project
+(with a reason) and, in the same operation, submits the corrected pair as a **new** project.
+
+- **Identity and ownership.** `project_submission_claims` holds one row per (event, kind, value) for each _active_ submission: its canonical GitHub URL, its canonical Devpost URL and its case-folded label. The
+  table's unique constraint is what makes two active submissions unable to share a link or a label, in any write order, under any concurrency. A trigger writes the rows when a submission is recorded; a row is
+  never updated and is deleted only after the project has been voided. The label key is derived by the database from the project's name, never supplied by a client.
+- **What a void does.** One `project_voids` row (who, why, when, the idempotency key and a hash of the request), `project_replacements` when a replacement was made in the same transaction, the project's claims released,
+  and its label marked `[voided xxxxxxxx]` (the old label is kept in `project_voids.name_before`). **Nothing else about the project changes**: its sources, snapshots, artifacts, graph extractions, assessments and
+  reports are exactly what they were, so every historical report stays reproducible; no row is deleted and no immutability trigger is bypassed.
+- **What a voided project cannot do.** Start a capture, declare a source or request an assessment: refused by the application (`PROJECT_VOIDED`, 409) and by database triggers on `source_snapshots`,
+  `analysis_runs` and `project_sources`, so a bypass fails too. Its history stays readable. It is not listed by the submission-integrity report.
+- **Safety.** The void takes the project row `FOR UPDATE`; everything that starts work on a project takes it `FOR SHARE`, so a void and new work never interleave. A void is refused (`PROJECT_HAS_PENDING_WORK`, SQLSTATE
+  55006 in the database) while a capture or run of the project is pending or running, because a worker may be writing its result: retry when it has finished. The correction is atomic: if the replacement cannot be
+  created (a link or label another active submission owns, an invalid link, a key reused for other content) the whole operation is refused and the project is **not** voided. It is idempotent per (actor, key).
+- **Application checks versus database enforcement.** Enforced by the database (and also checked by the application for a precise message): ownership of links and labels, canonical GitHub/Devpost declarations, a
+  submission's project keeping exactly its links, no new work on a voided project, claims released only by a void, void and replacement records append-only, a project's label changing only by a void. Enforced by the application only:
+  the replacement being a _new_ submission (an identical pair already submitted converges on its project, which a correction refuses), the idempotent replay answer, and authorization (`project.write` + `source.capture`,
+  organizers only).
+- **Unchanged limits.** The system cannot know whether two _different_ links are the same project in reality; it records what organizers say and keeps the record.

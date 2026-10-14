@@ -128,6 +128,12 @@ export default async function EventPage({
                 <tr key={project.id}>
                   <td>
                     <Link href={`/projects/${project.id}`}>{project.name}</Link>
+                    {project.voided !== null ? (
+                      <>
+                        {' '}
+                        <strong data-testid="voided-badge">(voided)</strong>
+                      </>
+                    ) : null}
                   </td>
                   <td>{project.teamName ?? '—'}</td>
                   <td>{project.tracks.map((track) => track.trackName).join(', ') || '—'}</td>

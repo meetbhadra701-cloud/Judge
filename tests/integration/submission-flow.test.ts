@@ -398,11 +398,11 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
             issues: [],
           })
         : api(method, path, body, headers);
+    // the connection was never established: the outcome is KNOWN (nothing was sent), and the message must not suggest otherwise (R7B)
     const lost = await runSubmission(dropRequest, eventId, input(), key);
-    expect(lost).toMatchObject({ kind: 'failed', outcomeUnknown: true });
-    expect(lost.kind === 'failed' && lost.message).toMatch(
-      /Submitting the same form twice is safe/,
-    );
+    expect(lost).toMatchObject({ kind: 'failed', outcomeUnknown: false });
+    expect(lost.kind === 'failed' && lost.message).toMatch(/nothing was saved/);
+    expect(lost.kind === 'failed' && lost.message).not.toMatch(/could not confirm/);
     const none = await api<{ projects: unknown[] }>('GET', `/events/${eventId}/projects`);
     expect(none.ok && none.data.projects).toHaveLength(0);
     const retried = await run(eventId, {}, key);
@@ -425,7 +425,7 @@ describe.each(testDatabaseTargets())('project submission flow on %s', (_name, op
         ? {
             ok: false,
             status: 503,
-            code: 'API_UNREACHABLE',
+            code: 'API_NO_ANSWER',
             message: 'connection reset',
             issues: [],
           }

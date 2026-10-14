@@ -124,8 +124,22 @@ Nothing is repaired or deleted automatically.
 - **Handle.** Do not rely on a flagged project's captures or assessments: they mix more than one submission. Leave it as history. Submit each correct GitHub + Devpost pair on its own through the
   form; a flagged (mixed) project does **not** block the correct submissions of its links, so they create new, clean projects. The mixed project then shows as sharing those links in the integrity list,
   which is correct: it is the record of what happened.
-- **Why not delete.** Projects, declarations and snapshots are append-only by design (audit and reproducibility). A "void" marker for a project would need a schema change and an owner decision; it is not part of this slice.
+- **Why not delete.** Projects, declarations and snapshots are append-only by design (audit and reproducibility). Instead an organizer can **void** a project (§1.8); the project and everything captured for it stay on record.
 - Legacy routes (`POST /projects/:id/sources`) still exist for operators. A project **created by a submission** refuses any GitHub or Devpost link other than its own (`SUBMISSION_SOURCE_FIXED`, also enforced by a database trigger).
+
+### 1.8 Correcting a wrong submission: void and replace (P6B-beta2)
+
+A submission cannot be edited. If the wrong repository or Devpost page was entered, open the project's capture page and choose **Wrong links? Void and replace this submission**
+(`/projects/<id>/correct`), give the reason, and enter the corrected GitHub and Devpost links (or untick the box to void without a replacement).
+
+- **What happens.** In one step the project is marked **voided** (its reason, the organizer and the time are recorded) and the corrected pair becomes a new project whose captures are queued. The voided project keeps every capture,
+  assessment and report it had; it only stops accepting new captures, sources and assessments, and the link to the replacement is shown on its pages. This cannot be undone; the voided project is not deleted and its links are
+  free again for the replacement and for later submissions.
+- **Wait for captures first.** If a capture of the project is still queued or running, the correction is refused and **nothing changes** (`PROJECT_HAS_PENDING_WORK`). Let the worker finish (the capture page shows progress), then correct.
+- **Safe to retry.** The page's key travels with the form: pressing the button twice, or after a lost answer ("we could not confirm whether the correction was applied"), can only return the original result; it never creates a
+  second replacement. If you are unsure, reload the project page: a voided project shows the red-bordered notice.
+- **Refusals.** The corrected pair overlaps another project's links, is invalid, or uses a label another project already has: nothing is voided and nothing is created. The reason is shown; fix the links and send again.
+- **Conservative defaults.** Only organizers can void. A judge sees voided projects as history. Upgrading an existing database: [MIGRATIONS](./MIGRATIONS.md).
 
 ## 2. Checking the experience does not mislead
 

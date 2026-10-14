@@ -112,7 +112,10 @@ export function parseGithubRepositoryUrl(raw: string): GithubRepositoryRef | Url
     GITHUB_RESERVED_OWNERS.has(owner.toLowerCase()) ||
     !GITHUB_REPO.test(repo) ||
     repo === '.' ||
-    repo === '..'
+    repo === '..' ||
+    // GitHub never has a repository whose name ends in `.git` (the suffix is stripped once above); keeping `r.git.git` as `r.git` would make the
+    // stored canonical form parse to a different canonical form (`r`), so one repository could have two identities
+    /\.git$/i.test(repo)
   ) {
     return 'unsupported_path';
   }

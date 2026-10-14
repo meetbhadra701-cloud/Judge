@@ -9,6 +9,7 @@ import { apiRequest, projectPath } from '../../../lib/api';
 import { openMessage } from '../../../lib/flash';
 import { addProjectSourceAction, requestCaptureAction } from '../../actions';
 import { ErrorBanner, formatDate, StatusBadge } from '../../components/ui';
+import { voidedNotice } from '../../../lib/submission';
 import { projectPageTitle } from '../../../lib/titles';
 
 export async function generateMetadata({
@@ -65,6 +66,27 @@ export default async function ProjectPage({
         <Link href={`/events/${project.eventId}`}>← Event</Link>
       </p>
       <h1>{project.name}</h1>
+      {project.voided !== null ? (
+        <section role="status" className="notice" data-testid="voided-project">
+          <p>
+            <strong>Voided.</strong> {voidedNotice(project)}
+          </p>
+          <p>
+            Reason on record: <q>{project.voided.reason}</q>
+          </p>
+          {project.voided.replacedByProjectId !== null ? (
+            <p>
+              <Link href={`/projects/${project.voided.replacedByProjectId}`}>
+                Open the replacement project →
+              </Link>
+            </p>
+          ) : null}
+        </section>
+      ) : (
+        <p>
+          <Link href={`/projects/${project.id}/correct`}>Void and replace this submission →</Link>
+        </p>
+      )}
       <p>Team: {project.teamName ?? '—'}</p>
       <ErrorBanner message={error} />
       <p className="notice">
@@ -129,41 +151,45 @@ export default async function ProjectPage({
                     )}
                   </td>
                   <td>
-                    <form action={requestCaptureAction}>
-                      <input type="hidden" name="projectId" value={project.id} />
-                      <input type="hidden" name="sourceId" value={source.id} />
-                      <button type="submit">Request capture</button>
-                    </form>
+                    {project.voided === null ? (
+                      <form action={requestCaptureAction}>
+                        <input type="hidden" name="projectId" value={project.id} />
+                        <input type="hidden" name="sourceId" value={source.id} />
+                        <button type="submit">Request capture</button>
+                      </form>
+                    ) : null}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-        {project.sources.length > 0 ? (
+        {project.sources.length > 0 && project.voided === null ? (
           <form action={requestCaptureAction}>
             <input type="hidden" name="projectId" value={project.id} />
             <button type="submit">Capture all sources</button>
           </form>
         ) : null}
-        <form action={addProjectSourceAction} className="stack">
-          <h3>Add source</h3>
-          <input type="hidden" name="projectId" value={project.id} />
-          <label>
-            Type{' '}
-            <select name="sourceType" required>
-              {PROJECT_SOURCE_TYPE_VALUES.map((type) => (
-                <option key={type} value={type}>
-                  {SOURCE_LABELS[type]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            URL <input name="url" type="url" required maxLength={2048} />
-          </label>
-          <button type="submit">Add source</button>
-        </form>
+        {project.voided === null ? (
+          <form action={addProjectSourceAction} className="stack">
+            <h3>Add source</h3>
+            <input type="hidden" name="projectId" value={project.id} />
+            <label>
+              Type{' '}
+              <select name="sourceType" required>
+                {PROJECT_SOURCE_TYPE_VALUES.map((type) => (
+                  <option key={type} value={type}>
+                    {SOURCE_LABELS[type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              URL <input name="url" type="url" required maxLength={2048} />
+            </label>
+            <button type="submit">Add source</button>
+          </form>
+        ) : null}
       </section>
 
       <section>

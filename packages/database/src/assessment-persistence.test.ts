@@ -19,7 +19,7 @@ import {
   preInterviewAssessments,
   type JudgeDatabase,
 } from './index.js';
-import { newRunStore, requestInput } from './testing/assessment-fixtures.js';
+import { createdRunId, newRunStore, requestInput } from './testing/assessment-fixtures.js';
 import {
   extractAndBind,
   scoreRun,
@@ -309,6 +309,34 @@ describe.each(testDatabaseTargets())(
         expect(reassess.kind).toBe('run_created');
         expect(await count('analysis_runs', `project_id = '${w.project.id}'`)).toBe(runs + 1);
       });
+    });
+
+    it('a VOIDED project starts no new assessment run or request (P6B-beta2), while an earlier request still replays and nothing else changes', async () => {
+      const w = await newWorld();
+      const runStore = newRunStore(db);
+      const first = requestInput(w);
+      const created = await runStore.requestAssessment(first);
+      expect(created.kind).toBe('run_created');
+      const runId = createdRunId(created);
+      // the run must be finished before the project can be voided
+      await runStore.finishRun({ runId, state: 'cancelled', failureCode: 'cancelled_for_test' });
+      await db.execute(sql`INSERT INTO project_voids (event_id, project_id, voided_by_actor_id, reason, name_before, idempotency_key, request_hash)
+        VALUES (${w.event.id}, ${w.project.id}, ${w.actor.id}, 'wrong submission', 'x', 'void-key-assess-1', ${'c'.repeat(64)})`);
+      const before = await count('analysis_runs', `project_id = '${w.project.id}'`);
+      expect(await runStore.requestAssessment(requestInput(w))).toEqual({ kind: 'project_voided' });
+      expect(await runStore.requestAssessment(requestInput(w, { mode: 'reassess' }))).toEqual({
+        kind: 'project_voided',
+      });
+      // the same key as before the void still answers with the original outcome
+      expect((await runStore.requestAssessment(first)).kind).toBe('run_failed');
+      expect(await count('analysis_runs', `project_id = '${w.project.id}'`)).toBe(before);
+      // and the database refuses a run created by any other path
+      await expectPgError(
+        db.execute(
+          sql`INSERT INTO analysis_runs (event_id, project_id, run_type, state) VALUES (${w.event.id}, ${w.project.id}, 'synthetic_stage', 'pending')`,
+        ),
+        SQLSTATE.RESTRICT_VIOLATION,
+      );
     });
 
     describe('failed, partial and corrupted writes leave nothing', () => {

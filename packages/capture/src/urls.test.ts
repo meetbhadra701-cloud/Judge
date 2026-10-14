@@ -21,6 +21,9 @@ describe('declared source URL rules', () => {
     ['https://user:pass@github.com/team/project', 'credentials_in_url'],
     ['ftp://github.com/team/project', 'scheme_not_allowed'],
     ['not a url', 'invalid_url'],
+    // the canonical form must itself be canonical (P6B-beta2): `r.git.git` would otherwise be stored as `r.git`, which parses to `r`
+    ['https://github.com/team/project.git.git', 'unsupported_path'],
+    ['https://github.com/team/.git', 'unsupported_path'],
   ])('rejects GitHub URL %s', (raw, reason) => {
     expect(normalizeDeclaredSourceUrl('github', raw)).toEqual({ ok: false, reason });
   });

@@ -7,6 +7,7 @@ import {
   overviewOf,
   sourceIntegrityNotice,
 } from '../../../../lib/capture-status';
+import { voidedNotice } from '../../../../lib/submission';
 import { AutoRefresh } from './auto-refresh';
 import { RetryButton } from './retry-button';
 
@@ -34,12 +35,36 @@ export function CaptureView({ project, event, error, retryAction }: CaptureViewP
   const locked = event?.lockedVersionId
     ? event.versions.find((version) => version.id === event.lockedVersionId)
     : undefined;
+  const voided = voidedNotice(project);
   return (
     <main>
       <p>
         <Link href={`/events/${project.eventId}/submit`}>← Submit another project</Link>
       </p>
       <h1>{project.name}</h1>
+      {project.voided !== null && voided !== null ? (
+        <section role="status" className="notice" data-testid="voided-project">
+          <p>
+            <strong>Voided.</strong> {voided}
+          </p>
+          <p>
+            Reason on record: <q>{project.voided.reason}</q>
+          </p>
+          {project.voided.replacedByProjectId !== null ? (
+            <p>
+              <Link href={`/projects/${project.voided.replacedByProjectId}/capture`}>
+                Open the replacement project →
+              </Link>
+            </p>
+          ) : null}
+        </section>
+      ) : (
+        <p>
+          <Link href={`/projects/${project.id}/correct`} data-testid="correct-link">
+            Wrong links? Void and replace this submission
+          </Link>
+        </p>
+      )}
       <p data-testid="active-event">
         Hackathon: <strong>{event?.event.name ?? 'unknown'}</strong>
         {locked ? <> · locked Event Context v{locked.version}</> : null}
@@ -111,7 +136,7 @@ export function CaptureView({ project, event, error, retryAction }: CaptureViewP
                       ) : null}
                     </td>
                     <td>
-                      {view.retryable ? (
+                      {view.retryable && project.voided === null ? (
                         <form action={retryAction}>
                           <input type="hidden" name="projectId" value={project.id} />
                           <input type="hidden" name="sourceId" value={source.id} />

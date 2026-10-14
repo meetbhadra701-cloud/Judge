@@ -107,6 +107,8 @@ export interface WorldOptions {
   sources?: ('devpost' | 'github' | 'deployment')[];
   devpostText?: string;
   readmeText?: string;
+  /** The project's name (a project is renamed only when it is voided, so a label is chosen at creation). */
+  projectName?: string;
   codeText?: string;
   /** Source types whose capture failed (no artifacts). */
   failed?: ('github' | 'deployment' | 'video')[];
@@ -307,6 +309,13 @@ interface ArtifactSeed {
   text: string;
 }
 
+/** A declaration URL in the canonical form the database requires for GitHub and Devpost sources (test hosts for the other kinds). */
+function declaredTestUrl(sourceType: string, unique: string): string {
+  if (sourceType === 'github') return `https://github.com/test-org/repo-${unique}`;
+  if (sourceType === 'devpost') return `https://devpost.com/software/test-${unique}`;
+  return `https://example.test/${sourceType}/${unique}`;
+}
+
 export async function seedSnapshot(
   db: JudgeDatabase,
   project: { id: string },
@@ -315,7 +324,7 @@ export async function seedSnapshot(
   artifacts: readonly ArtifactSeed[] = [],
 ) {
   const n = next();
-  const url = `https://example.test/${sourceType}/${String(n)}`;
+  const url = declaredTestUrl(sourceType, String(n));
   const [source] = await db
     .insert(projectSources)
     .values({ projectId: project.id, sourceType, url, position: n })
@@ -435,7 +444,7 @@ export async function seedWorld(db: JudgeDatabase, options: WorldOptions = {}) {
   const context = await seedLockedContext(db, event.id, options);
   const [project] = await db
     .insert(projects)
-    .values({ eventId: event.id, name: `HydroTrack ${String(n)}` })
+    .values({ eventId: event.id, name: options.projectName ?? `HydroTrack ${String(n)}` })
     .returning();
   if (!project) throw new Error('project');
   const wanted = options.sources ?? ['devpost', 'github'];

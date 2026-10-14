@@ -13,6 +13,7 @@ import {
   type ProjectRecord,
   type ProjectSourceRecord,
   type ProjectTrackSelectionRecord,
+  type ProjectVoidInfo,
   type SnapshotSummary,
 } from '@judge-copilot/schemas';
 
@@ -28,6 +29,7 @@ const isoOrNull = (date: Date | null): string | null => (date ? date.toISOString
 export function toProjectRecord(
   row: ProjectRow,
   tracks: ProjectTrackSelectionRecord[],
+  voided: ProjectVoidInfo | null = null,
 ): ProjectRecord {
   return {
     id: row.id,
@@ -38,6 +40,7 @@ export function toProjectRecord(
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
     tracks,
+    voided,
   };
 }
 

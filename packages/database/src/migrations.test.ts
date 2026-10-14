@@ -49,7 +49,7 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
     return event.id;
   }
 
-  it('creates exactly the M0 + M1 + M2 + M3 + M5-P4 + P6B-beta1 tables (no question, answer, interview, final-score, delta or post-interview tables)', async () => {
+  it('creates exactly the M0 + M1 + M2 + M3 + M5-P4 + P6B-beta1 + P6B-beta2 tables (no question, answer, interview, final-score, delta or post-interview tables)', async () => {
     const tables = await rows<{ table_name: string }>(
       db,
       sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
@@ -77,10 +77,13 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
       'graph_extraction_items',
       'graph_extractions',
       'pre_interview_assessments',
+      'project_replacements',
       'project_sources',
+      'project_submission_claims',
       'project_submission_requests',
       'project_submissions',
       'project_track_selections',
+      'project_voids',
       'projects',
       'rubric_anchors',
       'rubric_criteria',

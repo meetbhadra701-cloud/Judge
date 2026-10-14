@@ -15,7 +15,10 @@ export type SourceIngestionErrorCode =
   | 'SOURCE_LIMIT_REACHED'
   | 'SUBMISSION_CONFLICT'
   | 'SUBMISSION_SOURCE_FIXED'
-  | 'IDEMPOTENCY_KEY_REUSED';
+  | 'IDEMPOTENCY_KEY_REUSED'
+  | 'PROJECT_VOIDED'
+  | 'PROJECT_ALREADY_VOIDED'
+  | 'PROJECT_HAS_PENDING_WORK';
 
 export const SOURCE_INGESTION_STATUS: Record<SourceIngestionErrorCode, number> = {
   EVENT_NOT_FOUND: 404,
@@ -35,6 +38,9 @@ export const SOURCE_INGESTION_STATUS: Record<SourceIngestionErrorCode, number> =
   SUBMISSION_CONFLICT: 409,
   SUBMISSION_SOURCE_FIXED: 409,
   IDEMPOTENCY_KEY_REUSED: 422,
+  PROJECT_VOIDED: 409,
+  PROJECT_ALREADY_VOIDED: 409,
+  PROJECT_HAS_PENDING_WORK: 409,
 };
 
 /** A typed, client-safe error of the project-source workflow. Details never echo raw input. */

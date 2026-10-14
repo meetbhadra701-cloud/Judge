@@ -7,7 +7,8 @@ export type AssessmentApiErrorCode =
   | 'IDEMPOTENCY_KEY_REUSED'
   | 'NO_LOCKED_CONTEXT'
   | 'NO_SOURCE_SNAPSHOTS'
-  | 'ASSESSMENT_READ_ONLY';
+  | 'ASSESSMENT_READ_ONLY'
+  | 'PROJECT_VOIDED';
 
 export const ASSESSMENT_API_STATUS: Record<AssessmentApiErrorCode, number> = {
   PROJECT_NOT_FOUND: 404,
@@ -19,6 +20,7 @@ export const ASSESSMENT_API_STATUS: Record<AssessmentApiErrorCode, number> = {
   NO_LOCKED_CONTEXT: 409,
   NO_SOURCE_SNAPSHOTS: 422,
   ASSESSMENT_READ_ONLY: 405,
+  PROJECT_VOIDED: 409,
 };
 
 /**
