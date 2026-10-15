@@ -1,4 +1,4 @@
-import { createDatabase } from '@judge-copilot/database';
+import { assertSchemaReady, createDatabase } from '@judge-copilot/database';
 import { createFixtureNetwork, createSafeHttpClient } from '@judge-copilot/safe-http';
 import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { createAdapterRegistry } from './adapters.js';
@@ -22,6 +22,9 @@ const database = env.DATABASE_URL
         (env.ASSESSMENT_PROVIDER === 'none' ? 0 : env.ASSESSMENT_CONCURRENCY * 3),
     })
   : null;
+
+// A migrator that reported success is not proof that the schema is complete: refuse to run against a skipped migration (P6B-beta3-R2).
+if (database) await assertSchemaReady(database.db);
 
 let captureLoop = null;
 if (database) {

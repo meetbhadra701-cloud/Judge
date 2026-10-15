@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit generate",
     "db:migrate": "NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit migrate",
-    "db:check": "NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit check"
+    "db:check": "tsx scripts/check-migration-journal.ts && NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit check",
+    "db:verify-schema": "tsx --conditions=@judge-copilot/source scripts/verify-schema.ts"
   },
   "dependencies": {
     "@judge-copilot/assessment": "workspace:*",

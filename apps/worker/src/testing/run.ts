@@ -34,6 +34,8 @@ export interface Scenario {
   readonly wrap?: (provider: LlmProvider) => LlmProvider;
   readonly deps?: Partial<PipelineDeps>;
   readonly models?: Partial<Parameters<typeof testConfig>[1]>;
+  /** Freezes the run under an earlier source-selection policy (P6B-beta3-R2: coverage records under v1/v2 must keep verifying). */
+  readonly selection?: 'source-selection/v1' | 'source-selection/v2' | 'source-selection/v3';
   readonly mode?: 'assess' | 'reassess';
   /** Serves the pipeline from this provider instead of the scripted fake model (for example a ReplayProvider). */
   readonly provider?: LlmProvider;
@@ -51,7 +53,16 @@ export async function execute(db: JudgeDatabase, scenario: Scenario = {}) {
   const h: Harness = harness(counting.db);
   const runId = await requestRun(h, world, probe, {
     ...(scenario.limits === undefined ? {} : { limits: scenario.limits }),
-    ...(scenario.models === undefined ? {} : { config: testConfig(probe, scenario.models) }),
+    ...(scenario.models === undefined && scenario.selection === undefined
+      ? {}
+      : {
+          config: (() => {
+            const base = testConfig(probe, scenario.models ?? {});
+            return scenario.selection === undefined
+              ? base
+              : { ...base, policies: { ...base.policies, selection: scenario.selection } };
+          })(),
+        }),
     ...(scenario.mode === undefined ? {} : { mode: scenario.mode }),
   });
   const outcome = await runAssessment(h.deps(probe, scenario.deps), runId);

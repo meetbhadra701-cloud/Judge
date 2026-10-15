@@ -1,6 +1,6 @@
 import { createDevVerifier, createJwtVerifier } from '@judge-copilot/auth';
 import { createReplayExtractor } from '@judge-copilot/context';
-import { createDatabase, EvidenceGraphStore } from '@judge-copilot/database';
+import { assertSchemaReady, createDatabase, EvidenceGraphStore } from '@judge-copilot/database';
 import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { buildApp, SERVICE_NAME } from './app.js';
 import { loadApiEnv } from './env.js';
@@ -19,6 +19,9 @@ const database = env.DATABASE_URL ? createDatabase(env.DATABASE_URL) : null;
 if (!database) {
   logger.warn('DATABASE_URL is not set; Event Context routes will respond 503');
 }
+
+// A migrator that reported success is not proof that the schema is complete: refuse to run against a skipped migration (P6B-beta3-R2).
+if (database) await assertSchemaReady(database.db);
 
 const extractor =
   env.EVENT_CONTEXT_EXTRACTOR === 'replay' && env.EVENT_CONTEXT_REPLAY_DIR

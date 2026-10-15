@@ -154,3 +154,13 @@ export {
   tracks,
   unknowns,
 } from './schema/index.js';
+
+export {
+  assertSchemaReady,
+  diagnoseMigrations,
+  SchemaNotReadyError,
+  verifySchemaObjects,
+  type MigrationDiagnosis,
+  type SchemaVerification,
+} from './schema-state.js';
+export { checkMigrationJournal, readJournal } from './migration-journal.js';

@@ -1,4 +1,7 @@
-CREATE TABLE "assessment_run_coverage" (
+-- P6B-beta3-R2: this migration is IDEMPOTENT. Its first journal entry carried a `when` older than 0019's, so the migrator skipped it on every database
+-- that had already applied 0019 (and recorded it, with that old timestamp, on databases built fresh). The entry now has a later `when`; a database
+-- that already holds the table (built fresh from the earlier journal) re-runs these statements harmlessly. Nothing here drops or rewrites data.
+CREATE TABLE IF NOT EXISTS "assessment_run_coverage" (
 	"run_id" uuid PRIMARY KEY NOT NULL,
 	"project_id" uuid NOT NULL,
 	"schema_id" text NOT NULL,
@@ -14,17 +17,29 @@ CREATE TABLE "assessment_run_coverage" (
 	CONSTRAINT "assessment_run_coverage_hash_matches_text" CHECK (record_sha256 = encode(sha256(convert_to(record_canonical, 'UTF8')), 'hex'))
 );
 --> statement-breakpoint
-ALTER TABLE "assessment_run_coverage" ADD CONSTRAINT "assessment_run_coverage_run_id_analysis_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."analysis_runs"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "assessment_run_coverage" ADD CONSTRAINT "assessment_run_coverage_run_same_project_fk" FOREIGN KEY ("run_id","project_id") REFERENCES "public"."analysis_runs"("id","project_id") ON DELETE restrict ON UPDATE no action;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'assessment_run_coverage_run_id_analysis_runs_id_fk' AND conrelid = 'public.assessment_run_coverage'::regclass) THEN
+    ALTER TABLE "assessment_run_coverage" ADD CONSTRAINT "assessment_run_coverage_run_id_analysis_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."analysis_runs"("id") ON DELETE restrict ON UPDATE no action;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'assessment_run_coverage_run_same_project_fk' AND conrelid = 'public.assessment_run_coverage'::regclass) THEN
+    ALTER TABLE "assessment_run_coverage" ADD CONSTRAINT "assessment_run_coverage_run_same_project_fk" FOREIGN KEY ("run_id","project_id") REFERENCES "public"."analysis_runs"("id","project_id") ON DELETE restrict ON UPDATE no action;
+  END IF;
+END
+$$;
 --> statement-breakpoint
 -- Hand-written (drizzle-kit does not emit triggers): the coverage record is an append-only historical record of what a run's selection did.
+DROP TRIGGER IF EXISTS "assessment_run_coverage_immutable_guard" ON "assessment_run_coverage";
+--> statement-breakpoint
 CREATE TRIGGER "assessment_run_coverage_immutable_guard" BEFORE UPDATE OR DELETE ON "assessment_run_coverage"
   FOR EACH ROW EXECUTE FUNCTION "assessment_immutable_guard"();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "assessment_run_coverage_no_truncate" ON "assessment_run_coverage";
 --> statement-breakpoint
 CREATE TRIGGER "assessment_run_coverage_no_truncate" BEFORE TRUNCATE ON "assessment_run_coverage"
   FOR EACH STATEMENT EXECUTE FUNCTION "assessment_no_truncate"();
 --> statement-breakpoint
-CREATE FUNCTION "assessment_run_coverage_insert_guard"() RETURNS trigger
+CREATE OR REPLACE FUNCTION "assessment_run_coverage_insert_guard"() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
   v_state text;
@@ -44,6 +59,8 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "assessment_run_coverage_insert_guard" ON "assessment_run_coverage";
 --> statement-breakpoint
 CREATE TRIGGER "assessment_run_coverage_insert_guard" BEFORE INSERT ON "assessment_run_coverage"
   FOR EACH ROW EXECUTE FUNCTION "assessment_run_coverage_insert_guard"();
