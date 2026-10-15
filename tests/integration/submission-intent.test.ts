@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { ApiErrorBody } from '../../packages/schemas/src/index.js';
+import { sql } from '../../packages/database/src/testing/databases.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   actors,
@@ -163,6 +164,24 @@ describe.each(testDatabaseTargets())('submission intents on %s', (_name, open) =
       runs: (await db.select().from(analysisRuns)).length,
       audit: (await db.select().from(auditEvents)).length,
     };
+  }
+
+  /**
+   * A declaration as it could exist in a database written BEFORE the ownership registry covered every route (P6B-beta3): triggers are suspended for
+   * this one statement, exactly as if the row predated them. The registry's backfill deliberately leaves such rows alone (docs/MIGRATIONS.md).
+   */
+  async function historicalSource(
+    projectId: string,
+    sourceType: 'github' | 'devpost',
+    url: string,
+  ) {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`);
+      await tx.execute(
+        sql`INSERT INTO project_sources (project_id, source_type, url, position)
+            SELECT ${projectId}, ${sourceType}, ${url}, coalesce(max(position), -1) + 1 FROM project_sources WHERE project_id = ${projectId}`,
+      );
+    });
   }
 
   // -- the contract ----------------------------------------------------------------------------------------------------------
@@ -448,7 +467,7 @@ describe.each(testDatabaseTargets())('submission intents on %s', (_name, open) =
     expect(await totals()).toEqual(before);
   });
 
-  it('an earlier-flow project that mixes several links does not block the correct submission of its links, and stays flagged', async () => {
+  it('a HISTORICAL project that mixes several links (written before the registry covered every route) does not block the correct submission of its links, and stays flagged', async () => {
     const eventId = await lockedEvent();
     const n = unique();
     const post = (url: string, payload: unknown) =>
@@ -461,9 +480,9 @@ describe.each(testDatabaseTargets())('submission intents on %s', (_name, open) =
     const mixed = (await post(`/events/${eventId}/projects`, { name: `Old mixed ${n}` })).json<{
       id: string;
     }>().id;
-    await post(`/projects/${mixed}/sources`, { sourceType: 'github', url: gh(`remedy-${n}`) });
-    await post(`/projects/${mixed}/sources`, { sourceType: 'devpost', url: dp(`remedy-${n}-a`) });
-    await post(`/projects/${mixed}/sources`, { sourceType: 'devpost', url: dp(`remedy-${n}-b`) });
+    await historicalSource(mixed, 'github', gh(`remedy-${n}`));
+    await historicalSource(mixed, 'devpost', dp(`remedy-${n}-a`));
+    await historicalSource(mixed, 'devpost', dp(`remedy-${n}-b`));
     const before = await totals();
     // the correct intent (repository + the first Devpost page) is accepted as a NEW project; nothing about the mixed one is rewritten
     const fixed = await submit({
@@ -946,13 +965,13 @@ describe.each(testDatabaseTargets())('submission intents on %s', (_name, open) =
     const mixed = (await post(`/events/${eventId}/projects`, { name: `Mixed ${n}` })).json<{
       id: string;
     }>().id;
-    await post(`/projects/${mixed}/sources`, { sourceType: 'github', url: gh(`mix-${n}`) });
-    await post(`/projects/${mixed}/sources`, { sourceType: 'devpost', url: dp(`mix-${n}-a`) });
-    await post(`/projects/${mixed}/sources`, { sourceType: 'devpost', url: dp(`mix-${n}-b`) });
+    await historicalSource(mixed, 'github', gh(`mix-${n}`));
+    await historicalSource(mixed, 'devpost', dp(`mix-${n}-a`));
+    await historicalSource(mixed, 'devpost', dp(`mix-${n}-b`));
     const twin = (await post(`/events/${eventId}/projects`, { name: `Twin ${n}` })).json<{
       id: string;
     }>().id;
-    await post(`/projects/${twin}/sources`, { sourceType: 'github', url: gh(`mix-${n}`) });
+    await historicalSource(twin, 'github', gh(`mix-${n}`));
     const clean = await submit({ eventId, github: gh(`clean-${n}`), devpost: dp(`clean-${n}`) });
     const cleanId = (clean.body['project'] as { id: string }).id;
     const before = await totals();
@@ -987,5 +1006,46 @@ describe.each(testDatabaseTargets())('submission intents on %s', (_name, open) =
     );
     expect(body.findings.flatMap((f) => f.projectIds)).not.toContain(cleanId);
     expect(await totals()).toEqual(before);
+  });
+
+  it('a mixed project can no longer be BUILT through the routes: the second owner of a link is refused, and an existing owner blocks a correct submission until it is voided', async () => {
+    const eventId = await lockedEvent();
+    const n = unique();
+    const post = (url: string, payload: unknown) =>
+      app.inject({
+        method: 'POST',
+        url,
+        headers: bearer(TEST_TOKENS.organizer),
+        payload: payload as object,
+      });
+    const first = (await post(`/events/${eventId}/projects`, { name: `Live A ${n}` })).json<{
+      id: string;
+    }>().id;
+    const second = (await post(`/events/${eventId}/projects`, { name: `Live B ${n}` })).json<{
+      id: string;
+    }>().id;
+    expect(
+      (await post(`/projects/${first}/sources`, { sourceType: 'github', url: gh(`live-${n}`) }))
+        .statusCode,
+    ).toBe(201);
+    const taken = await post(`/projects/${second}/sources`, {
+      sourceType: 'github',
+      url: gh(`live-${n}`),
+    });
+    expect([taken.statusCode, code(taken.json())]).toEqual([409, 'SUBMISSION_CONFLICT']);
+    const blocked = await submit({ eventId, github: gh(`live-${n}`), devpost: dp(`live-${n}`) });
+    expect([blocked.status, code(blocked.body)]).toEqual([409, 'SUBMISSION_CONFLICT']);
+    // voiding the owner releases the link for everyone
+    const voided = await app.inject({
+      method: 'POST',
+      url: `/projects/${first}/void`,
+      headers: { ...bearer(TEST_TOKENS.organizer), 'idempotency-key': randomUUID() },
+      payload: { reason: 'wrong project' },
+    });
+    expect(voided.statusCode).toBe(201);
+    expect(
+      (await post(`/projects/${second}/sources`, { sourceType: 'github', url: gh(`live-${n}`) }))
+        .statusCode,
+    ).toBe(201);
   });
 });

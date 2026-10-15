@@ -13,6 +13,7 @@ export type RepositoryOmissionReason =
   | 'unsupported_file_type'
   | 'symlink'
   | 'path_too_long'
+  | 'unsafe_path'
   | 'submodule'
   | 'file_too_large'
   | 'binary_content'
@@ -25,6 +26,21 @@ export type RepositoryOmissionReason =
 export type PathClassification =
   | { readonly include: true; readonly priority: number }
   | { readonly include: false; readonly reason: RepositoryOmissionReason };
+
+/**
+ * True when a repository path is a plain relative path of ordinary segments. A hostile or malformed tree can contain anything: traversal
+ * (`..`), absolute paths, backslashes (a Windows separator), drive letters, empty segments and control characters (NUL included). Such a path is
+ * never a file of the repository as Git defines it (Git itself refuses `..`, empty and `.git` components), and it must never become an artifact
+ * key, a database row or a file name on someone's disk.
+ */
+export function isSafeRepositoryPath(path: string): boolean {
+  if (path === '' || path.startsWith('/') || path.includes('\\')) return false;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f\u0080-\u009f\u2028\u2029]/u.test(path)) return false;
+  const segments = path.split('/');
+  if (/^[A-Za-z]:/.test(segments[0] ?? '')) return false;
+  return segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
 
 /** Generated, vendored or VCS trees that are skipped entirely. */
 export const IGNORED_DIRECTORIES: readonly string[] = [
@@ -177,6 +193,7 @@ function extensionOf(basename: string): string {
  * rest. Ties are broken by depth, then by path (see `compareSelection`).
  */
 export function classifyRepositoryPath(path: string): PathClassification {
+  if (!isSafeRepositoryPath(path)) return { include: false, reason: 'unsafe_path' };
   const segments = path.split('/');
   const basename = segments[segments.length - 1] ?? '';
   const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());

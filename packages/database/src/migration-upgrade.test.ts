@@ -90,6 +90,8 @@ describe.each(targets)('upgrading P6B-beta1 data to P6B-beta2 on $name', (target
     actor: '00000000-0000-4000-8000-000000000002',
     submitted: '00000000-0000-4000-8000-000000000003',
     earlier: '00000000-0000-4000-8000-000000000004',
+    twin: '00000000-0000-4000-8000-000000000005',
+    mixed: '00000000-0000-4000-8000-000000000006',
   };
 
   beforeAll(async () => {
@@ -109,14 +111,18 @@ describe.each(targets)('upgrading P6B-beta1 data to P6B-beta2 on $name', (target
       sql`INSERT INTO actors (id, issuer, subject) VALUES (${ids.actor}, 'urn:old', 'organizer')`,
     );
     await db.execute(sql`INSERT INTO projects (id, event_id, name) VALUES
-      (${ids.submitted}, ${ids.event}, 'Old/Submission'), (${ids.earlier}, ${ids.event}, 'Earlier flow')`);
+      (${ids.submitted}, ${ids.event}, 'Old/Submission'), (${ids.earlier}, ${ids.event}, 'Earlier flow'),
+      (${ids.twin}, ${ids.event}, 'Shared twin'), (${ids.mixed}, ${ids.event}, 'Mixed historical')`);
     await db.execute(sql`INSERT INTO project_submissions (event_id, project_id, submitted_by_actor_id, github_url, devpost_url, name_key)
       VALUES (${ids.event}, ${ids.submitted}, ${ids.actor}, 'https://github.com/old/submission', 'https://devpost.com/software/old-submission', 'old/submission')`);
     // an earlier-flow source written before the canonical-URL rule existed: upper case and a trailing slash
     await db.execute(sql`INSERT INTO project_sources (project_id, source_type, url, position) VALUES
       (${ids.submitted}, 'github', 'https://github.com/old/submission', 0),
       (${ids.submitted}, 'devpost', 'https://devpost.com/software/old-submission', 1),
-      (${ids.earlier}, 'github', 'https://github.com/Old/Earlier/', 0)`);
+      (${ids.earlier}, 'github', 'https://github.com/Old/Earlier/', 0),
+      (${ids.twin}, 'github', 'https://github.com/old/submission', 0),
+      (${ids.mixed}, 'devpost', 'https://devpost.com/software/mixed-a', 0),
+      (${ids.mixed}, 'devpost', 'https://devpost.com/software/mixed-b', 1)`);
     // the target migrations are applied on top of that data
     await handle.migrateTo(migrationsFolder);
   });
@@ -124,29 +130,45 @@ describe.each(targets)('upgrading P6B-beta1 data to P6B-beta2 on $name', (target
     await handle.close();
   });
 
-  it('applies on top of existing data and leaves every existing row untouched', async () => {
-    const projects = await rows<{ id: string; name: string }>(
+  it('applies on top of existing data and leaves every existing row untouched, including links that were ALREADY shared', async () => {
+    const projects = await rows<{ name: string }>(db, sql`SELECT name FROM projects ORDER BY name`);
+    expect(projects.map((p) => p.name)).toEqual([
+      'Earlier flow',
+      'Mixed historical',
+      'Old/Submission',
+      'Shared twin',
+    ]);
+    const sources = await rows<{ project_id: string; url: string }>(
       db,
-      sql`SELECT id, name FROM projects ORDER BY name`,
+      sql`SELECT project_id, url FROM project_sources ORDER BY project_id, position`,
     );
-    expect(projects.map((p) => p.name)).toEqual(['Earlier flow', 'Old/Submission']);
-    const sources = await rows<{ url: string }>(
-      db,
-      sql`SELECT url FROM project_sources ORDER BY url`,
-    );
-    expect(sources.map((s) => s.url)).toContain('https://github.com/Old/Earlier/'); // the old, non-canonical row survives
+    expect(sources).toHaveLength(6); // nothing deleted, nothing merged: the non-canonical row and the shared link both survive
+    expect(sources.map((s) => s.url)).toContain('https://github.com/Old/Earlier/');
+    expect(sources.filter((s) => s.url === 'https://github.com/old/submission')).toHaveLength(2);
   });
 
-  it('backfills the ownership registry from the recorded submissions, and only from them', async () => {
+  it('backfills the registry with what is unambiguous: labels of active projects, links of valid single declarations; shared and mixed stay unclaimed', async () => {
     const claims = await rows<{ project_id: string; kind: string; value: string }>(
       db,
-      sql`SELECT project_id, kind, value FROM project_submission_claims ORDER BY kind`,
+      sql`SELECT project_id, kind, value FROM project_submission_claims ORDER BY kind, value`,
     );
-    expect(claims.map((c) => [c.project_id, c.kind, c.value])).toEqual([
-      [ids.submitted, 'devpost', 'https://devpost.com/software/old-submission'],
-      [ids.submitted, 'github', 'https://github.com/old/submission'],
-      [ids.submitted, 'name', 'old/submission'],
+    const mine = (id: string) =>
+      claims.filter((c) => c.project_id === id).map((c) => `${c.kind}:${c.value}`);
+    // the recorded submission owns its two links and its label (written by 0018, kept by 0019)
+    expect(mine(ids.submitted)).toEqual([
+      'devpost:https://devpost.com/software/old-submission',
+      'github:https://github.com/old/submission',
+      'name:old/submission',
     ]);
+    // an earlier-flow project owns its label and its single link, as written (the non-canonical text is not rewritten)
+    expect(mine(ids.earlier)).toEqual([
+      'github:https://github.com/Old/Earlier/',
+      'name:earlier flow',
+    ]);
+    // the historical twin shares a link the submission already owns: it keeps the row, gets no claim on that link, and still owns its label
+    expect(mine(ids.twin)).toEqual(['name:shared twin']);
+    // a historical mixed project (two Devpost links) owns its label only, so it still does not block the correct submissions of its links
+    expect(mine(ids.mixed)).toEqual(['name:mixed historical']);
   });
 
   it('the upgraded database enforces the new rules for NEW rows: ownership, canonical URLs, void', async () => {
@@ -154,6 +176,15 @@ describe.each(targets)('upgrading P6B-beta1 data to P6B-beta2 on $name', (target
     await expect(
       db.execute(sql`INSERT INTO project_sources (project_id, source_type, url, position)
         VALUES (${ids.earlier}, 'devpost', 'https://devpost.com/software/old-submission', 1)`),
+    ).rejects.toThrow();
+    // a new project cannot take a label an existing project owns, ignoring case
+    await expect(
+      db.execute(sql`INSERT INTO projects (event_id, name) VALUES (${ids.event}, 'EARLIER FLOW')`),
+    ).rejects.toThrow();
+    // a NEW declaration of the historically shared link by yet another project is refused: the registry now has one owner for it
+    await expect(
+      db.execute(sql`INSERT INTO project_sources (project_id, source_type, url, position)
+        VALUES (${ids.mixed}, 'github', 'https://github.com/old/submission', 5)`),
     ).rejects.toThrow();
     // a new non-canonical declaration is refused, although the old one was kept
     await expect(

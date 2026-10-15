@@ -1,5 +1,49 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRepositoryPath, compareSelection, looksBinary } from './index.js';
+import {
+  classifyRepositoryPath,
+  compareSelection,
+  isSafeRepositoryPath,
+  looksBinary,
+} from './index.js';
+
+describe('repository path safety (R9-7)', () => {
+  it.each([
+    'README.md',
+    'packages/core/src/index.ts',
+    '.github/workflows/ci.yml',
+    'docs/a b/c.md',
+    'ünï/ファイル.ts',
+  ])('accepts the ordinary path %j', (path) => {
+    expect(isSafeRepositoryPath(path)).toBe(true);
+  });
+
+  it.each([
+    '',
+    '/etc/passwd',
+    '../x',
+    'a/../../x',
+    'a/./b',
+    'a//b',
+    'a/',
+    'a\\b',
+    '..\\..\\x',
+    'C:\\x',
+    'C:/x',
+    'a\u0000b',
+    'a\nb',
+    'a\u2028b',
+    'a\u007fb',
+  ])('refuses %j and classifies it as unsafe_path, whatever its extension', (path) => {
+    expect(isSafeRepositoryPath(path)).toBe(false);
+    if (path !== '' && !path.endsWith('/')) {
+      expect(classifyRepositoryPath(`${path}.md`)).toEqual({
+        include: false,
+        reason: 'unsafe_path',
+      });
+    }
+    expect(classifyRepositoryPath(path)).toEqual({ include: false, reason: 'unsafe_path' });
+  });
+});
 
 describe('repository path rules', () => {
   it.each([

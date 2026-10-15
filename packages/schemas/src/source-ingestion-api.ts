@@ -243,6 +243,22 @@ export const SubmissionIntegrityFinding = z.object({
 });
 export type SubmissionIntegrityFinding = z.infer<typeof SubmissionIntegrityFinding>;
 
+export const REGISTRY_PROBLEM_KIND_VALUES = ['missing_claim', 'stale_claim'] as const;
+/**
+ * The ownership registry (project_submission_claims) is the database's authority on who owns a link or a label. This is the read-only check that the
+ * registry and the rows it summarizes still agree, computed from the base tables so it does not trust the registry it checks:
+ *   missing_claim: an active project holds a link/label that nobody has claimed (registry rows were lost, or the row predates the registry and
+ *                  was not claimed because it is ambiguous -- see docs/MIGRATIONS.md);
+ *   stale_claim:   a claim belongs to a voided project, or to a link/label its project no longer holds.
+ */
+export const RegistryProblem = z.object({
+  kind: z.enum(REGISTRY_PROBLEM_KIND_VALUES),
+  claimKind: z.enum(['github', 'devpost', 'name']),
+  value: z.string(),
+  projectIds: z.array(Uuid),
+});
+export type RegistryProblem = z.infer<typeof RegistryProblem>;
+
 /** Read-only detection of projects that do not form one submission. Nothing is repaired or deleted by reading it. */
 export const SubmissionIntegrityReport = z.object({
   eventId: Uuid,
@@ -252,6 +268,8 @@ export const SubmissionIntegrityReport = z.object({
   /** Projects not created through the submission operation (earlier flows): their provenance cannot be proven either way. */
   projectsWithoutSubmissionRecord: z.number().int().min(0),
   findings: z.array(SubmissionIntegrityFinding),
+  /** Disagreements between the ownership registry and the declarations it summarizes (empty when consistent). */
+  registryProblems: z.array(RegistryProblem),
 });
 export type SubmissionIntegrityReport = z.infer<typeof SubmissionIntegrityReport>;
 

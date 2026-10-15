@@ -36,6 +36,7 @@ import {
   type ProjectSourceRecord,
   type ProjectTrackSelectionRecord,
   type ProjectVoidInfo,
+  type RegistryProblem,
   type SubmissionIntegrityFinding,
   type SubmissionIntegrityReport,
   type SubmitProjectRequest,
@@ -125,7 +126,7 @@ function translateIntegrityError(error: unknown): unknown {
   if (hasPgViolation(error, PG_UNIQUE_VIOLATION, 'project_sources_claimed_by_submission')) {
     return new SourceIngestionError(
       'SUBMISSION_CONFLICT',
-      'Another submission of this event owns this link; void that submission first if it is the erroneous one',
+      'Another active project of this event already owns this link; void that project first if it is the erroneous one',
     );
   }
   if (hasPgViolation(error, PG_CHECK_VIOLATION, 'project_sources_submission_fixed')) {
@@ -172,6 +173,17 @@ export interface ProjectServiceOptions {
    * never sets it.
    */
   beforeSubmissionWrite?: () => Promise<void>;
+  /**
+   * Test seam, the same idea for the earlier project/source routes: awaited by a source declaration or a project creation after its read
+   * checks and before its write. Production never sets it.
+   */
+  beforeLegacyWrite?: () => Promise<void>;
+  /**
+   * Test seams awaited after a transaction's last write and before it commits, so that two contenders can each hold UNCOMMITTED rows at the same
+   * moment (the interleaving a plain read cannot see through). Production never sets them.
+   */
+  afterSubmissionWrite?: () => Promise<void>;
+  afterLegacyWrite?: () => Promise<void>;
 }
 
 /**
@@ -184,12 +196,18 @@ export class ProjectService {
   private readonly now: () => Date;
   private readonly newId: () => string;
   private readonly beforeSubmissionWrite: () => Promise<void>;
+  private readonly beforeLegacyWrite: () => Promise<void>;
+  private readonly afterSubmissionWrite: () => Promise<void>;
+  private readonly afterLegacyWrite: () => Promise<void>;
 
   constructor(options: ProjectServiceOptions) {
     this.db = options.db;
     this.now = options.now ?? (() => new Date());
     this.newId = options.newId ?? randomUUID;
     this.beforeSubmissionWrite = options.beforeSubmissionWrite ?? (() => Promise.resolve());
+    this.beforeLegacyWrite = options.beforeLegacyWrite ?? (() => Promise.resolve());
+    this.afterSubmissionWrite = options.afterSubmissionWrite ?? (() => Promise.resolve());
+    this.afterLegacyWrite = options.afterLegacyWrite ?? (() => Promise.resolve());
   }
 
   // -- Projects ------------------------------------------------------------------------------
@@ -201,56 +219,62 @@ export class ProjectService {
   ): Promise<ProjectRecord> {
     const trackKeys = input.trackKeys ?? [];
     try {
-      const projectId = await this.db.transaction(async (tx) => {
-        const locked = await this.lockedContextOf(tx, eventId);
-        const declared =
-          trackKeys.length === 0
-            ? []
-            : await tx
-                .select({ id: tracks.id, key: tracks.key })
-                .from(tracks)
-                .where(and(eq(tracks.contextVersionId, locked.id), inArray(tracks.key, trackKeys)));
-        const known = new Set(declared.map((track) => track.key));
-        const unknown = trackKeys.filter((key) => !known.has(key));
-        if (unknown.length > 0) {
-          throw new SourceIngestionError(
-            'UNKNOWN_TRACK',
-            'Every declared track must exist in the locked Event Context',
-            { unknownTrackKeys: unknown },
-          );
-        }
-        const now = this.now();
-        const project = await this.insertProject(tx, {
-          eventId,
-          contextVersionId: locked.id,
-          name: input.name.trim(),
-          teamName: input.teamName?.trim() ?? null,
-          trackCount: declared.length,
-          actorId,
-          now,
-        });
-        for (const key of trackKeys) {
-          const track = declared.find((candidate) => candidate.key === key);
-          if (!track) continue;
-          await tx.insert(projectTrackSelections).values({
-            id: this.newId(),
-            projectId: project.id,
+      const projectId = await this.retryingTransaction(() =>
+        this.db.transaction(async (tx) => {
+          const locked = await this.lockedContextOf(tx, eventId);
+          const declared =
+            trackKeys.length === 0
+              ? []
+              : await tx
+                  .select({ id: tracks.id, key: tracks.key })
+                  .from(tracks)
+                  .where(
+                    and(eq(tracks.contextVersionId, locked.id), inArray(tracks.key, trackKeys)),
+                  );
+          const known = new Set(declared.map((track) => track.key));
+          const unknown = trackKeys.filter((key) => !known.has(key));
+          if (unknown.length > 0) {
+            throw new SourceIngestionError(
+              'UNKNOWN_TRACK',
+              'Every declared track must exist in the locked Event Context',
+              { unknownTrackKeys: unknown },
+            );
+          }
+          const now = this.now();
+          await this.beforeLegacyWrite();
+          const project = await this.insertProject(tx, {
             eventId,
             contextVersionId: locked.id,
-            trackId: track.id,
-            trackKey: track.key,
-            declaredByActorId: actorId,
-            declaredAt: now,
+            name: input.name.trim(),
+            teamName: input.teamName?.trim() ?? null,
+            trackCount: declared.length,
+            actorId,
+            now,
           });
-          await this.audit(tx, actorId, {
-            entityType: 'project',
-            entityId: project.id,
-            action: SOURCE_INGESTION_AUDIT_ACTIONS.trackDeclared,
-            metadata: { trackKey: track.key, trackId: track.id, contextVersionId: locked.id },
-          });
-        }
-        return project.id;
-      });
+          for (const key of trackKeys) {
+            const track = declared.find((candidate) => candidate.key === key);
+            if (!track) continue;
+            await tx.insert(projectTrackSelections).values({
+              id: this.newId(),
+              projectId: project.id,
+              eventId,
+              contextVersionId: locked.id,
+              trackId: track.id,
+              trackKey: track.key,
+              declaredByActorId: actorId,
+              declaredAt: now,
+            });
+            await this.audit(tx, actorId, {
+              entityType: 'project',
+              entityId: project.id,
+              action: SOURCE_INGESTION_AUDIT_ACTIONS.trackDeclared,
+              metadata: { trackKey: track.key, trackId: track.id, contextVersionId: locked.id },
+            });
+          }
+          await this.afterLegacyWrite();
+          return project.id;
+        }),
+      );
       return await this.projectRecord(projectId);
     } catch (error) {
       const translated = translateIntegrityError(error);
@@ -308,32 +332,36 @@ export class ProjectService {
       );
     }
     try {
-      const row = await this.db.transaction(async (tx) => {
-        await this.requireProject(tx, projectId, { lock: 'update', active: true });
-        const [stats] = await tx
-          .select({ total: count(), last: max(projectSources.position) })
-          .from(projectSources)
-          .where(eq(projectSources.projectId, projectId));
-        if ((stats?.total ?? 0) >= SOURCE_INGESTION_LIMITS.sourcesPerProject) {
-          throw new SourceIngestionError(
-            'SOURCE_LIMIT_REACHED',
-            'This project already has the maximum number of sources',
-            {
-              limit: SOURCE_INGESTION_LIMITS.sourcesPerProject,
-            },
-          );
-        }
-        await this.requireSubmissionSource(tx, projectId, input.sourceType, normalized.url);
-        await this.requireUnclaimedSource(tx, projectId, input.sourceType, normalized.url);
-        const inserted = await this.insertSource(tx, {
-          projectId,
-          sourceType: input.sourceType,
-          url: normalized.url,
-          position: stats?.last === null || stats?.last === undefined ? 0 : stats.last + 1,
-          actorId,
-        });
-        return inserted;
-      });
+      const row = await this.retryingTransaction(() =>
+        this.db.transaction(async (tx) => {
+          await this.requireProject(tx, projectId, { lock: 'update', active: true });
+          const [stats] = await tx
+            .select({ total: count(), last: max(projectSources.position) })
+            .from(projectSources)
+            .where(eq(projectSources.projectId, projectId));
+          if ((stats?.total ?? 0) >= SOURCE_INGESTION_LIMITS.sourcesPerProject) {
+            throw new SourceIngestionError(
+              'SOURCE_LIMIT_REACHED',
+              'This project already has the maximum number of sources',
+              {
+                limit: SOURCE_INGESTION_LIMITS.sourcesPerProject,
+              },
+            );
+          }
+          await this.requireSubmissionSource(tx, projectId, input.sourceType, normalized.url);
+          await this.requireUnclaimedSource(tx, projectId, input.sourceType, normalized.url);
+          await this.beforeLegacyWrite();
+          const inserted = await this.insertSource(tx, {
+            projectId,
+            sourceType: input.sourceType,
+            url: normalized.url,
+            position: stats?.last === null || stats?.last === undefined ? 0 : stats.last + 1,
+            actorId,
+          });
+          await this.afterLegacyWrite();
+          return inserted;
+        }),
+      );
       return toSourceRecord(row, null);
     } catch (error) {
       const translated = translateIntegrityError(error);
@@ -686,6 +714,7 @@ export class ProjectService {
         runId: capture.runId,
       });
     }
+    await this.afterSubmissionWrite();
     return { result: 'created', projectId: project.id, captureRuns };
   }
 
@@ -978,7 +1007,57 @@ export class ProjectService {
       projectsVoided: projectRows.length - activeIds.size,
       projectsWithoutSubmissionRecord: activeIds.size - recordedActive.length,
       findings,
+      registryProblems: await this.registryProblems(eventId),
     };
+  }
+
+  /**
+   * Does the ownership registry still agree with the declarations it summarizes? Computed from the base tables (projects, sources, submissions),
+   * never from the registry alone, so a registry that lost rows cannot vouch for itself. A link declared by a project that is not the claim's owner
+   * (a historical shared link) is not a problem: it is the documented ambiguous case and appears in `findings`.
+   */
+  private async registryProblems(eventId: string): Promise<RegistryProblem[]> {
+    const result = await this.db.execute(sql`
+      WITH active AS (
+        SELECT p.id, p.name FROM projects p
+         WHERE p.event_id = ${eventId} AND NOT EXISTS (SELECT 1 FROM project_voids v WHERE v.project_id = p.id)
+      ), single AS (
+        SELECT a.id FROM active a
+         WHERE (SELECT count(*) FROM project_sources s WHERE s.project_id = a.id AND s.source_type = 'github') <= 1
+           AND (SELECT count(*) FROM project_sources s WHERE s.project_id = a.id AND s.source_type = 'devpost') <= 1
+      ), holdings AS (
+        SELECT a.id AS project_id, 'name'::text AS kind, lower(btrim(a.name)) AS value FROM active a
+        UNION SELECT s2.id, s.source_type, s.url FROM project_sources s
+          JOIN single s2 ON s2.id = s.project_id WHERE s.source_type IN ('github', 'devpost')
+        UNION SELECT ps.project_id, 'github', ps.github_url FROM project_submissions ps JOIN active a ON a.id = ps.project_id
+        UNION SELECT ps.project_id, 'devpost', ps.devpost_url FROM project_submissions ps JOIN active a ON a.id = ps.project_id
+      ), claims AS (
+        SELECT c.project_id, c.kind, c.value FROM project_submission_claims c WHERE c.event_id = ${eventId}
+      )
+      SELECT 'missing_claim' AS problem, h.kind, h.value, array_agg(DISTINCT h.project_id::text) AS project_ids
+        FROM holdings h
+       WHERE NOT EXISTS (SELECT 1 FROM claims c WHERE c.kind = h.kind AND c.value = h.value)
+       GROUP BY h.kind, h.value
+      UNION ALL
+      SELECT 'stale_claim', c.kind, c.value, array_agg(DISTINCT c.project_id::text)
+        FROM claims c
+       WHERE NOT EXISTS (SELECT 1 FROM holdings h WHERE h.project_id = c.project_id AND h.kind = c.kind AND h.value = c.value)
+       GROUP BY c.kind, c.value
+      ORDER BY 1, 2, 3`);
+    const rows = (
+      Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
+    ) as {
+      problem: RegistryProblem['kind'];
+      kind: RegistryProblem['claimKind'];
+      value: string;
+      project_ids: string[];
+    }[];
+    return rows.map((row) => ({
+      kind: row.problem,
+      claimKind: row.kind,
+      value: row.value,
+      projectIds: [...row.project_ids].sort(),
+    }));
   }
 
   // -- Snapshots -----------------------------------------------------------------------------
@@ -1402,6 +1481,22 @@ export class ProjectService {
     return project;
   }
 
+  /**
+   * Runs one whole transaction again when PostgreSQL chose it as the victim of a deadlock or a serialization failure. A transaction that was
+   * rolled back wrote nothing, so running it again is safe; the checks inside it then see whatever the other transaction committed.
+   */
+  private async retryingTransaction<T>(work: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await work();
+      } catch (error) {
+        const transient =
+          hasPgCode(error, PG_DEADLOCK) || hasPgCode(error, PG_SERIALIZATION_FAILURE);
+        if (!transient || attempt >= SUBMISSION_ATTEMPTS) throw error;
+      }
+    }
+  }
+
   private async translating<T>(work: () => Promise<T>): Promise<T> {
     try {
       return await work();
@@ -1464,7 +1559,7 @@ export class ProjectService {
     if (others.length > 0) {
       throw new SourceIngestionError(
         'SUBMISSION_CONFLICT',
-        `Another submission of this event owns this ${sourceType} link; void that submission first if it is the erroneous one`,
+        `Another active project of this event already owns this ${sourceType} link; void that project first if it is the erroneous one`,
         { sourceType, projectIds: others.map((owner) => owner.projectId) },
       );
     }

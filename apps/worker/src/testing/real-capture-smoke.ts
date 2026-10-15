@@ -14,8 +14,8 @@
  * in a recorder that notes every request made (URL, status, bytes, time, redirects) and writes the captured artifacts plus a manifest with their
  * hashes to --out. Nothing is stored in a database; nothing is executed; no model is called. Request volume is capped by the adapter limits below.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { HttpFetchResult, HttpFetcher, HttpRequestOptions } from '@judge-copilot/capture';
 import { createDevpostAdapter } from '@judge-copilot/devpost';
 import { createGithubAdapter, GITHUB_CAPTURE_LIMITS } from '@judge-copilot/github';
@@ -24,6 +24,7 @@ import {
   createSafeHttpClient,
   type FixtureWorld,
 } from '@judge-copilot/safe-http';
+import { createOutputWriter } from './safe-output.js';
 
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -102,7 +103,16 @@ async function main(): Promise<void> {
     signal: new AbortController().signal,
   });
   const elapsedMs = Date.now() - started;
-  await mkdir(out, { recursive: true });
+  // The output directory must be new or empty: nothing that is already there is ever overwritten, and an artifact key (which comes from the
+  // repository) is never used as a path without the checks in safe-output.ts.
+  try {
+    if ((await readdir(out)).length > 0) {
+      throw new Error(`--out ${out} is not empty; choose a new or empty directory`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  const writer = await createOutputWriter(out);
   const manifest: Record<string, unknown> = {
     kind,
     url,
@@ -120,23 +130,25 @@ async function main(): Promise<void> {
     manifest['revision'] = result.revision;
     manifest['metadata'] = result.metadata;
     manifest['partialReasons'] = result.partialReasons;
-    manifest['artifacts'] = result.artifacts.map((a) => ({
-      key: a.key,
-      kind: a.kind,
-      mediaType: a.mediaType,
-      byteLength: a.byteLength,
-      contentHash: a.contentHash,
-      metadata: a.metadata,
-    }));
+    const stored: Record<string, unknown>[] = [];
     for (const artifact of result.artifacts) {
-      const file = join(out, 'artifacts', artifact.key);
-      await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, artifact.textContent, 'utf8');
+      const placed = await writer.write(`artifacts/${artifact.key}`, artifact.textContent);
+      stored.push({
+        key: artifact.key,
+        kind: artifact.kind,
+        mediaType: artifact.mediaType,
+        byteLength: artifact.byteLength,
+        contentHash: artifact.contentHash,
+        metadata: artifact.metadata,
+        storedAs: placed.storedAs,
+        mirrored: placed.mirrored,
+      });
     }
+    manifest['artifacts'] = stored;
   }
-  await writeFile(join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writer.write('manifest.json', `${JSON.stringify(manifest, null, 2)}\n`);
   process.stdout.write(
-    `${kind} capture ${result.status} in ${String(elapsedMs)} ms, ${String(requests.length)} requests; manifest: ${join(out, 'manifest.json')}\n`,
+    `${kind} capture ${result.status} in ${String(elapsedMs)} ms, ${String(requests.length)} requests; manifest: ${resolve(out, 'manifest.json')}\n`,
   );
 }
 

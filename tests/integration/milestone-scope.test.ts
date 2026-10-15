@@ -289,7 +289,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013), the one additive P6A column migration 0014 and the two P6B-beta1 submission-intent migrations 0015/0016 and the two P6B-beta2 correction migrations 0017/0018, and no other', () => {
+  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013), the one additive P6A column migration 0014 and the two P6B-beta1 submission-intent migrations 0015/0016 the two P6B-beta2 correction migrations 0017/0018 and the P6B-beta3 identity-registry migration 0019, and no other', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -319,6 +319,9 @@ describe('M5 milestone scope (phase P6A)', () => {
       // (triggers) that every write path must respect. No question, answer, interview, final-score or delta table, nothing that scores.
       '0017_p6b_beta2_claims_and_voids.sql',
       '0018_p6b_beta2_integrity.sql',
+      // P6B-beta3 (R9-1): every GitHub/Devpost declaration and every label claims its key in the one ownership registry (functions and triggers,
+      // backfill of the unambiguous); no table, no scoring.
+      '0019_p6b_beta3_identity_registry.sql',
     ]);
   });
 

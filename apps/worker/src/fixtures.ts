@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { githubFixtureRoutes, type GithubFixtureRepository } from '@judge-copilot/github';
 import type { FixtureResponse, FixtureWorld } from '@judge-copilot/safe-http';
 
@@ -23,7 +23,8 @@ async function resolveRoute(directory: string, route: FixtureRouteInput): Promis
   if (!route.bodyFile) return route;
   const { bodyFile, ...rest } = route;
   const path = resolve(directory, bodyFile);
-  if (!path.startsWith(resolve(directory)))
+  // the separator matters: `/fixtures-evil/x` starts with `/fixtures` but is not inside it
+  if (!path.startsWith(resolve(directory) + sep))
     throw new Error('fixture bodyFile escapes its directory');
   return { ...rest, body: await readFile(path, 'utf8') };
 }

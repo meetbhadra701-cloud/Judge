@@ -172,7 +172,8 @@ describe.each(testDatabaseTargets())('P6B-beta2 ownership and void guards on %s'
           }),
         SQLSTATE.UNIQUE_VIOLATION,
       );
-      expect(await claimsOf(rival.id)).toEqual([]); // the refused attempts left nothing behind
+      // the refused attempts left nothing behind: the project holds only the claim on its own label, made when it was created
+      expect(await claimsOf(rival.id)).toEqual([['name', 'rival']]);
     });
 
     it('a label that differs only by case is the same label: a project cannot be created with it, and a submission cannot take an active project’s', async () => {
@@ -183,21 +184,13 @@ describe.each(testDatabaseTargets())('P6B-beta2 ownership and void guards on %s'
         db().insert(projects).values({ eventId: e.id, name: 'ORBIT TEAM' }),
         SQLSTATE.UNIQUE_VIOLATION,
       );
-      // an earlier-flow project (no submission) holds a label; a submission whose label folds to the same key is refused
+      // since P6B-beta3 EVERY project claims its label when it is created, so an earlier-flow project's label is owned too: a second project whose
+      // label folds to the same key cannot even be created (no race window between the creation and a later submission)
       await project(e.id, 'Case Twin');
-      const late = await project(e.id, 'case twin');
       await expectPgError(
-        db().insert(projectSubmissions).values({
-          eventId: e.id,
-          projectId: late.id,
-          submittedByActorId: a.id,
-          githubUrl: 'https://github.com/void/case-twin',
-          devpostUrl: 'https://devpost.com/software/void-case-twin',
-          nameKey: 'x',
-        }),
+        db().insert(projects).values({ eventId: e.id, name: 'case twin' }),
         SQLSTATE.UNIQUE_VIOLATION,
       );
-      expect(await claimsOf(late.id)).toEqual([]);
     });
 
     it('the same links in ANOTHER event are independent', async () => {
