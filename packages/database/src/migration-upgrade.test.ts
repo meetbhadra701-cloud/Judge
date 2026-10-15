@@ -200,4 +200,22 @@ describe.each(targets)('upgrading P6B-beta1 data to P6B-beta2 on $name', (target
     );
     expect(left[0]?.n).toBe(0);
   });
+
+  it('0020 adds the coverage table EMPTY: data from before it keeps no record (reported as not recorded), the table is append-only, and TRUNCATE is refused', async () => {
+    const count = await rows<{ n: number }>(
+      db,
+      sql`SELECT count(*)::int AS n FROM assessment_run_coverage`,
+    );
+    expect(count[0]?.n).toBe(0);
+    const triggers = await rows<{ tgname: string }>(
+      db,
+      sql`SELECT tgname FROM pg_trigger WHERE tgrelid = 'assessment_run_coverage'::regclass AND NOT tgisinternal ORDER BY tgname`,
+    );
+    expect(triggers.map((t) => t.tgname)).toEqual([
+      'assessment_run_coverage_immutable_guard',
+      'assessment_run_coverage_insert_guard',
+      'assessment_run_coverage_no_truncate',
+    ]);
+    await expect(db.execute(sql`TRUNCATE assessment_run_coverage`)).rejects.toThrow();
+  });
 });
