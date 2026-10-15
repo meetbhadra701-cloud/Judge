@@ -128,6 +128,36 @@ describe('limitations', () => {
     }
   });
 
+  it('bounds the subjects to 25 but keeps the true count when more components were not seen', () => {
+    const lines = (tag: string) =>
+      Array.from(
+        { length: 100 },
+        (_, i) => `export const ${tag}_${String(i)} = ${String(i)};`,
+      ).join('\n');
+    const files = Array.from(
+      { length: 60 },
+      (_, i) => `packages/pkg-${String(i).padStart(2, '0')}/src/index.ts`,
+    );
+    const windowing = buildPassages(
+      files.map((path) =>
+        artifact({
+          sourceType: 'github',
+          key: `files/${path}`,
+          kind: 'file',
+          mediaType: 'text/plain',
+          text: lines(path.replace(/\W/g, '_')),
+        }),
+      ),
+      { statement: 1_000, source: 20_000, metadata: 1_000 },
+    );
+    const unseen = collectLimitations({ windowing }).find(
+      (l) => l.code === 'implementation_components_unseen',
+    );
+    expect(unseen?.count).toBeGreaterThan(25);
+    expect(unseen?.subjects).toHaveLength(25);
+    expect([...(unseen?.subjects ?? [])].sort()).toEqual(unseen?.subjects);
+  });
+
   it('is empty when nothing was lost', () => {
     expect(collectLimitations({})).toEqual([]);
   });

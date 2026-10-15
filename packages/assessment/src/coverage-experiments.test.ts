@@ -216,6 +216,16 @@ describe('v2 acceptance thresholds', () => {
         if (entry.status === 'partial' || entry.status === 'unseen')
           expect(entry.unshownRanges).not.toEqual([]);
         expect(entry.shownCodePoints).toBeLessThanOrEqual(entry.totalCodePoints);
+        // the part never shown starts where the shown prefix ends and runs to the end of the stored text (recomputed here from the text itself)
+        const text = run.artifacts.find((a) => a.key === entry.artifactKey)?.text ?? '';
+        const length = [...text].length;
+        const lastShownEnd =
+          entry.shownRanges.length === 0
+            ? 0
+            : (entry.shownRanges[entry.shownRanges.length - 1]?.end ?? 0);
+        if (entry.status === 'partial' || entry.status === 'unseen') {
+          expect(entry.unshownRanges).toEqual([{ start: lastShownEnd, end: length }]);
+        }
       }
       // every omission is accounted for by a coverage entry and vice versa
       const unfinished = result.coverage.artifacts.filter((e) => e.status !== 'full');

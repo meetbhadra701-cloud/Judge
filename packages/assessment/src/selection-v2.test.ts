@@ -88,6 +88,44 @@ describe('source-selection/v2', () => {
     expect(of('src/core/engine.ts')).toBeGreaterThan(0);
   });
 
+  it('a huge file does not run ahead of the others, and when it is the only one left it takes the rest of the budget (work conserving)', () => {
+    const docs = ['a', 'b', 'c'].map((n) => md(`docs/${n}.md`, lines(n, 230)));
+    const { of } = shown([md('README.md', lines('readme', 20_000)), ...docs], {
+      statement: 20_000,
+      source: 1_000,
+      metadata: 1_000,
+    });
+    for (const n of ['a', 'b', 'c']) expect(of(`docs/${n}.md`), n).toBeGreaterThanOrEqual(2_000);
+    // the root README keeps its head (12,000) and no more while the other documents have not been read past theirs
+    expect(of('README.md')).toBeLessThanOrEqual(12_000 + 1_200);
+    const alone = shown([md('README.md', lines('readme', 20_000))], {
+      statement: 10_000,
+      source: 1_000,
+      metadata: 1_000,
+    });
+    expect(alone.of('README.md')).toBeGreaterThanOrEqual(10_000 - 1_200);
+  });
+
+  it('visits components in a fixed scrambled order, not the alphabet: a budget that cuts the round does not keep the first names', () => {
+    const names = Array.from(
+      { length: 30 },
+      (_, i) => `packages/p${String(i).padStart(2, '0')}/src/index.ts`,
+    );
+    const { of } = shown(
+      names.map((n) => file(n, lines(n.replace(/\W/g, '_'), 200))),
+      { statement: 1_000, source: 12_000, metadata: 1_000 },
+    );
+    const seen = names.filter((n) => of(n) > 0);
+    expect(seen).toHaveLength(10);
+    expect(seen).not.toEqual(names.slice(0, 10));
+    // and it is the same ten every time, whatever the input order
+    const again = shown(
+      [...names].reverse().map((n) => file(n, lines(n.replace(/\W/g, '_'), 200))),
+      { statement: 1_000, source: 12_000, metadata: 1_000 },
+    );
+    expect(names.filter((n) => again.of(n) > 0)).toEqual(seen);
+  });
+
   it('reports a byte-identical copy as a duplicate of the file that is shown, not as unseen material', () => {
     const text = lines('shared', 80);
     const { result } = shown([

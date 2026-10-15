@@ -25,7 +25,8 @@ import type { Bucket, RoutedSourceType } from './routing.js';
  *   3. ROLES. Deployment, manifest and configuration files get a guaranteed small share (20% of the source budget) and are read first because they
  *      are short and decisive; tests get a reserved share (15%) and their heads only until depth is done; generated files and exact duplicates come
  *      last or not at all.
- *   4. NO ARTIFACT TAKES MORE THAN A QUARTER of a bucket's budget in the depth phase.
+ *   4. NO ARTIFACT RUNS AHEAD. Depth is added one passage per file per visit, round-robin, so a huge file never takes the budget while another file is
+ *      still at its head; a file only keeps growing alone once every other file has nothing left to add (work conservation).
  *   5. WORK-CONSERVING. Whatever budget remains afterwards is spent (caps lifted, tests then generated files), so a bucket never wastes its budget
  *      and a passage that does not fit never closes the bucket for smaller ones.
  *   6. PROSE. Devpost text first; then the root README; other READMEs; other documents; then history/licence-style files (CHANGELOG, LICENSE...).
@@ -236,11 +237,10 @@ export function selectV2(
     }
   };
 
-  // -- statement bucket (prose): heads in prose order, then depth round-robin under a per-artifact cap, then spill -----------------------
+  // -- statement bucket (prose): heads in prose order, then depth round-robin (one passage per file per visit) -----------------------
   {
     const bucket: Bucket = 'statement';
     const prose = live.filter((s) => s.item.bucket === bucket).sort(byPath);
-    const budget = budgets.statement;
     const classHead = (s: State): number =>
       s.item.sourceType === 'devpost'
         ? 24_000
@@ -267,8 +267,6 @@ export function selectV2(
       const head = Math.max(PASSAGE, Math.min(headMax, fit));
       for (const member of members) grant(member, bucket, head, Infinity);
     });
-    const cap = Math.floor(budget * 0.25);
-    deepen(prose, bucket, remaining[bucket], cap);
     deepen(prose, bucket, remaining[bucket], Infinity);
   }
 
@@ -335,7 +333,6 @@ export function selectV2(
       }
       return order;
     })();
-    deepen(depthOrder, bucket, remaining[bucket], Math.floor(budget * 0.25));
 
     // 5. spill: caps lifted; implementation, then the small files, then tests, then generated files (heads, then depth)
     deepen(depthOrder, bucket, remaining[bucket], Infinity);

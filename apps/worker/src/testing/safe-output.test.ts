@@ -124,6 +124,17 @@ describe('createOutputWriter', () => {
     expect(readdirSync(join(base, 'outside'))).toEqual(['victim.txt']);
   });
 
+  it('a symbolic link to ANOTHER directory inside the root is refused too: links are never followed, wherever they point', async () => {
+    mkdirSync(join(root, 'artifacts'), { recursive: true });
+    mkdirSync(join(root, 'elsewhere'));
+    symlinkSync(join(root, 'elsewhere'), join(root, 'artifacts', 'files'));
+    const writer = await createOutputWriter(root);
+    await expect(writer.write('artifacts/files/x.txt', 'payload')).rejects.toBeInstanceOf(
+      UnsafeOutputError,
+    );
+    expect(readdirSync(join(root, 'elsewhere'))).toEqual([]);
+  });
+
   it('a symbolic link in place of the output file is not followed, and the content is stored elsewhere instead', async () => {
     mkdirSync(join(root, 'artifacts'), { recursive: true });
     symlinkSync(join(base, 'outside', 'victim.txt'), join(root, 'artifacts', 'a.txt'));

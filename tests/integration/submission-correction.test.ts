@@ -465,6 +465,7 @@ describe.each(testDatabaseTargets())('void and replace on %s', (_name, open) => 
       const before = await totals();
       const response = await voidRequest(wrongId, { reason: 'wrong', cancelPendingWork: true });
       expect([response.status, code(response.body)]).toEqual([409, 'PROJECT_HAS_PENDING_WORK']);
+      expect(JSON.stringify(response.body)).toContain('A worker is running');
       expect(await totals()).toEqual(before);
       expect(await pendingOf(wrongId)).toHaveLength(2); // the unstarted one was not cancelled either: the correction is all or nothing
       expect((await get(`/projects/${wrongId}`)).body['voided']).toBeNull();
