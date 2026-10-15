@@ -143,6 +143,190 @@ describe.each(testDatabaseTargets())('ownership registry consistency on %s', (_n
     );
   });
 
+  describe('P6B-beta3-R1 (R7D finding 8): ownership is compared per project', () => {
+    const rowsOf = async (query: ReturnType<typeof sql>) => {
+      const result = await db.execute(query);
+      return (
+        Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
+      ) as Record<string, string>[];
+    };
+    const idOfProject = async (eventId: string, name: string): Promise<string> => {
+      const created = await call('POST', `/events/${eventId}/projects`, { name });
+      return created.body['id'] as string;
+    };
+    const anActor = async (): Promise<string> =>
+      (await rowsOf(sql`SELECT id FROM actors LIMIT 1`))[0]?.['id'] as string;
+    const declare = (projectId: string, url: string) =>
+      call('POST', `/projects/${projectId}/sources`, { sourceType: 'github', url });
+
+    it('a project that holds SEVERAL links of one type, declared through the routes, owns each of them: nothing is stale', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const id = await idOfProject(eventId, `Multi ${n}`);
+      expect((await declare(id, gh(`multi-a-${n}`))).status).toBe(201);
+      expect((await declare(id, gh(`multi-b-${n}`))).status).toBe(201);
+      const claims = await rowsOf(
+        sql`SELECT value FROM project_submission_claims WHERE project_id = ${id} AND kind = 'github' ORDER BY value`,
+      );
+      expect(claims.map((row) => row['value'])).toEqual([gh(`multi-a-${n}`), gh(`multi-b-${n}`)]);
+      expect(await problems(eventId)).toEqual([]);
+    });
+
+    it('a pre-registry project with several links (never backfilled) is not reported missing, but a lost claim of a single-link project still is', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const id = await idOfProject(eventId, `Legacy multi ${n}`);
+      await declare(id, gh(`lm-a-${n}`));
+      await declare(id, gh(`lm-b-${n}`));
+      const single = await idOfProject(eventId, `Single ${n}`);
+      await declare(single, gh(`single-${n}`));
+      await withoutTriggers(async (tx) => {
+        await tx.execute(
+          sql`DELETE FROM project_submission_claims WHERE project_id = ${id} AND kind = 'github'`,
+        );
+        await tx.execute(
+          sql`DELETE FROM project_submission_claims WHERE project_id = ${single} AND kind = 'github'`,
+        );
+      });
+      expect(await problems(eventId)).toEqual([
+        {
+          kind: 'missing_claim',
+          claimKind: 'github',
+          value: gh(`single-${n}`),
+          projectIds: [single],
+        },
+      ]);
+    });
+
+    it('two active projects whose labels differ only by case are a shared identity, naming both holders and the registry owner', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const first = await idOfProject(eventId, `Orbit ${n}`);
+      let second = '';
+      await withoutTriggers(async (tx) => {
+        const inserted = await tx.execute(
+          sql`INSERT INTO projects (event_id, name) VALUES (${eventId}, ${`ORBIT ${n}`}) RETURNING id`,
+        );
+        second = (
+          Array.isArray(inserted) ? inserted : (inserted as { rows: { id: string }[] }).rows
+        )[0]!.id as string;
+      });
+      expect(await problems(eventId)).toEqual([
+        {
+          kind: 'shared_identity',
+          claimKind: 'name',
+          value: `orbit ${n}`,
+          projectIds: [first, second].sort(),
+          ownerProjectId: first,
+        },
+      ]);
+    });
+
+    it('a link declared by two active projects is a shared identity; the claim of only one of them is not "stale"', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const a = await idOfProject(eventId, `Owner ${n}`);
+      const b = await idOfProject(eventId, `Other ${n}`);
+      await declare(a, gh(`shared-${n}`));
+      await withoutTriggers(async (tx) => {
+        await tx.execute(
+          sql`INSERT INTO project_sources (project_id, source_type, url, position) VALUES (${b}, 'github', ${gh(`shared-${n}`)}, 9)`,
+        );
+      });
+      expect(await problems(eventId)).toEqual([
+        {
+          kind: 'shared_identity',
+          claimKind: 'github',
+          value: gh(`shared-${n}`),
+          projectIds: [a, b].sort(),
+          ownerProjectId: a,
+        },
+      ]);
+    });
+
+    it('a claim still owned by a voided project is reported as such, and the active holder of the identity is reported missing', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const wrong = await idOfProject(eventId, `Wrong ${n}`);
+      const right = await idOfProject(eventId, `Right ${n}`);
+      await declare(wrong, gh(`corrected-${n}`));
+      const actorId = await anActor();
+      await withoutTriggers(async (tx) => {
+        await tx.execute(
+          sql`INSERT INTO project_voids (event_id, project_id, voided_by_actor_id, reason, name_before, idempotency_key, request_hash)
+              VALUES (${eventId}, ${wrong}, ${actorId}, 'test', ${`Wrong ${n}`}, ${`k-${n}-12345678`}, ${'a'.repeat(64)})`,
+        );
+        await tx.execute(
+          sql`INSERT INTO project_sources (project_id, source_type, url, position) VALUES (${right}, 'github', ${gh(`corrected-${n}`)}, 9)`,
+        );
+      });
+      const report = await problems(eventId);
+      expect(report).toEqual(
+        expect.arrayContaining([
+          {
+            kind: 'claim_owned_by_voided_project',
+            claimKind: 'github',
+            value: gh(`corrected-${n}`),
+            projectIds: [wrong],
+          },
+          {
+            kind: 'missing_claim',
+            claimKind: 'github',
+            value: gh(`corrected-${n}`),
+            projectIds: [right],
+          },
+        ]),
+      );
+    });
+
+    it('a claim owned by an active project that does not hold the identity is stale, while the project that does hold it is missing its claim', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const holder = await idOfProject(eventId, `Holder ${n}`);
+      const squatter = await idOfProject(eventId, `Squatter ${n}`);
+      await withoutTriggers(async (tx) => {
+        await tx.execute(
+          sql`INSERT INTO project_sources (project_id, source_type, url, position) VALUES (${holder}, 'github', ${gh(`moved-${n}`)}, 9)`,
+        );
+        await tx.execute(
+          sql`INSERT INTO project_submission_claims (event_id, project_id, kind, value) VALUES (${eventId}, ${squatter}, 'github', ${gh(`moved-${n}`)})`,
+        );
+      });
+      expect(await problems(eventId)).toEqual(
+        expect.arrayContaining([
+          {
+            kind: 'stale_claim',
+            claimKind: 'github',
+            value: gh(`moved-${n}`),
+            projectIds: [squatter],
+          },
+          {
+            kind: 'missing_claim',
+            claimKind: 'github',
+            value: gh(`moved-${n}`),
+            projectIds: [holder],
+          },
+        ]),
+      );
+    });
+
+    it('a voided project that holds links and a label, with its claims released, produces no problem', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const gone = await idOfProject(eventId, `Gone ${n}`);
+      await declare(gone, gh(`gone-${n}`));
+      const actorId = await anActor();
+      await withoutTriggers(async (tx) => {
+        await tx.execute(
+          sql`INSERT INTO project_voids (event_id, project_id, voided_by_actor_id, reason, name_before, idempotency_key, request_hash)
+              VALUES (${eventId}, ${gone}, ${actorId}, 'test', ${`Gone ${n}`}, ${`g-${n}-12345678`}, ${'b'.repeat(64)})`,
+        );
+        await tx.execute(sql`DELETE FROM project_submission_claims WHERE project_id = ${gone}`);
+      });
+      expect(await problems(eventId)).toEqual([]);
+    });
+  });
+
   it.each([
     'project_submissions',
     'project_submission_requests',

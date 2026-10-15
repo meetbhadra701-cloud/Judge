@@ -277,19 +277,32 @@ export const SubmissionIntegrityFinding = z.object({
 });
 export type SubmissionIntegrityFinding = z.infer<typeof SubmissionIntegrityFinding>;
 
-export const REGISTRY_PROBLEM_KIND_VALUES = ['missing_claim', 'stale_claim'] as const;
+export const REGISTRY_PROBLEM_KIND_VALUES = [
+  'missing_claim',
+  'stale_claim',
+  'shared_identity',
+  'claim_owned_by_voided_project',
+] as const;
 /**
  * The ownership registry (project_submission_claims) is the database's authority on who owns a link or a label. This is the read-only check that the
- * registry and the rows it summarizes still agree, computed from the base tables so it does not trust the registry it checks:
- *   missing_claim: an active project holds a link/label that nobody has claimed (registry rows were lost, or the row predates the registry and
- *                  was not claimed because it is ambiguous -- see docs/MIGRATIONS.md);
- *   stale_claim:   a claim belongs to a voided project, or to a link/label its project no longer holds.
+ * registry and the rows it summarizes still agree, computed from the base tables so it does not trust the registry it checks. Ownership is compared
+ * per PROJECT, not per value:
+ *   missing_claim:                 an active project holds a link/label and no project that holds it owns it in the registry (rows were lost, or the
+ *                                  claim is owned by a project that does not hold it). A link of a project that holds several links of one type is
+ *                                  not expected to be claimed when it predates the registry (docs/MIGRATIONS.md) and is not reported here;
+ *   stale_claim:                   a claim belongs to an ACTIVE project that does not (or no longer does) hold that link/label;
+ *   shared_identity:               several active projects hold the same link or case-insensitive label (historical data, or damage): the registry
+ *                                  can record one owner (`ownerProjectId`, absent when none holds it) and the others are in conflict;
+ *   claim_owned_by_voided_project: a claim still belongs to a voided project (a void releases its claims), so a replacement or another project
+ *                                  cannot own the identity.
  */
 export const RegistryProblem = z.object({
   kind: z.enum(REGISTRY_PROBLEM_KIND_VALUES),
   claimKind: z.enum(['github', 'devpost', 'name']),
   value: z.string(),
   projectIds: z.array(Uuid),
+  /** The project the registry currently names as owner of `value`, when that matters (`shared_identity`). */
+  ownerProjectId: Uuid.optional(),
 });
 export type RegistryProblem = z.infer<typeof RegistryProblem>;
 

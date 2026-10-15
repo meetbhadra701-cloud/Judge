@@ -803,11 +803,28 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     expect(text).toContain('not a list of the project’s current gaps');
     expect(text).toContain('stored text that no integrity hash covers');
     expect(text).toContain('a raw 7.33333 is reported, and shown, as 7.3333');
+    // source coverage is stated before the number, as A (dimensions scored) apart from B (evidence examined)
+    expect(text).toContain('Source coverage');
+    expect(text.indexOf('Source coverage')).toBeLessThan(text.indexOf('Overall (version 1)'));
+    expect(text).toContain('rubric dimensions received an advisory score');
+    expect(text).toContain('relevance and sufficiency of the examined text are not established');
     await shot('09-report-scored');
 
     const list = (await api(`/projects/${world.project.id}/assessments`))['assessments'] as {
       id: string;
     }[];
+    // an assessment from before coverage was recorded: still shown, but coverage is UNKNOWN and says so before the number
+    await corruptions.coverageRecordRemoved(testDb.db, list[0]?.id ?? '');
+    await page.goto(projectUrl);
+    const historical = await main();
+    expect(historical).toContain('SCORED');
+    expect(historical).toContain('Source coverage was not recorded for this assessment');
+    expect(historical.indexOf('Source coverage was not recorded')).toBeLessThan(
+      historical.indexOf('Overall (version 1)'),
+    );
+    expect(historical).toContain('source coverage UNKNOWN');
+    await shot('09b-report-coverage-not-recorded');
+
     await corruptions.judgmentScores(testDb.db, list[0]?.id ?? '');
     await page.goto(projectUrl);
     const withheld = await main();

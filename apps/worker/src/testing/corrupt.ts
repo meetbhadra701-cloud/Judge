@@ -58,4 +58,13 @@ export const corruptions = {
         sql`UPDATE assessment_dimension_judgments SET score = 1 WHERE assessment_id = ${assessmentId}`,
       ],
     ),
+  /** Simulates an assessment made before coverage records existed: the run's record is gone. */
+  coverageRecordRemoved: (db: JudgeDatabase, assessmentId: string) =>
+    withGuardsDisabled(
+      db,
+      ['coverage'],
+      [
+        sql`DELETE FROM assessment_run_coverage WHERE run_id = (SELECT run_id FROM pre_interview_assessments WHERE id = ${assessmentId})`,
+      ],
+    ),
 };

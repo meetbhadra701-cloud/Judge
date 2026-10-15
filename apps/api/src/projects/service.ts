@@ -1332,36 +1332,53 @@ export class ProjectService {
 
   /**
    * Does the ownership registry still agree with the declarations it summarizes? Computed from the base tables (projects, sources, submissions),
-   * never from the registry alone, so a registry that lost rows cannot vouch for itself. A link declared by a project that is not the claim's owner
-   * (a historical shared link) is not a problem: it is the documented ambiguous case and appears in `findings`.
+   * never from the registry alone, so a registry that lost rows cannot vouch for itself. Ownership is compared per project: a claim is valid only
+   * when its OWNER holds the identity it claims. A link declared by a project that is not the claim's owner is a conflict (`shared_identity`) when
+   * the owner also holds it, and a missing claim when the owner does not. Voided projects hold nothing and own nothing.
    */
   private async registryProblems(eventId: string): Promise<RegistryProblem[]> {
     const result = await this.db.execute(sql`
       WITH active AS (
         SELECT p.id, p.name FROM projects p
          WHERE p.event_id = ${eventId} AND NOT EXISTS (SELECT 1 FROM project_voids v WHERE v.project_id = p.id)
-      ), single AS (
-        SELECT a.id FROM active a
-         WHERE (SELECT count(*) FROM project_sources s WHERE s.project_id = a.id AND s.source_type = 'github') <= 1
-           AND (SELECT count(*) FROM project_sources s WHERE s.project_id = a.id AND s.source_type = 'devpost') <= 1
-      ), holdings AS (
-        SELECT a.id AS project_id, 'name'::text AS kind, lower(btrim(a.name)) AS value FROM active a
-        UNION SELECT s2.id, s.source_type, s.url FROM project_sources s
-          JOIN single s2 ON s2.id = s.project_id WHERE s.source_type IN ('github', 'devpost')
-        UNION SELECT ps.project_id, 'github', ps.github_url FROM project_submissions ps JOIN active a ON a.id = ps.project_id
-        UNION SELECT ps.project_id, 'devpost', ps.devpost_url FROM project_submissions ps JOIN active a ON a.id = ps.project_id
+      ), declared AS (
+        -- every identity an active project holds. "expected" is false only for the links of a project that holds several links of one type and
+        -- is not a recorded submission's link: those predate the registry, are not backfilled, and are the documented ambiguous case.
+        SELECT project_id, kind, value, bool_or(expected) AS expected FROM (
+          SELECT a.id AS project_id, 'name'::text AS kind, lower(btrim(a.name)) AS value, true AS expected FROM active a
+          UNION ALL SELECT s.project_id, s.source_type, s.url,
+                 (SELECT count(*) FROM project_sources s2 WHERE s2.project_id = s.project_id AND s2.source_type = s.source_type) <= 1
+            FROM project_sources s JOIN active a ON a.id = s.project_id WHERE s.source_type IN ('github', 'devpost')
+          UNION ALL SELECT ps.project_id, 'github', ps.github_url, true FROM project_submissions ps JOIN active a ON a.id = ps.project_id
+          UNION ALL SELECT ps.project_id, 'devpost', ps.devpost_url, true FROM project_submissions ps JOIN active a ON a.id = ps.project_id
+        ) all_holdings GROUP BY project_id, kind, value
       ), claims AS (
-        SELECT c.project_id, c.kind, c.value FROM project_submission_claims c WHERE c.event_id = ${eventId}
+        SELECT c.project_id, c.kind, c.value,
+               EXISTS (SELECT 1 FROM project_voids v WHERE v.project_id = c.project_id) AS voided
+          FROM project_submission_claims c WHERE c.event_id = ${eventId}
       )
-      SELECT 'missing_claim' AS problem, h.kind, h.value, array_agg(DISTINCT h.project_id::text) AS project_ids
-        FROM holdings h
-       WHERE NOT EXISTS (SELECT 1 FROM claims c WHERE c.kind = h.kind AND c.value = h.value)
-       GROUP BY h.kind, h.value
+      SELECT 'missing_claim' AS problem, d.kind, d.value,
+             array_agg(DISTINCT d.project_id::text) FILTER (WHERE d.expected) AS project_ids, NULL::text AS owner
+        FROM declared d
+       GROUP BY d.kind, d.value
+      HAVING bool_or(d.expected)
+         AND NOT EXISTS (SELECT 1 FROM claims c JOIN declared d2 ON d2.project_id = c.project_id AND d2.kind = c.kind AND d2.value = c.value
+                          WHERE c.kind = d.kind AND c.value = d.value)
       UNION ALL
-      SELECT 'stale_claim', c.kind, c.value, array_agg(DISTINCT c.project_id::text)
+      SELECT 'shared_identity', d.kind, d.value, array_agg(DISTINCT d.project_id::text),
+             (SELECT c.project_id::text FROM claims c WHERE c.kind = d.kind AND c.value = d.value
+                 AND EXISTS (SELECT 1 FROM declared d3 WHERE d3.project_id = c.project_id AND d3.kind = c.kind AND d3.value = c.value))
+        FROM declared d
+       GROUP BY d.kind, d.value
+      HAVING count(DISTINCT d.project_id) > 1
+      UNION ALL
+      SELECT 'stale_claim', c.kind, c.value, ARRAY[c.project_id::text], NULL::text
         FROM claims c
-       WHERE NOT EXISTS (SELECT 1 FROM holdings h WHERE h.project_id = c.project_id AND h.kind = c.kind AND h.value = c.value)
-       GROUP BY c.kind, c.value
+       WHERE NOT c.voided
+         AND NOT EXISTS (SELECT 1 FROM declared d WHERE d.project_id = c.project_id AND d.kind = c.kind AND d.value = c.value)
+      UNION ALL
+      SELECT 'claim_owned_by_voided_project', c.kind, c.value, ARRAY[c.project_id::text], NULL::text
+        FROM claims c WHERE c.voided
       ORDER BY 1, 2, 3`);
     const rows = (
       Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
@@ -1370,12 +1387,14 @@ export class ProjectService {
       kind: RegistryProblem['claimKind'];
       value: string;
       project_ids: string[];
+      owner: string | null;
     }[];
     return rows.map((row) => ({
       kind: row.problem,
       claimKind: row.kind,
       value: row.value,
       projectIds: [...row.project_ids].sort(),
+      ...(row.owner === null ? {} : { ownerProjectId: row.owner }),
     }));
   }
 
