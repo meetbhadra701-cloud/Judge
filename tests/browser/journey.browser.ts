@@ -444,7 +444,8 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     await page.getByRole('button', { name: 'Void this project' }).click();
     const refusal = page.locator('main [role=alert]').first();
     await refusal.waitFor();
-    expect(await refusal.innerText()).toContain('still in progress');
+    expect(await refusal.innerText()).toContain('still pending');
+    expect(await refusal.innerText()).toContain('NO worker is running');
     expect((await api(`/projects/${wrongId}`))['voided']).toBeNull();
 
     // once the worker has finished, the same form (same key) succeeds and lands on the replacement's capture page
@@ -483,6 +484,74 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     const listed = await page.goto(`${webUrl}/events/${fixEventId}`);
     expect(listed?.ok()).toBe(true);
     expect(await page.getByTestId('voided-badge').count()).toBe(1);
+  });
+
+  it('P6B-beta3: with no worker running the correction cancels the requests nobody started, and the cancelled captures say so', async () => {
+    const eventId = await newLockedEvent();
+    await page.goto(`${webUrl}/events/${eventId}/submit`);
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/noworker');
+    await page
+      .getByLabel('Devpost project URL')
+      .fill('https://devpost.com/software/noworker-wrong');
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
+    await page.waitForURL(/\/projects\/[0-9a-f-]+\/capture/);
+    const wrongId = /projects\/([0-9a-f-]+)\/capture/.exec(page.url())?.[1] ?? '';
+    await page.getByTestId('correct-link').click();
+    await page.waitForURL(/\/correct$/);
+    await page.getByLabel('Why is this project being voided?').fill('Wrong page, no worker');
+    await page
+      .getByLabel('Corrected GitHub repository URL')
+      .fill('https://github.com/synthetic/noworker');
+    await page
+      .getByLabel('Corrected Devpost project URL')
+      .fill('https://devpost.com/software/noworker-right');
+    await page.getByLabel(/Also cancel requests that have not been started/).check();
+    await page.getByRole('button', { name: 'Void this project' }).click();
+    await page.waitForURL(
+      (url) => /\/capture$/.test(url.pathname) && !url.pathname.includes(wrongId),
+    );
+    await page.goto(`${webUrl}/projects/${wrongId}/capture`);
+    await page.getByTestId('voided-project').waitFor();
+    expect(await main()).toContain('CAPTURE CANCELLED');
+    expect(await main()).toContain('Nothing was read');
+    const old = (await testDb.db.select().from(sourceSnapshots)).filter(
+      (x) => x.projectId === wrongId,
+    );
+    expect(old.map((x) => x.status)).toEqual(['failed', 'failed']);
+  });
+
+  it('P6B-beta3: an organizer pastes the Devpost text, it is labelled as supplied, and pasting the same text again stores nothing new', async () => {
+    const eventId = await newLockedEvent();
+    await page.goto(`${webUrl}/events/${eventId}/submit`);
+    await page.getByLabel('GitHub repository URL').fill('https://github.com/synthetic/pasted');
+    await page.getByLabel('Devpost project URL').fill('https://devpost.com/software/pasted');
+    await page.getByRole('button', { name: 'Submit and start capture' }).click();
+    await page.waitForURL(/\/projects\/[0-9a-f-]+\/capture/);
+    const projectId = /projects\/([0-9a-f-]+)\/capture/.exec(page.url())?.[1] ?? '';
+    // no worker has run: the Devpost fetch is waiting, so the form is not offered yet
+    expect(await page.getByTestId('supply-content').count()).toBe(0);
+    await drainCaptures();
+    await page.reload();
+    await page.getByTestId('supply-content').locator('summary').click();
+    const text =
+      'HydroTrack reminds you to drink water every two hours and stores each entry in a local SQLite file.';
+    await page.getByLabel('Submission text').fill(text);
+    await page.getByRole('button', { name: 'Store this text' }).click();
+    await page.getByText('TEXT SUPPLIED BY AN ORGANIZER').waitFor();
+    expect(await main()).toContain('TEXT SUPPLIED BY AN ORGANIZER');
+    expect(await main()).toContain('NOT fetched from the source');
+    const count = async () =>
+      (await testDb.db.select().from(sourceSnapshots)).filter(
+        (x) => x.projectId === projectId && x.sourceType === 'devpost',
+      ).length;
+    const before = await count();
+    await page.getByTestId('supply-content').locator('summary').click();
+    await page.getByLabel('Submission text').fill(`${text}  \n`);
+    await page.getByRole('button', { name: 'Store this text' }).click();
+    await page.waitForLoadState('networkidle');
+    await page.getByTestId('supply-content').waitFor();
+    expect(await count()).toBe(before);
+    await shot('10-supplied');
   });
 
   it('refresh and back/forward navigation never create or change anything', async () => {
