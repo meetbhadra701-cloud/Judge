@@ -1041,6 +1041,18 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
     expect(renderWith(coverageView())).not.toContain('data-testid="dimension-partial-coverage"');
   });
 
+  it('a partial CAPTURE alone, with no selection concern, is still partial coverage', () => {
+    const html = renderWith(
+      coverageView({
+        snapshots: PARTIAL_VIEW.snapshots,
+        verdict: 'complete',
+        concerns: [],
+      }),
+    );
+    expect(sectionOf(html)).toContain('PARTIAL SOURCE COVERAGE');
+    expect(html).toMatch(/data-testid="overall-coverage">PARTIAL source coverage/);
+  });
+
   it('a clean record says only that no path-based concern was found, and still disclaims relevance and sufficiency', () => {
     const html = renderWith(coverageView());
     const notice = sectionOf(html);

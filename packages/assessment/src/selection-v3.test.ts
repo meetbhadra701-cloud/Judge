@@ -90,12 +90,12 @@ describe('source-selection/v3', () => {
     const notes = Array.from({ length: 200 }, (_, i) =>
       md(`docs/notes/n${String(i).padStart(3, '0')}.md`, lines(`n${String(i)}`, 80)),
     );
-    const { of } = shown([...notes, md('docs/guide/zz-last.md', lines('guide', 80))], {
+    const { of } = shown([...notes, md('docs/zz-guide/last.md', lines('guide', 80))], {
       statement: 12_000,
       source: 1_000,
       metadata: 1_000,
     });
-    expect(of('docs/guide/zz-last.md')).toBeGreaterThan(0);
+    expect(of('docs/zz-guide/last.md')).toBeGreaterThan(0);
   });
 
   it('stub components (fewer than 600 implementation code points) are visited after every meaningful component', () => {
