@@ -84,6 +84,8 @@ const M5_P4_TABLES = [
   'assessment_requests',
   'assessment_run_budget',
   'assessment_run_calls',
+  // P6B-beta3-R1: the immutable, content-addressed coverage record of a run's source selection (no score, no model output)
+  'assessment_run_coverage',
   'assessment_run_extractions',
   'assessment_run_input_snapshots',
   'assessment_run_inputs',
@@ -289,7 +291,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013), the one additive P6A column migration 0014 and the two P6B-beta1 submission-intent migrations 0015/0016 the two P6B-beta2 correction migrations 0017/0018 and the P6B-beta3 identity-registry migration 0019, and no other', () => {
+  it('adds exactly the four M5 P4 migrations (0010/0011, and the R4 repairs 0012/0013), the one additive P6A column migration 0014 and the two P6B-beta1 submission-intent migrations 0015/0016 the two P6B-beta2 correction migrations 0017/0018 and the P6B-beta3 identity-registry migration 0019 and the P6B-beta3-R1 coverage-record migration 0020, and no other', () => {
     const migrations = readdirSync(join(ROOT, 'packages/database/drizzle'))
       .filter((name) => name.endsWith('.sql'))
       .sort();
@@ -322,6 +324,8 @@ describe('M5 milestone scope (phase P6A)', () => {
       // P6B-beta3 (R9-1): every GitHub/Devpost declaration and every label claims its key in the one ownership registry (functions and triggers,
       // backfill of the unambiguous); no table, no scoring.
       '0019_p6b_beta3_identity_registry.sql',
+      // P6B-beta3-R1: one table, assessment_run_coverage (what a run's source selection examined), with its append-only triggers; no scoring.
+      '0020_p6b_beta3_r1_coverage_record.sql',
     ]);
   });
 
@@ -605,7 +609,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     }
   });
 
-  it('exposes exactly the five approved assessment routes: one POST, four GETs (the fifth is the assessment-scoped unknowns read), every other method refused', () => {
+  it('exposes exactly the six approved assessment routes: one POST, five GETs (the assessment-scoped unknowns and coverage reads are read-only), every other method refused', () => {
     const routes = readFileSync(join(ROOT, 'apps/api/src/assessments/routes.ts'), 'utf8');
     const handlers = [
       ...routes.matchAll(/app\.(get|post|put|patch|delete|all)\(\s*'([^']+)'/g),
@@ -614,6 +618,8 @@ describe('M5 milestone scope (phase P6A)', () => {
       'GET /projects/:projectId/assessment-runs/:runId',
       'GET /projects/:projectId/assessments',
       'GET /projects/:projectId/assessments/:assessmentId',
+      // P6B-beta3-R1: the verified coverage record of ONE assessment (read-only, same permission and fail-closed verification)
+      'GET /projects/:projectId/assessments/:assessmentId/coverage',
       // P6B-beta1: the unknowns of ONE assessment's pinned extraction (read-only, same permission and fail-closed verification)
       'GET /projects/:projectId/assessments/:assessmentId/unknowns',
       'POST /projects/:projectId/assessments',
