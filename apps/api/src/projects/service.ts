@@ -155,6 +155,14 @@ function translateIntegrityError(error: unknown): unknown {
   return error;
 }
 
+/** A refusal that came from the ownership registry (a link or a label another active project holds). */
+function isIdentityClaimRefusal(error: unknown): boolean {
+  return (
+    error instanceof SourceIngestionError &&
+    (error.code === 'SUBMISSION_CONFLICT' || error.code === 'PROJECT_NAME_TAKEN')
+  );
+}
+
 interface SubmissionIntent {
   readonly eventId: string;
   readonly actorId: string;
@@ -662,7 +670,13 @@ export class ProjectService {
         };
       } catch (error) {
         const translated = translateIntegrityError(error);
-        if (translated !== error) throw translated;
+        if (translated !== error) {
+          // An identity the database refused because ANOTHER transaction owns it may be a lost race: run again, and the application checks (which
+          // read committed state) then give the precise answer -- the same one a request made a moment later would get. Only the last attempt
+          // reports the database's own translation.
+          if (isIdentityClaimRefusal(translated) && attempt < SUBMISSION_ATTEMPTS) continue;
+          throw translated;
+        }
         const lostRace =
           hasPgCode(error, PG_UNIQUE_VIOLATION) ||
           hasPgCode(error, PG_DEADLOCK) ||
@@ -980,7 +994,13 @@ export class ProjectService {
         };
       } catch (error) {
         const translated = translateIntegrityError(error);
-        if (translated !== error) throw translated;
+        if (translated !== error) {
+          // An identity the database refused because ANOTHER transaction owns it may be a lost race: run again, and the application checks (which
+          // read committed state) then give the precise answer -- the same one a request made a moment later would get. Only the last attempt
+          // reports the database's own translation.
+          if (isIdentityClaimRefusal(translated) && attempt < SUBMISSION_ATTEMPTS) continue;
+          throw translated;
+        }
         const lostRace =
           hasPgCode(error, PG_UNIQUE_VIOLATION) ||
           hasPgCode(error, PG_DEADLOCK) ||
