@@ -13,6 +13,14 @@ import type { WindowingResult } from './windowing.js';
 
 export const EXTRACTION_LIMITATION_CODES = [
   'source_sampled',
+  // Coverage of the selected evidence (source-selection/v2): what exists in the captured repository but was NOT shown to any model stage.
+  // Each is a fact about the selection; none says anything about the project. See ARCHITECTURE.md "Evidence coverage".
+  'no_implementation_shown',
+  'implementation_components_unseen',
+  'implementation_partially_seen',
+  'documentation_partially_seen',
+  'configuration_partially_seen',
+  'tests_partially_seen',
   'item_rejected',
   'paraphrase_replaced_by_verbatim',
   'claim_dropped_unfaithful',
@@ -58,6 +66,43 @@ export function unassessedTrackRubrics(locked: EventContextLockedSnapshot): stri
     .sort();
 }
 
+const SUBJECT_CAP = 25;
+const unfinished = (status: string): boolean => status === 'partial' || status === 'unseen';
+
+/** The coverage concerns as limitations, with the components or artifacts concerned (a bounded, sorted list; `count` is the true total). */
+function addCoverage(
+  windowing: WindowingResult,
+  add: (code: ExtractionLimitationCode, subject: string) => void,
+): void {
+  const { components, artifacts, concerns } = windowing.coverage;
+  const keys = (pick: (a: (typeof artifacts)[number]) => boolean): string[] =>
+    artifacts.filter(pick).map((a) => a.artifactKey);
+  const subjectsOf: Record<(typeof concerns)[number], readonly string[]> = {
+    no_implementation_shown: ['source'],
+    implementation_components_unseen: components
+      .filter((c) => c.implementationFilesShown === 0)
+      .map((c) => c.component),
+    implementation_partially_seen: components
+      .filter((c) => c.implementationCodePointsShown < c.implementationCodePoints)
+      .map((c) => c.component),
+    documentation_partially_seen: keys((a) => a.bucket === 'statement' && unfinished(a.status)),
+    configuration_partially_seen: keys(
+      (a) =>
+        a.bucket === 'source' &&
+        ['deployment', 'manifest', 'config'].includes(a.role) &&
+        unfinished(a.status),
+    ),
+    tests_partially_seen: keys((a) => a.role === 'test' && unfinished(a.status)),
+  };
+  for (const concern of concerns) {
+    const subjects = [...subjectsOf[concern]].sort();
+    // the bounded list is what is stored; the count in the stored entry is the length of the list given to `add`, so the cap is applied by
+    // `collectLimitations` after counting
+    for (const subject of subjects) add(concern, subject);
+    if (subjects.length === 0) add(concern, 'source');
+  }
+}
+
 export function collectLimitations(inputs: LimitationInputs): Limitation[] {
   const buckets = new Map<ExtractionLimitationCode, string[]>();
   const add = (code: ExtractionLimitationCode, subject: string) => {
@@ -68,6 +113,7 @@ export function collectLimitations(inputs: LimitationInputs): Limitation[] {
   for (const bucket of inputs.windowing?.buckets ?? []) {
     if (bucket.sampled) add('source_sampled', bucket.bucket);
   }
+  if (inputs.windowing) addCoverage(inputs.windowing, add);
   for (const entry of inputs.fidelity ?? []) {
     const code = FIDELITY_LIMITATIONS[entry.disposition];
     if (code) add(code, entry.handle);
@@ -86,7 +132,13 @@ export function collectLimitations(inputs: LimitationInputs): Limitation[] {
   return EXTRACTION_LIMITATION_CODES.flatMap((code) => {
     const subjects = buckets.get(code);
     return subjects
-      ? [{ code, count: subjects.length, subjects: [...new Set(subjects)].sort() }]
+      ? [
+          {
+            code,
+            count: subjects.length,
+            subjects: [...new Set(subjects)].sort().slice(0, SUBJECT_CAP),
+          },
+        ]
       : [];
   });
 }

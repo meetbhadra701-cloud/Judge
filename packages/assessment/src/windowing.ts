@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
 import { isPassageBarrier, hasVisibleContent, sliceOf, toCodePoints } from './text.js';
+import { repositoryComponent, repositoryRole } from './repository-roles.js';
+import { selectV2, type Decision, type SelectionItem } from './selection-v2.js';
 import {
   routeArtifact,
   type Bucket,
@@ -22,6 +25,11 @@ import {
  *     span them. Their offsets are still counted, so every offset stays that of the original text.
  *   - A passage with no visible character is dropped (its offsets are not shown to anyone).
  *
+ * Selection (source-selection/v2, default; v1 is kept so that earlier runs stay reproducible): see selection-v2.ts. Heads before depth, fair
+ * across monorepo components, roles (deployment/manifest/config/implementation/test/generated), a per-file cap, exact duplicates suppressed
+ * and a work-conserving budget. The result carries a COVERAGE REPORT: for every artifact exactly which code-point ranges were shown and which
+ * were not, and a verdict (complete / partial / insufficient) that downstream stages must honour. An unseen range is UNKNOWN, never negative.
+ *
  * Selection (source-selection/v1): priority classes first (Devpost, README/docs, deployment, video, repository metadata, source),
  * source files by manifests and entry points, then breadth-first round-robin across top-level directories, ties by path in code-point
  * order. Never by size, line count, commit count, stars or keywords. Every omission is returned with a reason; nothing disappears
@@ -29,7 +37,10 @@ import {
  */
 
 export const WINDOWING_POLICY = 'windowing/v1' as const;
-export const SELECTION_POLICY = 'source-selection/v1' as const;
+export const SELECTION_POLICY_V1 = 'source-selection/v1' as const;
+export const SELECTION_POLICY = 'source-selection/v2' as const;
+export const SELECTION_POLICY_VALUES = [SELECTION_POLICY_V1, SELECTION_POLICY] as const;
+export type SelectionPolicyId = (typeof SELECTION_POLICY_VALUES)[number];
 export const PASSAGE_MAX_CODE_POINTS = 1_200;
 
 export interface WindowingBudgets {
@@ -79,6 +90,7 @@ export const OMISSION_REASON_VALUES = [
   'snapshot_not_content_bearing',
   'budget_exhausted',
   'no_visible_content',
+  'duplicate_content',
   'duplicate_structured_form',
   'listing_only',
   'commit_history_not_routed',
@@ -106,13 +118,73 @@ export interface BucketUse {
   readonly sampled: boolean;
 }
 
+export type CoverageStatus = 'full' | 'partial' | 'unseen' | 'duplicate';
+
+/** Exactly what of one artifact's text reached the model stages. Ranges are code-point offsets into the ORIGINAL text, half-open. */
+export interface ArtifactCoverage {
+  readonly snapshotId: string;
+  readonly artifactId: string;
+  readonly artifactKey: string;
+  readonly sourceType: RoutedSourceType;
+  readonly bucket: Bucket;
+  /** From the path alone (source-selection/v2): deployment, manifest, config, implementation, test, generated; statement/metadata/observation otherwise. */
+  readonly role: Decision['role'];
+  readonly component: string | null;
+  readonly status: CoverageStatus;
+  readonly totalCodePoints: number;
+  readonly shownCodePoints: number;
+  readonly shownRanges: readonly Range[];
+  /** The part never shown: UNKNOWN to every later stage, not evidence of anything. */
+  readonly unshownRanges: readonly Range[];
+  readonly duplicateOf: string | null;
+}
+
+export interface ComponentCoverage {
+  readonly component: string;
+  readonly implementationFiles: number;
+  readonly implementationFilesShown: number;
+  readonly implementationCodePoints: number;
+  readonly implementationCodePointsShown: number;
+}
+
+export type CoverageVerdict = 'complete' | 'partial' | 'insufficient';
+
+export interface CoverageReport {
+  readonly artifacts: readonly ArtifactCoverage[];
+  /** Implementation components (monorepo packages / top-level directories), in a fixed order. */
+  readonly components: readonly ComponentCoverage[];
+  readonly verdict: CoverageVerdict;
+  /** Stable codes saying why the verdict is not `complete`; each is a fact about the SELECTION, never about the project. */
+  readonly concerns: readonly CoverageConcern[];
+}
+
+export const COVERAGE_CONCERN_VALUES = [
+  'implementation_components_unseen',
+  'implementation_partially_seen',
+  'no_implementation_shown',
+  'documentation_partially_seen',
+  'configuration_partially_seen',
+  'tests_partially_seen',
+] as const;
+export type CoverageConcern = (typeof COVERAGE_CONCERN_VALUES)[number];
+
+/**
+ * Verdict rules (fixed, documented in docs/ARCHITECTURE.md): `insufficient` when implementation exists but none of it was shown, or fewer than
+ * half of the implementation components have any shown file; `partial` when anything eligible (apart from duplicates) went unshown; otherwise
+ * `complete`. These are selection facts; they say nothing about the quality of the project.
+ */
+export const COVERAGE_POLICY = Object.freeze({
+  insufficientBelowComponentFraction: 0.5,
+});
+
 export interface WindowingResult {
   readonly passages: readonly Passage[];
   readonly omissions: readonly Omission[];
   readonly buckets: readonly BucketUse[];
+  readonly coverage: CoverageReport;
   readonly policy: {
     readonly windowing: typeof WINDOWING_POLICY;
-    readonly selection: typeof SELECTION_POLICY;
+    readonly selection: SelectionPolicyId;
   };
 }
 
@@ -134,7 +206,7 @@ export function compareCodePoints(a: string, b: string): number {
 
 // -- Splitting one artifact's text into passages ---------------------------------------------------------------------------
 
-interface Range {
+export interface Range {
   readonly start: number;
   readonly end: number;
 }
@@ -342,6 +414,7 @@ const CONTENT_BEARING = new Set(['captured', 'partial']);
 export function buildPassages(
   artifacts: readonly SourceArtifact[],
   budgets: WindowingBudgets = DEFAULT_BUDGETS,
+  policy: SelectionPolicyId = SELECTION_POLICY,
 ): WindowingResult {
   const omissions: Omission[] = [];
   const candidates: Candidate[] = [];
@@ -393,30 +466,76 @@ export function buildPassages(
   });
   const ordered = [...candidates].sort(artifactOrder);
 
-  const remaining: Record<Bucket, number> = {
-    statement: budgets.statement,
-    source: budgets.source,
-    metadata: budgets.metadata,
-  };
-  const closed: Record<Bucket, boolean> = { statement: false, source: false, metadata: false };
   const eligible: Record<Bucket, number> = { statement: 0, source: 0, metadata: 0 };
   const shown: Record<Bucket, number> = { statement: 0, source: 0, metadata: 0 };
   const passages: Passage[] = [];
+  const coverage: ArtifactCoverage[] = [];
+
+  /** How many leading passages of each candidate are shown (v1: first-come; v2: see selection-v2.ts). */
+  const decisions = new Map<Candidate, Decision>();
+  if (policy === SELECTION_POLICY_V1) {
+    const remaining: Record<Bucket, number> = {
+      statement: budgets.statement,
+      source: budgets.source,
+      metadata: budgets.metadata,
+    };
+    const closed: Record<Bucket, boolean> = { statement: false, source: false, metadata: false };
+    for (const candidate of ordered) {
+      let count = 0;
+      for (const range of candidate.ranges) {
+        const length = range.end - range.start;
+        if (closed[candidate.bucket]) continue;
+        if (length > remaining[candidate.bucket]) {
+          closed[candidate.bucket] = true;
+          continue;
+        }
+        remaining[candidate.bucket] -= length;
+        count += 1;
+      }
+      decisions.set(candidate, {
+        shown: count,
+        duplicateOf: null,
+        role: 'statement',
+        component: null,
+      });
+    }
+  } else {
+    const items = new Map<number, Candidate>();
+    const selectionItems: SelectionItem[] = ordered.map((candidate, id) => {
+      items.set(id, candidate);
+      const isFile =
+        candidate.artifact.sourceType === 'github' && candidate.artifact.key.startsWith('files/');
+      return {
+        id,
+        key: candidate.artifact.key,
+        sourceType: candidate.artifact.sourceType,
+        bucket: candidate.bucket,
+        priority: candidate.priority,
+        lengths: candidate.ranges.map((range) => range.end - range.start),
+        textDigest:
+          isFile && candidate.points.length >= 200
+            ? `${candidate.bucket}:${createHash('sha256').update(candidate.artifact.text).digest('hex')}`
+            : null,
+        artifactClass: candidate.artifactClass,
+      };
+    });
+    const chosen = selectV2(selectionItems, budgets, entries);
+    for (const [id, decision] of chosen) {
+      const candidate = items.get(id);
+      if (candidate) decisions.set(candidate, decision);
+    }
+  }
 
   for (const candidate of ordered) {
     const { artifact, bucket } = candidate;
+    const decision = decisions.get(candidate);
+    const count = decision?.shown ?? 0;
+    const duplicateOf = decision?.duplicateOf ?? null;
+    const total = candidate.ranges.reduce((sum, range) => sum + (range.end - range.start), 0);
+    const shownRanges = candidate.ranges.slice(0, count);
     let shownHere = 0;
-    for (const range of candidate.ranges) {
-      const length = range.end - range.start;
-      eligible[bucket] += length;
-      if (closed[bucket]) continue;
-      if (length > remaining[bucket]) {
-        closed[bucket] = true;
-        continue;
-      }
-      remaining[bucket] -= length;
-      shown[bucket] += length;
-      shownHere += length;
+    for (const range of shownRanges) {
+      shownHere += range.end - range.start;
       passages.push({
         handle: '',
         route: candidate.route,
@@ -430,8 +549,44 @@ export function buildPassages(
         text: sliceOf(candidate.points, range.start, range.end),
       });
     }
-    const total = candidate.ranges.reduce((sum, range) => sum + (range.end - range.start), 0);
-    if (shownHere < total) omit(artifact, 'budget_exhausted', total, shownHere);
+    // A byte-identical copy of a file that IS shown adds nothing to the evidence: it is reported, not counted as unseen material.
+    if (duplicateOf === null) eligible[bucket] += total;
+    shown[bucket] += shownHere;
+    if (shownHere < total) {
+      omit(
+        artifact,
+        duplicateOf !== null ? 'duplicate_content' : 'budget_exhausted',
+        total,
+        shownHere,
+      );
+    }
+    const unshown: Range[] = [];
+    if (shownHere < total) {
+      const lastShown = shownRanges[shownRanges.length - 1];
+      unshown.push({ start: lastShown ? lastShown.end : 0, end: candidate.points.length });
+    }
+    coverage.push({
+      snapshotId: artifact.snapshotId,
+      artifactId: artifact.artifactId,
+      artifactKey: artifact.key,
+      sourceType: artifact.sourceType,
+      bucket,
+      role: decision?.role ?? 'statement',
+      component: decision?.component ?? null,
+      status:
+        duplicateOf !== null
+          ? 'duplicate'
+          : shownHere === 0
+            ? 'unseen'
+            : shownHere < total
+              ? 'partial'
+              : 'full',
+      totalCodePoints: total,
+      shownCodePoints: shownHere,
+      shownRanges: shownRanges.map(({ start, end }) => ({ start, end })),
+      unshownRanges: unshown,
+      duplicateOf,
+    });
   }
 
   const handled = passages.map((passage, index) => ({
@@ -454,8 +609,99 @@ export function buildPassages(
         compareCodePoints(a.reason, b.reason),
     ),
     buckets: (['statement', 'source', 'metadata'] as const).map(bucketUse),
-    policy: { windowing: WINDOWING_POLICY, selection: SELECTION_POLICY },
+    coverage: coverageReport(coverage, policy),
+    policy: { windowing: WINDOWING_POLICY, selection: policy },
   };
+}
+
+/** Components and the verdict, computed from the per-artifact records only. */
+function coverageReport(
+  artifacts: readonly ArtifactCoverage[],
+  policy: SelectionPolicyId,
+): CoverageReport {
+  const ordered = [...artifacts].sort(
+    (a, b) =>
+      compareCodePoints(a.artifactKey, b.artifactKey) ||
+      compareCodePoints(a.snapshotId, b.snapshotId) ||
+      compareCodePoints(a.artifactId, b.artifactId),
+  );
+  // v1 records no roles; its components are derived here from the path so that old and new selections are measured identically.
+  const isImplementation = (a: ArtifactCoverage): boolean =>
+    a.sourceType === 'github' &&
+    a.bucket === 'source' &&
+    a.status !== 'duplicate' &&
+    (policy === SELECTION_POLICY_V1
+      ? implementationLike(a.artifactKey)
+      : a.role === 'implementation');
+  const byComponent = new Map<string, ComponentCoverage>();
+  for (const a of ordered.filter(isImplementation)) {
+    const name = repositoryComponent(a.artifactKey.slice('files/'.length));
+    const current = byComponent.get(name) ?? {
+      component: name,
+      implementationFiles: 0,
+      implementationFilesShown: 0,
+      implementationCodePoints: 0,
+      implementationCodePointsShown: 0,
+    };
+    byComponent.set(name, {
+      component: name,
+      implementationFiles: current.implementationFiles + 1,
+      implementationFilesShown: current.implementationFilesShown + (a.shownCodePoints > 0 ? 1 : 0),
+      implementationCodePoints: current.implementationCodePoints + a.totalCodePoints,
+      implementationCodePointsShown: current.implementationCodePointsShown + a.shownCodePoints,
+    });
+  }
+  const components = [...byComponent.values()].sort((a, b) =>
+    compareCodePoints(a.component, b.component),
+  );
+  const concerns: CoverageConcern[] = [];
+  const unfinished = (roles: readonly Decision['role'][], bucket: Bucket) =>
+    ordered.some(
+      (a) =>
+        a.bucket === bucket &&
+        roles.includes(a.role) &&
+        (a.status === 'partial' || a.status === 'unseen'),
+    );
+  const implementationShown = components.reduce((n, c) => n + c.implementationFilesShown, 0);
+  const seenComponents = components.filter((c) => c.implementationFilesShown > 0).length;
+  const implementationUnfinished = ordered.some(
+    (a) => isImplementation(a) && (a.status === 'partial' || a.status === 'unseen'),
+  );
+  let insufficient = false;
+  if (components.length > 0 && implementationShown === 0) {
+    concerns.push('no_implementation_shown');
+    insufficient = true;
+  } else if (components.length > 0 && seenComponents < components.length) {
+    concerns.push('implementation_components_unseen');
+    if (seenComponents / components.length < COVERAGE_POLICY.insufficientBelowComponentFraction)
+      insufficient = true;
+  }
+  if (implementationUnfinished && !concerns.includes('no_implementation_shown'))
+    concerns.push('implementation_partially_seen');
+  if (policy !== SELECTION_POLICY_V1) {
+    if (unfinished(['statement'], 'statement')) concerns.push('documentation_partially_seen');
+    if (unfinished(['deployment', 'manifest', 'config'], 'source'))
+      concerns.push('configuration_partially_seen');
+    if (unfinished(['test'], 'source')) concerns.push('tests_partially_seen');
+  } else if (
+    ordered.some(
+      (a) => a.bucket === 'statement' && (a.status === 'partial' || a.status === 'unseen'),
+    )
+  ) {
+    concerns.push('documentation_partially_seen');
+  }
+  const anyUnshown = ordered.some((a) => a.status === 'partial' || a.status === 'unseen');
+  const verdict: CoverageVerdict = insufficient
+    ? 'insufficient'
+    : anyUnshown
+      ? 'partial'
+      : 'complete';
+  return { artifacts: ordered, components, verdict, concerns };
+}
+
+/** v1 recorded no roles: a source-bucket file counts as implementation when its path does not look like a test, config or generated file. */
+function implementationLike(key: string): boolean {
+  return repositoryRole(key.slice('files/'.length)) === 'implementation';
 }
 
 /** A label for a prompt: the artifact key, shortened deterministically when it exceeds the prompt label limit. */

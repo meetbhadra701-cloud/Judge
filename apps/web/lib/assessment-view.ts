@@ -164,6 +164,10 @@ export const FAILURE_CODE_EXPLANATIONS: Readonly<Record<string, string>> = {
     'The hackathon’s locked Event Context has no single official overall rubric, and this version does not assess against a fallback rubric.',
   no_context_reference_evidence:
     'The locked Event Context has no rule, requirement or declared track that can be used as reference evidence, and this version cannot assess such a context yet (known limitation).',
+  source_coverage_insufficient:
+    'The selected evidence showed too little of the repository’s implementation (none of it, or fewer than half of its components) for an assessment to say anything about it. Nothing was spent and nothing was scored. This is a statement about what could be shown, not about the project. Use an assessment with a larger source allowance, or review the repository yourself.',
+  no_passages_selected:
+    'No captured text could be shown to the assessment, so there is nothing to assess.',
   track_target_not_supported: 'Assessing a single track’s rubric is not supported in this version.',
   no_extractable_records:
     'Nothing could be extracted from the captured material, so there is nothing to assess.',

@@ -110,6 +110,10 @@ export interface WorldOptions {
   /** The project's name (a project is renamed only when it is voided, so a label is chosen at creation). */
   projectName?: string;
   codeText?: string;
+  /** More repository files (key without the `files/` prefix) captured with the README and the default source file. */
+  extraFiles?: { path: string; text: string }[];
+  /** Captures the repository as `partial` instead of `captured`. */
+  partialRepository?: boolean;
   /** Source types whose capture failed (no artifacts). */
   failed?: ('github' | 'deployment' | 'video')[];
   declare?: string[];
@@ -460,20 +464,32 @@ export async function seedWorld(db: JudgeDatabase, options: WorldOptions = {}) {
     ]);
   }
   if (wanted.includes('github')) {
-    snapshots['github'] = await seedSnapshot(db, project, 'github', 'captured', [
-      {
-        key: 'files/README.md',
-        kind: 'file',
-        mediaType: 'text/markdown',
-        text: options.readmeText ?? README_TEXT,
-      },
-      {
-        key: 'files/src/remind.ts',
-        kind: 'file',
-        mediaType: 'text/plain',
-        text: options.codeText ?? SOURCE_CODE_TEXT,
-      },
-    ]);
+    snapshots['github'] = await seedSnapshot(
+      db,
+      project,
+      'github',
+      options.partialRepository ? 'partial' : 'captured',
+      [
+        {
+          key: 'files/README.md',
+          kind: 'file',
+          mediaType: 'text/markdown',
+          text: options.readmeText ?? README_TEXT,
+        },
+        {
+          key: 'files/src/remind.ts',
+          kind: 'file',
+          mediaType: 'text/plain',
+          text: options.codeText ?? SOURCE_CODE_TEXT,
+        },
+        ...(options.extraFiles ?? []).map((file) => ({
+          key: `files/${file.path}`,
+          kind: 'file',
+          mediaType: 'text/plain',
+          text: file.text,
+        })),
+      ],
+    );
   }
   if (wanted.includes('deployment')) {
     snapshots['deployment'] = await seedSnapshot(db, project, 'deployment', 'captured', [

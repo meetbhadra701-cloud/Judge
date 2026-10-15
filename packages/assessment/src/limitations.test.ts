@@ -57,6 +57,7 @@ describe('limitations', () => {
     });
     expect(limitations.map((l) => [l.code, l.count, l.subjects])).toEqual([
       ['source_sampled', 1, ['statement']],
+      ['documentation_partially_seen', 1, ['submission.txt']],
       ['item_rejected', 2, ['G1:quote_not_found']],
       ['paraphrase_replaced_by_verbatim', 1, ['C-002']],
       ['claim_dropped_unfaithful', 1, ['C-004']],
@@ -92,6 +93,39 @@ describe('limitations', () => {
     expect(collectLimitations({ locked: withTrack }).map((l) => [l.code, l.subjects])).toEqual([
       ['official_track_rubrics_not_assessed', ['Health track rubric']],
     ]);
+  });
+
+  it('names the coverage gaps of a repository the budget could not hold, with bounded subjects and the true count', () => {
+    const files = Array.from(
+      { length: 40 },
+      (_, i) => `packages/pkg-${String(i).padStart(2, '0')}/src/index.ts`,
+    );
+    const lines = (n: number, tag: string) =>
+      Array.from({ length: n }, (_, i) => `export const ${tag}_${String(i)} = ${String(i)};`).join(
+        '\n',
+      );
+    const windowing = buildPassages(
+      files.map((path) =>
+        artifact({
+          sourceType: 'github',
+          key: `files/${path}`,
+          kind: 'file',
+          mediaType: 'text/plain',
+          text: lines(300, path.replace(/\W/g, '_')),
+        }),
+      ),
+      { statement: 1_000, source: 24_000, metadata: 1_000 },
+    );
+    const byCode = new Map(collectLimitations({ windowing }).map((l) => [l.code, l]));
+    const unseen = byCode.get('implementation_components_unseen');
+    // 24,000 code points hold a 1,200-code-point head of each of 20 packages; the other 20 are named as not seen
+    expect(unseen?.count).toBe(20);
+    expect(unseen?.subjects.length).toBeLessThanOrEqual(25);
+    expect(byCode.has('implementation_partially_seen')).toBe(true);
+    expect(windowing.coverage.verdict).toBe('partial');
+    for (const limitation of byCode.values()) {
+      expect(JSON.stringify(limitation)).not.toContain('export const');
+    }
   });
 
   it('is empty when nothing was lost', () => {

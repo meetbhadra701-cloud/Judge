@@ -1,5 +1,6 @@
 import {
   buildPassages,
+  type SelectionPolicyId,
   type SourceArtifact,
   type WindowingBudgets,
   type WindowingResult,
@@ -184,6 +185,8 @@ export function ladder(base: WindowingBudgets): EffectivePlan[] {
 export interface PreflightInput {
   readonly artifacts: readonly SourceArtifact[];
   readonly budgets: WindowingBudgets;
+  /** The selection policy frozen in the run's configuration. */
+  readonly selection?: SelectionPolicyId;
   readonly units: number;
   readonly rubric: 'official' | 'fallback';
   readonly limits: AssessmentRunLimits;
@@ -217,7 +220,7 @@ export type PreflightResult =
 export async function preflight(input: PreflightInput): Promise<PreflightResult> {
   let lastCalls: CallPlan | null = null;
   for (const plan of ladder(input.budgets)) {
-    const windowing = buildPassages(input.artifacts, plan.budgets);
+    const windowing = buildPassages(input.artifacts, plan.budgets, input.selection);
     const statementPassages = windowing.passages.filter((p) => p.route === 'statement').length;
     const interpretPassages = windowing.passages.length - statementPassages;
     const counts = projectCounts(statementPassages, interpretPassages, {

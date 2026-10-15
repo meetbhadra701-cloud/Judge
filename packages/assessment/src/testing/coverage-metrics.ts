@@ -136,6 +136,11 @@ export interface Metrics {
   readonly maxArtifactShare: { readonly key: string; readonly share: number };
   /** Some eligible file of the source bucket was not shown at all. */
   readonly unshownEligibleSourceFiles: number;
+  /**
+   * Implementation files with nothing shown, EXCLUDING byte-identical copies of a file that was shown (a copy carries no unseen content).
+   * Oracle refinement after the first v2 run (reported); computed from the artifact texts, not from the selection's own duplicate detection.
+   */
+  readonly unshownDistinctImplementationFiles: number;
   readonly buckets: WindowingResult['buckets'];
   readonly rootReadmeShown: number;
   readonly rootReadmeLength: number;
@@ -223,6 +228,11 @@ export function measure(artifacts: readonly SourceArtifact[], result: WindowingR
     const share = f.shown / budget(f.bucket);
     if (share > max.share) max = { key: f.key, share };
   }
+  const textOf = new Map(artifacts.map((a) => [a.key, a.text] as const));
+  const shownTexts = new Set(facts.filter((f) => f.shown > 0).map((f) => textOf.get(f.key)));
+  const unshownDistinctImplementation = implementation.filter(
+    (f) => f.shown === 0 && !shownTexts.has(textOf.get(f.key)),
+  ).length;
   const sourceFacts = facts.filter((f) => f.role !== 'prose');
   const sourceShown = sourceFacts.reduce((s, f) => s + f.shown, 0);
   const readme = facts.find((f) => f.path.toLowerCase() === 'readme.md');
@@ -238,6 +248,7 @@ export function measure(artifacts: readonly SourceArtifact[], result: WindowingR
     componentCoverage:
       components.length === 0 ? 1 : (components.length - uncovered.length) / components.length,
     maxArtifactShare: max,
+    unshownDistinctImplementationFiles: unshownDistinctImplementation,
     unshownEligibleSourceFiles: sourceFacts.filter((f) => f.shown === 0 && f.role !== 'generated')
       .length,
     buckets: result.buckets,
@@ -245,7 +256,9 @@ export function measure(artifacts: readonly SourceArtifact[], result: WindowingR
     rootReadmeLength: readme?.total ?? 0,
     deployment: {
       files: deployment.length,
-      headsShown: deployment.filter((f) => f.shown >= Math.min(f.total, 1_200)).length,
+      // Oracle refinement after the first v2 run (reported): a passage ends at a line boundary, so a file's first passage may hold fewer than
+      // 1,200 code points; "head shown" means the first passage was shown, not a fixed number of code points.
+      headsShown: deployment.filter((f) => f.shown > 0).length,
       codePoints: deployment.reduce((s, f) => s + f.total, 0),
     },
     testShareOfSource: sourceShown === 0 ? 0 : byRole.test.codePointsShown / sourceShown,

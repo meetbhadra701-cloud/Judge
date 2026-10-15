@@ -8,7 +8,12 @@ import { z } from 'zod';
 import { CANDIDATE_POLICY } from './candidates.js';
 import { EVENT_REFERENCE_BUILDER } from './event-evidence.js';
 import { LABEL_POLICY_ID } from './label-policy.js';
-import { DEFAULT_BUDGETS, SELECTION_POLICY, WINDOWING_POLICY } from './windowing.js';
+import {
+  DEFAULT_BUDGETS,
+  SELECTION_POLICY,
+  SELECTION_POLICY_VALUES,
+  WINDOWING_POLICY,
+} from './windowing.js';
 import { SOURCE_ROUTING_POLICY } from './routing.js';
 
 /*
@@ -44,7 +49,8 @@ export const AssessmentPipelineConfig = z.strictObject({
   policies: z.strictObject({
     label: z.literal(LABEL_POLICY_ID),
     windowing: z.literal(WINDOWING_POLICY),
-    selection: z.literal(SELECTION_POLICY),
+    /** Both policies stay valid so that a run frozen under v1 is reproduced by v1; new configurations always carry the current one. */
+    selection: z.enum(SELECTION_POLICY_VALUES),
     routing: z.literal(SOURCE_ROUTING_POLICY),
     referenceBuilder: z.literal(EVENT_REFERENCE_BUILDER),
     candidates: z.literal(CANDIDATE_POLICY),

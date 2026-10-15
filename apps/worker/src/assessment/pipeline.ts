@@ -33,6 +33,7 @@ import type { Logger } from '@judge-copilot/shared';
 import { eq } from 'drizzle-orm';
 import { safeErrorCode } from '../capture/safe-error.js';
 import { assessUnits } from './assess.js';
+import { runNotices } from './notices.js';
 import {
   checkPipelineConfig,
   contextConfigHash,
@@ -321,13 +322,17 @@ async function execute(
   session.checkpoint('load_sources');
   const sources = await loadPinnedSources(deps.db, runId, facts.projectId);
   const snapshotIds = sources.pins.map((pin) => pin.snapshotId);
-  if (buildPassages(sources.artifacts, config.windowing).passages.length === 0) {
+  if (
+    buildPassages(sources.artifacts, config.windowing, config.policies.selection).passages
+      .length === 0
+  ) {
     return failRun('source_unavailable', 'no_passages_selected', 'select');
   }
   session.checkpoint('preflight');
   const plan = await preflight({
     artifacts: sources.artifacts,
     budgets: config.windowing,
+    selection: config.policies.selection,
     units,
     rubric: 'official',
     limits,
@@ -346,6 +351,13 @@ async function execute(
     return plan.reason === 'unpriced_model'
       ? failRun('internal_error', 'model_unpriced', 'preflight')
       : failRun('budget_exceeded', 'preflight_plan_exceeds_limits', 'preflight');
+  }
+  // COVERAGE GATE (P6B-beta3, R9-B1). When the selection could show too little of the implementation to assess it at all (none of it, or
+  // fewer than half of its components), the run stops BEFORE any spend: scoring an implementation the model never saw would be a confident
+  // statement about unseen code. This is the strongest safe behaviour available without a later milestone (a reviewer-visible, resumable
+  // "assess with partial coverage" flow); it is never converted into a low score, and nothing is inferred from what was not shown.
+  if (plan.windowing.coverage.verdict === 'insufficient') {
+    return failRun('source_unavailable', 'source_coverage_insufficient', 'select');
   }
 
   // -- the guarded provider of this run ---------------------------------------------------------------------------------------------
@@ -422,7 +434,14 @@ async function execute(
 
   // -- S8-S13 ---------------------------------------------------------------------------------------------------------------------
   session.checkpoint('assess');
-  const assessed = await assessUnits({ caller, ledger, reader: deps.reader, runId, limits });
+  const assessed = await assessUnits({
+    caller,
+    ledger,
+    reader: deps.reader,
+    runId,
+    limits,
+    notices: runNotices(plan.windowing, sources.pins),
+  });
 
   // Extraction-time notices (fidelity downgrades, rejected items, dropped relations) belong to the extraction, so they are read back
   // from it: a reusing run discloses exactly what the original run did (R5 F-5). The windowing and locked-context notices are

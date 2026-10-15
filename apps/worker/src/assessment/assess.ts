@@ -35,7 +35,11 @@ import {
   PromptInputError,
   type UnitView,
 } from '@judge-copilot/prompts';
-import type { AssessmentRunLimits, ScoreReport } from '@judge-copilot/schemas';
+import type {
+  AssessmentRunLimits,
+  DimensionLimitationCode,
+  ScoreReport,
+} from '@judge-copilot/schemas';
 import { variableByteBudget } from './extract.js';
 import type { ModelCaller, Validated } from './model-call.js';
 import type { RecordingBudget } from './ledger.js';
@@ -63,6 +67,8 @@ export interface AssessContext {
   readonly reader: AssessmentInputReader;
   readonly runId: string;
   readonly limits: AssessmentRunLimits;
+  /** Run-wide notices (what the earlier steps did not show), attached to every unit. */
+  readonly notices?: readonly DimensionLimitationCode[];
 }
 
 export interface AssessResult {
@@ -121,6 +127,12 @@ function technicalCount(finals: readonly FinalUnit[]): number {
   return finals.filter((final) => classifyDisposition(final.disposition) === 'technical').length;
 }
 
+function withNotices(view: UnitView, notices: readonly DimensionLimitationCode[]): UnitView {
+  return notices.length === 0
+    ? view
+    : { ...view, notices: [...new Set([...view.notices, ...notices])] };
+}
+
 export async function assessUnits(context: AssessContext): Promise<AssessResult> {
   const { caller, ledger, reader, runId, limits } = context;
   const encoder = new TextEncoder();
@@ -149,15 +161,18 @@ export async function assessUnits(context: AssessContext): Promise<AssessResult>
     try {
       unitViews.set(
         unit.dimensionId,
-        officialUnitFromLockedSnapshot(
-          data.locked,
-          {
-            versionId: data.locked.versionId,
-            lockedContentHash: data.locked.lockedContentHash,
-            eventId: data.eventId,
-          },
-          unit.criterionKey,
-        ).unit,
+        withNotices(
+          officialUnitFromLockedSnapshot(
+            data.locked,
+            {
+              versionId: data.locked.versionId,
+              lockedContentHash: data.locked.lockedContentHash,
+              eventId: data.eventId,
+            },
+            unit.criterionKey,
+          ).unit,
+          context.notices ?? [],
+        ),
       );
     } catch (error) {
       if (error instanceof PromptInputError)

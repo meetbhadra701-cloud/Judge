@@ -41,6 +41,7 @@ describe('assessment pipeline structure', () => {
       'assessment/ledger.ts',
       'assessment/loop.ts',
       'assessment/model-call.ts',
+      'assessment/notices.ts',
       'assessment/pipeline.ts',
       'assessment/preflight.ts',
       'assessment/runtime.ts',
