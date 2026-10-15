@@ -122,7 +122,8 @@ describe('limitations', () => {
     expect(unseen?.count).toBe(20);
     expect(unseen?.subjects.length).toBeLessThanOrEqual(25);
     expect(byCode.has('implementation_partially_seen')).toBe(true);
-    expect(windowing.coverage.verdict).toBe('partial');
+    // 20,000 of ~700,000 code points were inspected (< 5 %): the verdict is the refusal, not "partial"
+    expect(windowing.coverage.verdict).toBe('insufficient');
     for (const limitation of byCode.values()) {
       expect(JSON.stringify(limitation)).not.toContain('export const');
     }
@@ -156,6 +157,55 @@ describe('limitations', () => {
     expect(unseen?.count).toBeGreaterThan(25);
     expect(unseen?.subjects).toHaveLength(25);
     expect([...(unseen?.subjects ?? [])].sort()).toEqual(unseen?.subjects);
+  });
+
+  it('states a partial capture from the pinned snapshots themselves, whatever the selection did and whatever any model said', () => {
+    const limitations = collectLimitations({
+      snapshots: [
+        {
+          sourceType: 'github',
+          status: 'partial',
+          partialReasons: ['file_count_limit', 'commit_limit'],
+        },
+        { sourceType: 'devpost', status: 'captured', partialReasons: [] },
+      ],
+    });
+    expect(limitations).toEqual([
+      { code: 'partial_capture', count: 1, subjects: ['github:commit_limit+file_count_limit'] },
+    ]);
+    expect(
+      collectLimitations({
+        snapshots: [{ sourceType: 'github', status: 'captured', partialReasons: [] }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('lists the components that were not inspected largest first, so the omitted core is not hidden behind the alphabet', () => {
+    const lines = (tag: string, n: number) =>
+      Array.from({ length: n }, (_, i) => `export const ${tag}_${String(i)} = ${String(i)};`).join(
+        '\n',
+      );
+    const files = [
+      ['packages/aaa-small', 20],
+      ['packages/zzz-huge', 3_000],
+      ['packages/mmm-mid', 400],
+    ] as const;
+    const windowing = buildPassages(
+      files.map(([dir, n]) =>
+        artifact({
+          sourceType: 'github',
+          key: `files/${dir}/src/index.ts`,
+          kind: 'file',
+          mediaType: 'text/plain',
+          text: lines(dir.replace(/\W/g, '_'), n),
+        }),
+      ),
+      { statement: 1_000, source: 2_000, metadata: 1_000 },
+    );
+    const unseen = collectLimitations({ windowing }).find(
+      (l) => l.code === 'implementation_components_unseen',
+    );
+    expect(unseen?.subjects[0]).toBe('packages/zzz-huge');
   });
 
   it('is empty when nothing was lost', () => {

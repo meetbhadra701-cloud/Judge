@@ -1,7 +1,19 @@
 import { createHash } from 'node:crypto';
 import { isPassageBarrier, hasVisibleContent, sliceOf, toCodePoints } from './text.js';
-import { repositoryComponent, repositoryRole } from './repository-roles.js';
-import { selectV2, type Decision, type SelectionItem } from './selection-v2.js';
+import {
+  buildCoverageReport,
+  classifyForCoverage,
+  type ArtifactCoverage,
+  type CoverageReport,
+} from './coverage.js';
+import { selectV2 } from './selection-v2.js';
+import {
+  proseCategoryOf,
+  selectV3,
+  type Decision,
+  type ProseCategory,
+  type SelectionItem,
+} from './selection-v3.js';
 import {
   routeArtifact,
   type Bucket,
@@ -38,8 +50,13 @@ import {
 
 export const WINDOWING_POLICY = 'windowing/v1' as const;
 export const SELECTION_POLICY_V1 = 'source-selection/v1' as const;
-export const SELECTION_POLICY = 'source-selection/v2' as const;
-export const SELECTION_POLICY_VALUES = [SELECTION_POLICY_V1, SELECTION_POLICY] as const;
+export const SELECTION_POLICY_V2 = 'source-selection/v2' as const;
+export const SELECTION_POLICY = 'source-selection/v3' as const;
+export const SELECTION_POLICY_VALUES = [
+  SELECTION_POLICY_V1,
+  SELECTION_POLICY_V2,
+  SELECTION_POLICY,
+] as const;
 export type SelectionPolicyId = (typeof SELECTION_POLICY_VALUES)[number];
 export const PASSAGE_MAX_CODE_POINTS = 1_200;
 
@@ -118,64 +135,20 @@ export interface BucketUse {
   readonly sampled: boolean;
 }
 
-export type CoverageStatus = 'full' | 'partial' | 'unseen' | 'duplicate';
-
-/** Exactly what of one artifact's text reached the model stages. Ranges are code-point offsets into the ORIGINAL text, half-open. */
-export interface ArtifactCoverage {
-  readonly snapshotId: string;
-  readonly artifactId: string;
-  readonly artifactKey: string;
-  readonly sourceType: RoutedSourceType;
-  readonly bucket: Bucket;
-  /** From the path alone (source-selection/v2): deployment, manifest, config, implementation, test, generated; statement/metadata/observation otherwise. */
-  readonly role: Decision['role'];
-  readonly component: string | null;
-  readonly status: CoverageStatus;
-  readonly totalCodePoints: number;
-  readonly shownCodePoints: number;
-  readonly shownRanges: readonly Range[];
-  /** The part never shown: UNKNOWN to every later stage, not evidence of anything. */
-  readonly unshownRanges: readonly Range[];
-  readonly duplicateOf: string | null;
-}
-
-export interface ComponentCoverage {
-  readonly component: string;
-  readonly implementationFiles: number;
-  readonly implementationFilesShown: number;
-  readonly implementationCodePoints: number;
-  readonly implementationCodePointsShown: number;
-}
-
-export type CoverageVerdict = 'complete' | 'partial' | 'insufficient';
-
-export interface CoverageReport {
-  readonly artifacts: readonly ArtifactCoverage[];
-  /** Implementation components (monorepo packages / top-level directories), in a fixed order. */
-  readonly components: readonly ComponentCoverage[];
-  readonly verdict: CoverageVerdict;
-  /** Stable codes saying why the verdict is not `complete`; each is a fact about the SELECTION, never about the project. */
-  readonly concerns: readonly CoverageConcern[];
-}
-
-export const COVERAGE_CONCERN_VALUES = [
-  'implementation_components_unseen',
-  'implementation_partially_seen',
-  'no_implementation_shown',
-  'documentation_partially_seen',
-  'configuration_partially_seen',
-  'tests_partially_seen',
-] as const;
-export type CoverageConcern = (typeof COVERAGE_CONCERN_VALUES)[number];
-
-/**
- * Verdict rules (fixed, documented in docs/ARCHITECTURE.md): `insufficient` when implementation exists but none of it was shown, or fewer than
- * half of the implementation components have any shown file; `partial` when anything eligible (apart from duplicates) went unshown; otherwise
- * `complete`. These are selection facts; they say nothing about the quality of the project.
- */
-export const COVERAGE_POLICY = Object.freeze({
-  insufficientBelowComponentFraction: 0.5,
-});
+export {
+  COVERAGE_CONCERN_VALUES,
+  COVERAGE_POLICY,
+  type ArtifactCoverage,
+  type CategoryCoverage,
+  type ComponentCoverage,
+  type CoverageConcern,
+  type CoverageMeasures,
+  type CoverageReport,
+  type CoverageRole,
+  type CoverageStatus,
+  type CoverageVerdict,
+  type RoleInventory,
+} from './coverage.js';
 
 export interface WindowingResult {
   readonly passages: readonly Passage[];
@@ -408,6 +381,8 @@ function artifactOrder(a: Candidate, b: Candidate): number {
 
 const CONTENT_BEARING = new Set(['captured', 'partial']);
 
+const sha256Of = (text: string): string => createHash('sha256').update(text).digest('hex');
+
 /**
  * Selects and windows the captured text. Pure and order-independent: any permutation of `artifacts` gives an identical result.
  */
@@ -497,6 +472,7 @@ export function buildPassages(
         duplicateOf: null,
         role: 'statement',
         component: null,
+        category: null,
       });
     }
   } else {
@@ -514,15 +490,23 @@ export function buildPassages(
         lengths: candidate.ranges.map((range) => range.end - range.start),
         textDigest:
           isFile && candidate.points.length >= 200
-            ? `${candidate.bucket}:${createHash('sha256').update(candidate.artifact.text).digest('hex')}`
+            ? `${candidate.bucket}:${sha256Of(candidate.artifact.text)}`
             : null,
         artifactClass: candidate.artifactClass,
       };
     });
-    const chosen = selectV2(selectionItems, budgets, entries);
+    const chosen =
+      policy === SELECTION_POLICY_V2
+        ? selectV2(selectionItems, budgets, entries)
+        : selectV3(selectionItems, budgets, entries);
     for (const [id, decision] of chosen) {
       const candidate = items.get(id);
-      if (candidate) decisions.set(candidate, decision);
+      if (candidate) {
+        decisions.set(candidate, {
+          ...decision,
+          category: (decision as { category?: ProseCategory | null }).category ?? null,
+        });
+      }
     }
   }
 
@@ -565,14 +549,24 @@ export function buildPassages(
       const lastShown = shownRanges[shownRanges.length - 1];
       unshown.push({ start: lastShown ? lastShown.end : 0, end: candidate.points.length });
     }
+    const classified = classifyForCoverage(artifact.sourceType, artifact.key, bucket);
     coverage.push({
       snapshotId: artifact.snapshotId,
       artifactId: artifact.artifactId,
       artifactKey: artifact.key,
       sourceType: artifact.sourceType,
       bucket,
-      role: decision?.role ?? 'statement',
-      component: decision?.component ?? null,
+      role: classified.role,
+      component: classified.component,
+      category:
+        bucket === 'statement'
+          ? proseCategoryOf(
+              artifact.sourceType,
+              artifact.key.startsWith('files/')
+                ? artifact.key.slice('files/'.length)
+                : artifact.key,
+            )
+          : null,
       status:
         duplicateOf !== null
           ? 'duplicate'
@@ -583,11 +577,35 @@ export function buildPassages(
               : 'full',
       totalCodePoints: total,
       shownCodePoints: shownHere,
+      passagesShown: count,
+      shownEnd: shownRanges.length === 0 ? 0 : (shownRanges[shownRanges.length - 1]?.end ?? 0),
       shownRanges: shownRanges.map(({ start, end }) => ({ start, end })),
       unshownRanges: unshown,
+      textSha256: sha256Of(artifact.text),
       duplicateOf,
+      represented: false,
+      representedCodePoints: 0,
     });
   }
+
+  // A byte-identical copy is INSPECTED only through a twin of the same role that was shown; otherwise it is plainly unseen.
+  const byKey = new Map(coverage.map((entry) => [entry.artifactKey, entry] as const));
+  const resolved: ArtifactCoverage[] = coverage.map((entry) => {
+    if (entry.duplicateOf === null) return entry;
+    const twin = byKey.get(entry.duplicateOf);
+    const represented =
+      twin !== undefined &&
+      twin.role === entry.role &&
+      twin.bucket === entry.bucket &&
+      twin.shownCodePoints > 0;
+    return {
+      ...entry,
+      represented,
+      representedCodePoints: represented
+        ? Math.min(twin.shownCodePoints, entry.totalCodePoints)
+        : 0,
+    };
+  });
 
   const handled = passages.map((passage, index) => ({
     ...passage,
@@ -609,99 +627,9 @@ export function buildPassages(
         compareCodePoints(a.reason, b.reason),
     ),
     buckets: (['statement', 'source', 'metadata'] as const).map(bucketUse),
-    coverage: coverageReport(coverage, policy),
+    coverage: buildCoverageReport(resolved, policy),
     policy: { windowing: WINDOWING_POLICY, selection: policy },
   };
-}
-
-/** Components and the verdict, computed from the per-artifact records only. */
-function coverageReport(
-  artifacts: readonly ArtifactCoverage[],
-  policy: SelectionPolicyId,
-): CoverageReport {
-  const ordered = [...artifacts].sort(
-    (a, b) =>
-      compareCodePoints(a.artifactKey, b.artifactKey) ||
-      compareCodePoints(a.snapshotId, b.snapshotId) ||
-      compareCodePoints(a.artifactId, b.artifactId),
-  );
-  // v1 records no roles; its components are derived here from the path so that old and new selections are measured identically.
-  const isImplementation = (a: ArtifactCoverage): boolean =>
-    a.sourceType === 'github' &&
-    a.bucket === 'source' &&
-    a.status !== 'duplicate' &&
-    (policy === SELECTION_POLICY_V1
-      ? implementationLike(a.artifactKey)
-      : a.role === 'implementation');
-  const byComponent = new Map<string, ComponentCoverage>();
-  for (const a of ordered.filter(isImplementation)) {
-    const name = repositoryComponent(a.artifactKey.slice('files/'.length));
-    const current = byComponent.get(name) ?? {
-      component: name,
-      implementationFiles: 0,
-      implementationFilesShown: 0,
-      implementationCodePoints: 0,
-      implementationCodePointsShown: 0,
-    };
-    byComponent.set(name, {
-      component: name,
-      implementationFiles: current.implementationFiles + 1,
-      implementationFilesShown: current.implementationFilesShown + (a.shownCodePoints > 0 ? 1 : 0),
-      implementationCodePoints: current.implementationCodePoints + a.totalCodePoints,
-      implementationCodePointsShown: current.implementationCodePointsShown + a.shownCodePoints,
-    });
-  }
-  const components = [...byComponent.values()].sort((a, b) =>
-    compareCodePoints(a.component, b.component),
-  );
-  const concerns: CoverageConcern[] = [];
-  const unfinished = (roles: readonly Decision['role'][], bucket: Bucket) =>
-    ordered.some(
-      (a) =>
-        a.bucket === bucket &&
-        roles.includes(a.role) &&
-        (a.status === 'partial' || a.status === 'unseen'),
-    );
-  const implementationShown = components.reduce((n, c) => n + c.implementationFilesShown, 0);
-  const seenComponents = components.filter((c) => c.implementationFilesShown > 0).length;
-  const implementationUnfinished = ordered.some(
-    (a) => isImplementation(a) && (a.status === 'partial' || a.status === 'unseen'),
-  );
-  let insufficient = false;
-  if (components.length > 0 && implementationShown === 0) {
-    concerns.push('no_implementation_shown');
-    insufficient = true;
-  } else if (components.length > 0 && seenComponents < components.length) {
-    concerns.push('implementation_components_unseen');
-    if (seenComponents / components.length < COVERAGE_POLICY.insufficientBelowComponentFraction)
-      insufficient = true;
-  }
-  if (implementationUnfinished && !concerns.includes('no_implementation_shown'))
-    concerns.push('implementation_partially_seen');
-  if (policy !== SELECTION_POLICY_V1) {
-    if (unfinished(['statement'], 'statement')) concerns.push('documentation_partially_seen');
-    if (unfinished(['deployment', 'manifest', 'config'], 'source'))
-      concerns.push('configuration_partially_seen');
-    if (unfinished(['test'], 'source')) concerns.push('tests_partially_seen');
-  } else if (
-    ordered.some(
-      (a) => a.bucket === 'statement' && (a.status === 'partial' || a.status === 'unseen'),
-    )
-  ) {
-    concerns.push('documentation_partially_seen');
-  }
-  const anyUnshown = ordered.some((a) => a.status === 'partial' || a.status === 'unseen');
-  const verdict: CoverageVerdict = insufficient
-    ? 'insufficient'
-    : anyUnshown
-      ? 'partial'
-      : 'complete';
-  return { artifacts: ordered, components, verdict, concerns };
-}
-
-/** v1 recorded no roles: a source-bucket file counts as implementation when its path does not look like a test, config or generated file. */
-function implementationLike(key: string): boolean {
-  return repositoryRole(key.slice('files/'.length)) === 'implementation';
 }
 
 /** A label for a prompt: the artifact key, shortened deterministically when it exceeds the prompt label limit. */

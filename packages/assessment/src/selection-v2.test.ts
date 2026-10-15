@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { artifact } from './testing/world.js';
 import {
   buildPassages,
-  SELECTION_POLICY,
+  SELECTION_POLICY_V2,
   SELECTION_POLICY_V1,
   type SourceArtifact,
 } from './windowing.js';
@@ -22,7 +22,7 @@ const shown = (
   artifacts: readonly SourceArtifact[],
   budgets = { statement: 6_000, source: 6_000, metadata: 1_000 },
 ) => {
-  const result = buildPassages(artifacts, budgets, SELECTION_POLICY);
+  const result = buildPassages(artifacts, budgets, SELECTION_POLICY_V2);
   const byKey = new Map<string, number>();
   for (const p of result.passages)
     byKey.set(p.artifactKey, (byKey.get(p.artifactKey) ?? 0) + (p.end - p.start));
@@ -167,7 +167,7 @@ describe('source-selection/v2', () => {
       file('package.json', '{"name":"x"}\n{"a":1}'),
     ];
     const v1 = buildPassages(small, undefined, SELECTION_POLICY_V1);
-    const v2 = buildPassages(small, undefined, SELECTION_POLICY);
+    const v2 = buildPassages(small, undefined, SELECTION_POLICY_V2);
     expect(v2.passages).toEqual(v1.passages);
     expect(v2.coverage.verdict).toBe('complete');
   });
@@ -185,7 +185,7 @@ describe('source-selection/v2', () => {
     ];
     const budgets = { statement: 1_000, source: 3_000, metadata: 1_000 };
     const shape = (x: SourceArtifact[]) =>
-      buildPassages(x, budgets, SELECTION_POLICY).passages.map(
+      buildPassages(x, budgets, SELECTION_POLICY_V2).passages.map(
         (p) => `${p.artifactKey}:${String(p.start)}`,
       );
     expect(shape(b).length).toBe(shape(a).length);

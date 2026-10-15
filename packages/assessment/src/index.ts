@@ -235,6 +235,7 @@ export {
   passageRanges,
   SELECTION_POLICY,
   SELECTION_POLICY_V1,
+  SELECTION_POLICY_V2,
   SELECTION_POLICY_VALUES,
   statementViews,
   WINDOWING_POLICY,
@@ -242,9 +243,12 @@ export {
 export type {
   ArtifactCoverage,
   BucketUse,
+  CategoryCoverage,
   ComponentCoverage,
   CoverageConcern,
+  CoverageMeasures,
   CoverageReport,
+  CoverageRole,
   CoverageStatus,
   CoverageVerdict,
   InterpretPassageView,
@@ -257,6 +261,23 @@ export type {
   WindowingBudgets,
   WindowingResult,
 } from './windowing.js';
+export {
+  COVERAGE_LIMITATION_CODES,
+  coverageLimitations,
+  LIMITATION_SUBJECT_CAP,
+} from './coverage-limitations.js';
+export type {
+  CoverageLimitation,
+  CoverageLimitationCode,
+  PinnedSnapshotStatus,
+} from './coverage-limitations.js';
+export {
+  PROSE_CATEGORY_SHARE,
+  PROSE_CATEGORY_VALUES,
+  STUB_COMPONENT_BELOW,
+} from './selection-v3.js';
+export type { ProseCategory } from './selection-v3.js';
+export { buildCoverageReport } from './coverage.js';
 export {
   collectLimitations,
   EXTRACTION_LIMITATION_CODES,
