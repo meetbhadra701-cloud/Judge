@@ -114,6 +114,8 @@ export interface WorldOptions {
   extraFiles?: { path: string; text: string }[];
   /** Captures the repository as `partial` instead of `captured`. */
   partialRepository?: boolean;
+  /** The Devpost text was typed or pasted by an organizer (an organizer-supplied snapshot), not fetched. */
+  devpostSupplied?: boolean;
   /** Source types whose capture failed (no artifacts). */
   failed?: ('github' | 'deployment' | 'video')[];
   declare?: string[];
@@ -326,6 +328,7 @@ export async function seedSnapshot(
   sourceType: ProjectSourceType,
   status: 'captured' | 'partial' | 'failed',
   artifacts: readonly ArtifactSeed[] = [],
+  metadata: Record<string, unknown> = {},
 ) {
   const n = next();
   const url = declaredTestUrl(sourceType, String(n));
@@ -366,7 +369,7 @@ export async function seedSnapshot(
   const revision = sourceType === 'github' ? 'a'.repeat(40) : null;
   if (status === 'captured') {
     await db.execute(sql`UPDATE source_snapshots SET status = 'captured', revision = ${revision},
-      metadata = '{}'::jsonb, content_hash = ${sha256(snapshot.id)}, captured_at = now(), completed_at = now()
+      metadata = ${JSON.stringify(metadata)}::jsonb, content_hash = ${sha256(snapshot.id)}, captured_at = now(), completed_at = now()
       WHERE id = ${snapshot.id}`);
   } else if (status === 'partial') {
     await db.execute(sql`UPDATE source_snapshots SET status = 'partial', revision = ${revision},
@@ -454,14 +457,23 @@ export async function seedWorld(db: JudgeDatabase, options: WorldOptions = {}) {
   const wanted = options.sources ?? ['devpost', 'github'];
   const snapshots: Record<string, Awaited<ReturnType<typeof seedSnapshot>>> = {};
   if (wanted.includes('devpost')) {
-    snapshots['devpost'] = await seedSnapshot(db, project, 'devpost', 'captured', [
-      {
-        key: 'submission.txt',
-        kind: 'submission_text',
-        mediaType: 'text/plain',
-        text: options.devpostText ?? DEVPOST_TEXT,
-      },
-    ]);
+    snapshots['devpost'] = await seedSnapshot(
+      db,
+      project,
+      'devpost',
+      'captured',
+      [
+        {
+          key: 'submission.txt',
+          kind: 'submission_text',
+          mediaType: 'text/plain',
+          text: options.devpostText ?? DEVPOST_TEXT,
+        },
+      ],
+      options.devpostSupplied
+        ? { provenance: 'organizer_supplied', adapterVersion: 'organizer-supplied/v1' }
+        : {},
+    );
   }
   if (wanted.includes('github')) {
     snapshots['github'] = await seedSnapshot(
@@ -484,7 +496,7 @@ export async function seedWorld(db: JudgeDatabase, options: WorldOptions = {}) {
         },
         ...(options.extraFiles ?? []).map((file) => ({
           key: `files/${file.path}`,
-          kind: 'file',
+          kind: 'file' as const,
           mediaType: 'text/plain',
           text: file.text,
         })),

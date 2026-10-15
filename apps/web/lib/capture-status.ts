@@ -83,6 +83,17 @@ export function describeCapture(snapshot: SnapshotSummary | null): CaptureStatus
         hasContent: false,
       };
     case 'captured':
+      if (snapshot.provenance === 'organizer_supplied') {
+        return {
+          stage: 'captured',
+          label: 'TEXT SUPPLIED BY AN ORGANIZER',
+          detail:
+            'An organizer typed or pasted this text and it was stored as an immutable snapshot. It was NOT fetched from the source and has not been compared with it. It is not an analysis, and it does not verify anything.',
+          gaps: [],
+          retryable: true,
+          hasContent: true,
+        };
+      }
       return {
         stage: 'captured',
         label: 'CAPTURED',
@@ -103,6 +114,17 @@ export function describeCapture(snapshot: SnapshotSummary | null): CaptureStatus
         hasContent: true,
       };
     case 'failed':
+      if (snapshot.failureReason === 'cancelled_by_void') {
+        return {
+          stage: 'failed',
+          label: 'CAPTURE CANCELLED',
+          detail:
+            'This capture was cancelled, before any worker started it, when the project was voided. Nothing was read from the source and nothing was captured.',
+          gaps: [],
+          retryable: false,
+          hasContent: false,
+        };
+      }
       return {
         stage: 'failed',
         label: 'CAPTURE FAILED',

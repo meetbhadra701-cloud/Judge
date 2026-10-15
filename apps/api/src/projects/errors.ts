@@ -18,7 +18,9 @@ export type SourceIngestionErrorCode =
   | 'IDEMPOTENCY_KEY_REUSED'
   | 'PROJECT_VOIDED'
   | 'PROJECT_ALREADY_VOIDED'
-  | 'PROJECT_HAS_PENDING_WORK';
+  | 'PROJECT_HAS_PENDING_WORK'
+  | 'SUPPLIED_CONTENT_INVALID'
+  | 'SOURCE_NOT_SUPPLIABLE';
 
 export const SOURCE_INGESTION_STATUS: Record<SourceIngestionErrorCode, number> = {
   EVENT_NOT_FOUND: 404,
@@ -41,6 +43,8 @@ export const SOURCE_INGESTION_STATUS: Record<SourceIngestionErrorCode, number> =
   PROJECT_VOIDED: 409,
   PROJECT_ALREADY_VOIDED: 409,
   PROJECT_HAS_PENDING_WORK: 409,
+  SUPPLIED_CONTENT_INVALID: 422,
+  SOURCE_NOT_SUPPLIABLE: 422,
 };
 
 /** A typed, client-safe error of the project-source workflow. Details never echo raw input. */

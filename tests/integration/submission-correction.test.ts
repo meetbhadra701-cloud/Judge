@@ -28,6 +28,7 @@ import {
   sourceSnapshots,
   type JudgeDatabase,
 } from '../../packages/database/src/index.js';
+import { sql } from '../../packages/database/src/testing/databases.js';
 import { createLogger } from '../../packages/shared/src/index.js';
 import { AssessmentService } from '../../apps/api/src/assessments/service.js';
 import { buildApp, SERVICE_NAME, type ApiApp } from '../../apps/api/src/app.js';
@@ -369,6 +370,134 @@ describe.each(testDatabaseTargets())('void and replace on %s', (_name, open) => 
       replacement: { githubUrl: gh(`busy-${n}`), devpostUrl: dp(`busy-right-${n}`) },
     });
     expect(done.status).toBe(201);
+  });
+
+  describe('recovery without a worker: cancelPendingWork (P6B-beta3)', () => {
+    const pendingOf = async (projectId: string) =>
+      (await db.select().from(sourceSnapshots)).filter(
+        (r) => r.projectId === projectId && r.status === 'pending',
+      );
+
+    it('cancels the capture requests no worker started, with the void and the replacement, and records exactly what it did', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const wrongId = projectIdOf((await submit(eventId, gh(`nw-${n}`), dp(`nw-${n}`))).body);
+      const pendingBefore = await pendingOf(wrongId);
+      expect(pendingBefore).toHaveLength(2); // no worker has run: both captures wait
+
+      const refused = await voidRequest(wrongId, { reason: 'wrong repository' });
+      expect([refused.status, code(refused.body)]).toEqual([409, 'PROJECT_HAS_PENDING_WORK']);
+      expect(await pendingOf(wrongId)).toHaveLength(2); // the refusal changed nothing
+
+      const key = randomUUID();
+      const body = {
+        reason: 'wrong repository',
+        cancelPendingWork: true,
+        replacement: { githubUrl: gh(`nw-fix-${n}`), devpostUrl: dp(`nw-fix-${n}`) },
+      };
+      const response = await voidRequest(wrongId, body, key);
+      expect(response.status).toBe(201);
+      expect(response.body['cancelledPending']).toEqual({ captures: 2, assessments: 0 });
+
+      expect(await pendingOf(wrongId)).toHaveLength(0);
+      const snapshots = (await db.select().from(sourceSnapshots)).filter(
+        (r) => r.projectId === wrongId,
+      );
+      expect(snapshots).toHaveLength(2);
+      for (const snapshot of snapshots) {
+        expect(snapshot).toMatchObject({
+          status: 'failed',
+          failureCategory: 'internal_error',
+          failureMetadata: { reason: 'cancelled_by_void' },
+        });
+        expect(snapshot.completedAt).not.toBeNull();
+      }
+      const runs = (await db.select().from(analysisRuns)).filter((r) => r.projectId === wrongId);
+      expect(runs.map((r) => r.state)).toEqual(['cancelled', 'cancelled']);
+      expect(
+        runs.every(
+          (r) => r.failureCategory === null && r.startedAt !== null && r.finishedAt !== null,
+        ),
+      ).toBe(true);
+      // no artifact was fabricated, and the audit event says how much was cancelled (counts only)
+      expect(
+        (await db.select().from(sourceSnapshotArtifacts)).filter((a) =>
+          snapshots.some((x) => x.id === a.snapshotId),
+        ),
+      ).toHaveLength(0);
+      const voidEvent = (await db.select().from(auditEvents)).filter(
+        (e) => e.entityId === wrongId && e.action === 'project_voided',
+      );
+      expect(voidEvent).toHaveLength(1);
+      expect(voidEvent[0]?.metadata).toMatchObject({
+        cancelledCaptures: 2,
+        cancelledAssessments: 0,
+      });
+
+      // the replacement's own captures are untouched and pending; the displayed snapshot says what happened
+      const replacementId = projectIdOf(response.body['replacement'] as Record<string, unknown>);
+      expect(await pendingOf(replacementId)).toHaveLength(2);
+      const detail = (await get(`/projects/${wrongId}`)).body as {
+        sources: { latestSnapshot: { failureReason: string | null } }[];
+      };
+      expect(detail.sources.map((x) => x.latestSnapshot.failureReason)).toEqual([
+        'cancelled_by_void',
+        'cancelled_by_void',
+      ]);
+
+      // a retry of the same request (lost response) answers the original result and cancels nothing more
+      const again = await voidRequest(wrongId, body, key);
+      expect(again.status).toBe(200);
+      expect(again.body['result']).toBe('replayed');
+      expect(again.body['cancelledPending']).toEqual({ captures: 0, assessments: 0 });
+      expect(await pendingOf(replacementId)).toHaveLength(2);
+    });
+
+    it('never cancels a request a worker has started: that still blocks the void, and nothing is changed', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const wrongId = projectIdOf((await submit(eventId, gh(`nr-${n}`), dp(`nr-${n}`))).body);
+      const runs = (await db.select().from(analysisRuns)).filter((r) => r.projectId === wrongId);
+      const target = requireValue(runs[0]);
+      await db.execute(
+        sql`UPDATE analysis_runs SET state = 'running', started_at = now(), lease_token = ${randomUUID()}, lease_expires_at = now() + interval '10 minutes' WHERE id = ${target.id}`,
+      );
+      const before = await totals();
+      const response = await voidRequest(wrongId, { reason: 'wrong', cancelPendingWork: true });
+      expect([response.status, code(response.body)]).toEqual([409, 'PROJECT_HAS_PENDING_WORK']);
+      expect(await totals()).toEqual(before);
+      expect(await pendingOf(wrongId)).toHaveLength(2); // the unstarted one was not cancelled either: the correction is all or nothing
+      expect((await get(`/projects/${wrongId}`)).body['voided']).toBeNull();
+    });
+
+    it('a correction that cannot be completed cancels nothing', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const wrongId = projectIdOf((await submit(eventId, gh(`na-${n}`), dp(`na-${n}`))).body);
+      const otherId = projectIdOf(
+        (await submit(eventId, gh(`na-taken-${n}`), dp(`na-taken-${n}`))).body,
+      );
+      expect(otherId).not.toBe(wrongId);
+      const response = await voidRequest(wrongId, {
+        reason: 'wrong',
+        cancelPendingWork: true,
+        replacement: { githubUrl: gh(`na-taken-${n}`), devpostUrl: dp(`na-new-${n}`) },
+      });
+      expect([response.status, code(response.body)]).toEqual([409, 'SUBMISSION_CONFLICT']);
+      expect(await pendingOf(wrongId)).toHaveLength(2);
+      expect((await get(`/projects/${wrongId}`)).body['voided']).toBeNull();
+    });
+
+    it('the flag is part of the request: the same key with and without it is a different request', async () => {
+      const eventId = await lockedEvent();
+      const n = unique();
+      const wrongId = projectIdOf((await submit(eventId, gh(`nk-${n}`), dp(`nk-${n}`))).body);
+      const key = randomUUID();
+      const first = await voidRequest(wrongId, { reason: 'wrong', cancelPendingWork: true }, key);
+      expect(first.status).toBe(201);
+      const second = await voidRequest(wrongId, { reason: 'wrong' }, key);
+      expect([second.status, code(second.body)]).toEqual([422, 'IDEMPOTENCY_KEY_REUSED']);
+    });
   });
 
   it('a replacement that cannot be created refuses the WHOLE correction: the project is not voided and its claims are kept', async () => {

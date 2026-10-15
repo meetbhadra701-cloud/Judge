@@ -363,3 +363,26 @@ not_verified` in every report. Verifying relevance, and meaningful provenance sp
 - **[P6B-beta2] Devpost** was not captured live: the environment's egress policy refuses the connection (HTTP 403 to `CONNECT devpost.com:443`). No access control was bypassed or worked around, and no
   page text was invented; the source ends as a failed capture with no content. The adapter is verified only against synthetic markup until real access is permitted by whoever owns the policy
   and the Devpost terms of use have been checked.
+
+## 17. Threat-model review (P6B-beta3)
+
+Reviewed explicitly rather than classified as low priority; what each item protects, what it does not, and the evidence.
+
+- **Untrusted repository paths (R9-7).** A repository's tree is hostile text. `isSafeRepositoryPath` (adapter) refuses absolute, traversal, backslash, drive-letter, empty-segment and control-character
+  paths (`unsafe_path` omission, content never fetched). The smoke tool's writer (`apps/worker/src/testing/safe-output.ts`) is a second, independent barrier: it resolves the output root once, walks every
+  component with `lstat` (no symlink is followed), creates files with `O_EXCL|O_NOFOLLOW`, never overwrites (collisions go to `_collisions/`, unsafe keys to `_unsafe/`), and the tool refuses a non-empty
+  `--out`. Tests run in disposable directories beside sentinel files. No other code path turns an artifact key into a file name (checked: the API serves artifacts by id from the database; the web renders keys as text).
+- **`TRUNCATE` of the identity tables.** Row triggers do not fire on `TRUNCATE`, so without a statement trigger the whole ownership record could be erased by one statement. 0019 guards the five identity tables;
+  `registry-consistency.test.ts` asserts each refusal. Residual: a database superuser can still disable triggers or `DROP` objects; that is an operator capability, not an application one.
+- **Registry consistency.** The registry is authoritative for ownership, so it is also checked against the base tables it summarizes (`registryProblems`), by SQL that does not read the registry's own claims as
+  truth. The tests damage the registry with `session_replication_role = replica` (the only way to bypass the triggers) and require the report to name each problem; the report is read-only.
+- **Cross-event organizer authorization (characterized, not redesigned).** Roles are global: an organizer may act on any event's projects (`tests/integration/cross-event-authorization.test.ts` pins this). The
+  deployment is a single organizing team's; a second tenant needs per-event grants, which is deliberately out of scope. What limits the damage today: every write is audited with its actor; a void is
+  append-only and never deletes; ownership is per event, so organizers of one event cannot make another's links unavailable (claims are keyed by event). Do not host unrelated organizers on one deployment.
+- **Organizer-supplied text.** Data, never instruction: stored verbatim after normalization, bounded, control and direction-changing characters refused, rendered as text, labelled in every view, and
+  routed as a team claim. It cannot raise a verification level. The audit event never contains the text.
+- **Cancelling pending work.** `cancelPendingWork` cancels only requests no worker has started, re-checked under row locks in the workers' lock order; a started request still blocks the void. It is
+  organizer-only, part of the idempotent request's identity, recorded (counts in the audit event, `cancelled_by_void` on each run) and refused as a whole if the correction cannot complete.
+- **Coverage and prompt injection.** Selection never reads file content (a test shows hostile instructions in files move nothing); the assessor is told when part of the repository was not shown, and the
+  base rule stands that what was not shown is not negative evidence.
+- **GitHub rate limits.** A 403/429 carrying `Retry-After` or the documented secondary-limit message is `rate_limited` (with a bounded wait), not a generic error; any other 403 stays an API error.

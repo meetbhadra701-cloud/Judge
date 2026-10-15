@@ -884,7 +884,11 @@ export class AssessmentRunStore {
    * first and commits, a later `claimRun` finds the run `cancelled` and is refused. Safe to call repeatedly and concurrently
    * (idempotent). Lock order: run -> budget -> ledger rows, as in `finishRun`.
    */
-  async expirePendingRun(runId: string, createdBefore: Date): Promise<boolean> {
+  async expirePendingRun(
+    runId: string,
+    createdBefore: Date,
+    failureCode: 'pending_expired' | 'cancelled_by_void' = 'pending_expired',
+  ): Promise<boolean> {
     return this.db.transaction(async (tx) => {
       // SKIP LOCKED: a pending run whose row another session holds (a claim in progress, a stuck transaction) is left alone by this
       // pass and re-examined by the next one; maintenance never waits for an unrelated lock.
@@ -905,10 +909,34 @@ export class AssessmentRunStore {
       await this.terminalize(
         tx,
         { ...run, projectId: run.projectId },
-        { state: 'cancelled', failureCode: 'pending_expired', stageReached: 'pending' },
+        { state: 'cancelled', failureCode, stageReached: 'pending' },
       );
       return true;
     });
+  }
+
+  /**
+   * Cancels a `pending` assessment run INSIDE a transaction the caller already holds (a correction that voids the project and cancels the
+   * requests no worker started). Same terminal path as every other end. Returns false, changing nothing, when the run is not pending any more.
+   */
+  async cancelPendingWithin(
+    tx: Executor,
+    runId: string,
+    failureCode: 'cancelled_by_void',
+  ): Promise<boolean> {
+    const [run] = await tx
+      .select()
+      .from(analysisRuns)
+      .where(eq(analysisRuns.id, runId))
+      .for('update');
+    if (!run?.projectId || run.runType !== ASSESSMENT_RUN_TYPE || run.state !== 'pending')
+      return false;
+    await this.terminalize(
+      tx,
+      { ...run, projectId: run.projectId },
+      { state: 'cancelled', failureCode, stageReached: 'pending' },
+    );
+    return true;
   }
 
   /** `SELECT ... FOR UPDATE` of a run, the first lock of every terminal path. */

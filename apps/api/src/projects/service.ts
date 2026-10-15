@@ -5,9 +5,15 @@ import {
   parseDevpostProjectUrl,
   parseGithubRepositoryUrl,
   safeHost,
+  codePointLength,
+  normalizeSuppliedText,
+  snapshotContentHash,
+  suppliedDevpostResult,
+  isContentResult,
 } from '@judge-copilot/capture';
 import {
   analysisRuns,
+  AssessmentRunStore,
   createDatabaseAuditSink,
   eventContextVersions,
   events,
@@ -41,6 +47,7 @@ import {
   type SubmissionIntegrityReport,
   type SubmitProjectRequest,
   type SubmitProjectResponse,
+  type SupplyContentResponse,
   type VoidProjectRequest,
   type VoidProjectResponse,
   type SnapshotDetail,
@@ -71,6 +78,7 @@ export const SOURCE_INGESTION_AUDIT_ACTIONS = {
   submissionConverged: 'project_submission_converged',
   projectVoided: 'project_voided',
   projectReplaced: 'project_replaced',
+  contentSupplied: 'source_content_supplied',
 } as const;
 
 const PG_UNIQUE_VIOLATION = '23505';
@@ -406,6 +414,190 @@ export class ProjectService {
       }),
     );
     return { snapshot: toSnapshotSummary(snapshot, { artifactCount: 0, artifactBytes: 0 }), runId };
+  }
+
+  /**
+   * Organizer-supplied submission text for a DEVPOST source (the fetch path is blocked in this deployment). One transaction: the source is locked
+   * (capture numbers are assigned under that lock), a fetch no worker has started is cancelled (it would only fail the same way), and a snapshot is
+   * recorded through the same states every capture goes through (pending -> captured), with its artifacts, content hash, run and audit event. The
+   * snapshot is labelled `organizer_supplied` and says so in its metadata and in a `submission.json` note. Supplying exactly the text the latest supplied
+   * snapshot already holds changes nothing (`unchanged`). A voided project is refused like every other write.
+   */
+  async supplyContent(
+    projectId: string,
+    sourceId: string,
+    text: string,
+    actorId: string,
+  ): Promise<SupplyContentResponse> {
+    const checked = normalizeSuppliedText(text);
+    if (!checked.ok) {
+      throw new SourceIngestionError(
+        'SUPPLIED_CONTENT_INVALID',
+        {
+          empty: 'The submission text is empty',
+          too_short: 'The submission text is too short to be a submission',
+          too_long: 'The submission text is longer than the limit',
+          control_characters:
+            'The submission text contains control or direction-changing characters',
+        }[checked.problem],
+        { problem: checked.problem },
+      );
+    }
+    const stored = await this.translating(() =>
+      this.retryingTransaction(() =>
+        this.db.transaction(async (tx) => {
+          const project = await this.requireProject(tx, projectId, { lock: 'share', active: true });
+          const [source] = await tx
+            .select()
+            .from(projectSources)
+            .where(and(eq(projectSources.id, sourceId), eq(projectSources.projectId, project.id)))
+            .for('update');
+          if (!source) {
+            throw new SourceIngestionError('SOURCE_NOT_FOUND', 'Source not found for this project');
+          }
+          if (source.sourceType !== 'devpost') {
+            throw new SourceIngestionError(
+              'SOURCE_NOT_SUPPLIABLE',
+              'Only the Devpost submission text can be supplied by an organizer',
+              { sourceType: source.sourceType },
+            );
+          }
+          const result = suppliedDevpostResult(checked.text, source.url);
+          if (!isContentResult(result)) throw new Error('supplied result is not a content result');
+          const contentHash = snapshotContentHash({
+            sourceType: 'devpost',
+            sourceUrl: source.url,
+            revision: result.revision,
+            metadata: result.metadata,
+            partialReasons: result.partialReasons,
+            artifacts: result.artifacts,
+          });
+
+          // the same text again: nothing new to record
+          const earlier = await tx
+            .select()
+            .from(sourceSnapshots)
+            .where(
+              and(
+                eq(sourceSnapshots.projectSourceId, source.id),
+                eq(sourceSnapshots.status, 'captured'),
+              ),
+            )
+            .orderBy(desc(sourceSnapshots.captureNumber));
+          const latestSupplied = earlier.find(
+            (row) => row.metadata?.['provenance'] === 'organizer_supplied',
+          );
+          if (latestSupplied?.contentHash === contentHash) {
+            return { result: 'unchanged' as const, snapshot: latestSupplied, cancelled: false };
+          }
+
+          // a fetch nobody started is superseded; one a worker is running is not touched
+          let cancelled = false;
+          if (await this.pendingSnapshot(tx, source.id)) {
+            const [pendingRun] = await tx
+              .select({ id: analysisRuns.id, state: analysisRuns.state })
+              .from(analysisRuns)
+              .innerJoin(sourceSnapshots, eq(sourceSnapshots.id, analysisRuns.sourceSnapshotId))
+              .where(
+                and(
+                  eq(sourceSnapshots.projectSourceId, source.id),
+                  eq(sourceSnapshots.status, 'pending'),
+                ),
+              );
+            if (
+              !pendingRun ||
+              pendingRun.state !== 'pending' ||
+              !(await this.cancelPendingCapture(
+                tx,
+                pendingRun.id,
+                this.now(),
+                'superseded_by_supplied_content',
+              ))
+            ) {
+              throw new SourceIngestionError(
+                'CAPTURE_ALREADY_PENDING',
+                'A capture of this source is being run by a worker; supply the text when it has finished',
+              );
+            }
+            cancelled = true;
+          }
+
+          const created = await this.createCapture(tx, project, source.id, actorId);
+          const completedAt = new Date(
+            Math.max(this.now().getTime(), created.snapshot.createdAt.getTime() + 1),
+          );
+          for (const artifact of result.artifacts) {
+            await tx.insert(sourceSnapshotArtifacts).values({
+              snapshotId: created.snapshot.id,
+              artifactKey: artifact.key,
+              artifactKind: artifact.kind,
+              mediaType: artifact.mediaType,
+              textContent: artifact.textContent,
+              metadata: artifact.metadata,
+              byteLength: artifact.byteLength,
+              contentHash: artifact.contentHash,
+              createdAt: completedAt,
+            });
+          }
+          const [snapshot] = await tx
+            .update(sourceSnapshots)
+            .set({
+              status: 'captured',
+              revision: null,
+              metadata: result.metadata,
+              contentHash,
+              partialReasons: [],
+              capturedAt: completedAt,
+              completedAt,
+            })
+            .where(eq(sourceSnapshots.id, created.snapshot.id))
+            .returning();
+          if (!snapshot) throw new Error('snapshot update returned nothing');
+          await tx
+            .update(analysisRuns)
+            .set({
+              state: 'succeeded',
+              startedAt: completedAt,
+              finishedAt: completedAt,
+              attemptCount: 0,
+            })
+            .where(eq(analysisRuns.id, created.runId));
+          await this.audit(tx, actorId, {
+            entityType: 'source_snapshot',
+            entityId: snapshot.id,
+            action: SOURCE_INGESTION_AUDIT_ACTIONS.contentSupplied,
+            // never the text: only that it was supplied, by whom (the actor), how much and what it replaced
+            metadata: {
+              projectId: project.id,
+              sourceId: source.id,
+              captureNumber: snapshot.captureNumber,
+              contentHash,
+              textCodePoints: codePointLength(checked.text),
+              cancelledPendingFetch: cancelled,
+            },
+          });
+          return { result: 'stored' as const, snapshot, cancelled };
+        }),
+      ),
+    );
+    return {
+      result: stored.result,
+      snapshot: toSnapshotSummary(stored.snapshot, await this.artifactTotals(stored.snapshot.id)),
+      cancelledPendingFetch: stored.cancelled,
+    };
+  }
+
+  private async artifactTotals(
+    snapshotId: string,
+  ): Promise<{ artifactCount: number; artifactBytes: number }> {
+    const [row] = await this.db
+      .select({ artifactCount: count(), artifactBytes: sum(sourceSnapshotArtifacts.byteLength) })
+      .from(sourceSnapshotArtifacts)
+      .where(eq(sourceSnapshotArtifacts.snapshotId, snapshotId));
+    return {
+      artifactCount: row?.artifactCount ?? 0,
+      artifactBytes: Number(row?.artifactBytes ?? 0),
+    };
   }
 
   async requestAllCaptures(projectId: string, actorId: string | null): Promise<CaptureAllResponse> {
@@ -751,9 +943,17 @@ export class ProjectService {
     const replacement = input.replacement
       ? this.submissionIntent(head.eventId, input.replacement, actorId, key)
       : null;
+    const cancelPending = input.cancelPendingWork === true;
+    // the flag is part of the request's identity only when set, so every correction made before it existed keeps its hash
     const requestHash = createHash('sha256')
       .update(
-        JSON.stringify(['judge.void.v1', projectId, reason, replacement?.requestHash ?? null]),
+        JSON.stringify([
+          'judge.void.v1',
+          projectId,
+          reason,
+          replacement?.requestHash ?? null,
+          ...(cancelPending ? ['cancel_pending_work'] : []),
+        ]),
       )
       .digest('hex');
     for (let attempt = 1; ; attempt += 1) {
@@ -761,12 +961,13 @@ export class ProjectService {
         const outcome = await this.db.transaction((tx) =>
           this.voidOnce(
             tx,
-            { projectId, eventId: head.eventId, actorId, key, reason, requestHash },
+            { projectId, eventId: head.eventId, actorId, key, reason, requestHash, cancelPending },
             replacement,
           ),
         );
         return {
           result: outcome.result,
+          cancelledPending: outcome.cancelled,
           project: await this.getProject(projectId),
           replacement:
             outcome.replacementProjectId === null
@@ -804,10 +1005,12 @@ export class ProjectService {
       key: string;
       reason: string;
       requestHash: string;
+      cancelPending: boolean;
     },
     replacement: SubmissionIntent | null,
   ): Promise<{
     result: 'voided' | 'replayed';
+    cancelled: { captures: number; assessments: number };
     replacementProjectId: string | null;
     captureRuns: SubmitProjectResponse['captureRuns'];
   }> {
@@ -838,6 +1041,7 @@ export class ProjectService {
         .where(eq(projectReplacements.voidedProjectId, earlier.projectId));
       return {
         result: 'replayed',
+        cancelled: { captures: 0, assessments: 0 },
         replacementProjectId: link?.replacementProjectId ?? null,
         captureRuns: [],
       };
@@ -854,28 +1058,66 @@ export class ProjectService {
       });
     }
 
-    // 3. never while work on the project is in flight: a worker may be writing its snapshot right now (the database refuses it too)
-    const [pendingCapture] = await tx
-      .select({ id: sourceSnapshots.id })
-      .from(sourceSnapshots)
-      .where(and(eq(sourceSnapshots.projectId, project.id), eq(sourceSnapshots.status, 'pending')))
-      .limit(1);
-    const [pendingRun] = await tx
-      .select({ id: analysisRuns.id })
+    // 3. never while work on the project is in flight: a worker may be writing its snapshot right now (the database refuses it too).
+    //    Work that NO worker has started (pending) can be cancelled with the void when the organizer asks (`cancelPendingWork`): the
+    //    recovery for a deployment without a running worker, where such requests would otherwise block every correction forever.
+    const active = await tx
+      .select({ id: analysisRuns.id, runType: analysisRuns.runType, state: analysisRuns.state })
       .from(analysisRuns)
       .where(
         and(
           eq(analysisRuns.projectId, project.id),
           inArray(analysisRuns.state, ['pending', 'running']),
         ),
-      )
+      );
+    const [pendingCapture] = await tx
+      .select({ id: sourceSnapshots.id })
+      .from(sourceSnapshots)
+      .where(and(eq(sourceSnapshots.projectId, project.id), eq(sourceSnapshots.status, 'pending')))
       .limit(1);
-    if (pendingCapture || pendingRun) {
+    const cancelled = { captures: 0, assessments: 0 };
+    if (active.some((run) => run.state === 'running')) {
       throw new SourceIngestionError(
         'PROJECT_HAS_PENDING_WORK',
-        'A capture or run of this project is still pending; wait for it to finish, then void the project',
+        'A worker is running a capture or assessment of this project; wait for it to finish (or for its lease to expire), then void the project',
         { projectId: project.id },
       );
+    }
+    if (active.length > 0 || pendingCapture) {
+      if (!request.cancelPending) {
+        throw new SourceIngestionError(
+          'PROJECT_HAS_PENDING_WORK',
+          'A capture or run of this project is still pending; wait for it to finish, or void it with cancelPendingWork to cancel the requests no worker has started',
+          { projectId: project.id, pending: active.length },
+        );
+      }
+      const stamp = this.now();
+      const runs = new AssessmentRunStore({ db: this.db, now: () => stamp });
+      for (const run of active) {
+        if (run.runType === 'project_source_capture') {
+          if (await this.cancelPendingCapture(tx, run.id, stamp)) cancelled.captures += 1;
+        } else if (await runs.cancelPendingWithin(tx, run.id, 'cancelled_by_void')) {
+          cancelled.assessments += 1;
+        }
+      }
+      // whatever the cancellation could not end (a worker took it a moment ago) still blocks the void
+      const [stillRunning] = await tx
+        .select({ id: analysisRuns.id })
+        .from(analysisRuns)
+        .where(
+          and(
+            eq(analysisRuns.projectId, project.id),
+            inArray(analysisRuns.state, ['pending', 'running']),
+          ),
+        )
+        .limit(1);
+      if (stillRunning) {
+        throw new SourceIngestionError(
+          'PROJECT_HAS_PENDING_WORK',
+          'A worker started a request of this project while it was being cancelled; try again',
+          { projectId: project.id },
+        );
+      }
     }
 
     await this.beforeSubmissionWrite();
@@ -896,9 +1138,16 @@ export class ProjectService {
       entityId: project.id,
       action: SOURCE_INGESTION_AUDIT_ACTIONS.projectVoided,
       // the reason is organizer free text: it is stored in project_voids, never copied into the audit metadata
-      metadata: { eventId: project.eventId, withReplacement: replacement !== null },
+      metadata: {
+        eventId: project.eventId,
+        withReplacement: replacement !== null,
+        cancelledCaptures: cancelled.captures,
+        cancelledAssessments: cancelled.assessments,
+      },
     });
-    if (!replacement) return { result: 'voided', replacementProjectId: null, captureRuns: [] };
+    if (!replacement) {
+      return { result: 'voided', cancelled, replacementProjectId: null, captureRuns: [] };
+    }
 
     // 4. the corrected submission, in the same transaction; it must be a NEW project (the erroneous one released its links just above)
     const created = await this.submitOnce(tx, replacement);
@@ -924,9 +1173,59 @@ export class ProjectService {
     });
     return {
       result: 'voided',
+      cancelled,
       replacementProjectId: created.projectId,
       captureRuns: created.captureRuns,
     };
+  }
+
+  /**
+   * Ends ONE capture request that no worker has started: its pending snapshot becomes `failed` (reason `cancelled_by_void`; nothing was read from
+   * the source) and its run `cancelled`. Re-checks under the row locks, in the worker's own lock order (run, then snapshot), that both are still
+   * pending; a worker that claimed the run first wins and this returns false.
+   */
+  private async cancelPendingCapture(
+    tx: JudgeDatabase,
+    runId: string,
+    at: Date,
+    reason: 'cancelled_by_void' | 'superseded_by_supplied_content' = 'cancelled_by_void',
+  ): Promise<boolean> {
+    const [run] = await tx
+      .select()
+      .from(analysisRuns)
+      .where(eq(analysisRuns.id, runId))
+      .for('update');
+    if (
+      !run ||
+      run.state !== 'pending' ||
+      run.runType !== 'project_source_capture' ||
+      !run.sourceSnapshotId
+    ) {
+      return false;
+    }
+    const [snapshot] = await tx
+      .select()
+      .from(sourceSnapshots)
+      .where(eq(sourceSnapshots.id, run.sourceSnapshotId))
+      .for('update');
+    if (!snapshot || snapshot.status !== 'pending') return false;
+    const finished = new Date(
+      Math.max(at.getTime(), snapshot.createdAt.getTime(), run.createdAt.getTime()),
+    );
+    await tx
+      .update(sourceSnapshots)
+      .set({
+        status: 'failed',
+        failureCategory: 'internal_error',
+        failureMetadata: { reason },
+        completedAt: finished,
+      })
+      .where(eq(sourceSnapshots.id, snapshot.id));
+    await tx
+      .update(analysisRuns)
+      .set({ state: 'cancelled', failureCategory: null, startedAt: finished, finishedAt: finished })
+      .where(eq(analysisRuns.id, run.id));
+    return true;
   }
 
   /**

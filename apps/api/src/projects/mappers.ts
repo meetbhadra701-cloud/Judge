@@ -44,6 +44,21 @@ export function toProjectRecord(
   };
 }
 
+/** The `reason` identifier of a failure's metadata when it is a short machine identifier; anything else is not exposed. */
+function failureReasonOf(metadata: unknown): string | null {
+  if (typeof metadata !== 'object' || metadata === null) return null;
+  const reason = (metadata as Record<string, unknown>)['reason'];
+  return typeof reason === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(reason) ? reason : null;
+}
+
+function provenanceOf(metadata: unknown): 'fetched' | 'organizer_supplied' {
+  return typeof metadata === 'object' &&
+    metadata !== null &&
+    (metadata as Record<string, unknown>)['provenance'] === 'organizer_supplied'
+    ? 'organizer_supplied'
+    : 'fetched';
+}
+
 export function toSnapshotSummary(
   row: SnapshotRow,
   totals: { artifactCount: number; artifactBytes: number },
@@ -60,6 +75,8 @@ export function toSnapshotSummary(
     contentHash: row.contentHash,
     partialReasons: row.partialReasons as CapturePartialReason[],
     failureCategory: row.failureCategory,
+    failureReason: failureReasonOf(row.failureMetadata),
+    provenance: provenanceOf(row.metadata),
     requestedAt: iso(row.createdAt),
     capturedAt: isoOrNull(row.capturedAt),
     completedAt: isoOrNull(row.completedAt),

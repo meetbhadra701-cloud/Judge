@@ -156,6 +156,24 @@ describe('capture status wording', () => {
     expect(describeCapture(null).stage).toBe('not_requested');
   });
 
+  it('a capture cancelled by a void says that nothing was read, and is not a retryable failure of the source', () => {
+    const view = describeCapture(
+      snapshot({
+        status: 'failed',
+        failureCategory: 'internal_error',
+        failureReason: 'cancelled_by_void',
+      }),
+    );
+    expect(view.label).toBe('CAPTURE CANCELLED');
+    expect(view.detail).toContain('before any worker started it');
+    expect(view.detail).toContain('Nothing was read');
+    expect([view.retryable, view.hasContent]).toEqual([false, false]);
+    // the same category without that reason is still the generic internal error
+    expect(
+      describeCapture(snapshot({ status: 'failed', failureCategory: 'internal_error' })).label,
+    ).toBe('CAPTURE FAILED');
+  });
+
   it('only a captured or partial snapshot has content; failed, refused, waiting and missing do not', () => {
     const content = (status: SnapshotSummary['status']) =>
       describeCapture(snapshot({ status })).hasContent;

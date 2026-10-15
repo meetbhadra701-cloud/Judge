@@ -1,4 +1,4 @@
-import { assessmentRunCalls, type JudgeDatabase } from '@judge-copilot/database';
+import { assessmentRunCalls, evidenceItems, type JudgeDatabase } from '@judge-copilot/database';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testDatabaseTargets, type TestDatabase } from '../testing/harness.js';
@@ -95,3 +95,43 @@ describe.each(testDatabaseTargets())('coverage handling in the pipeline on %s', 
     }
   });
 });
+
+describe.each(testDatabaseTargets())(
+  'organizer-supplied sources in the pipeline on %s',
+  (_name, open) => {
+    let database: TestDatabase;
+    let db: JudgeDatabase;
+    beforeAll(async () => {
+      database = await open();
+      db = database.db;
+    });
+    afterAll(async () => {
+      await database.close();
+    });
+
+    it('discloses that the Devpost text was supplied by an organizer, and everything derived from it stays a team claim', async () => {
+      const run = await execute(db, { worldOptions: { devpostSupplied: true } });
+      expect(run.outcome.kind).toBe('succeeded');
+      const [assessment] = await run.assessments();
+      const limitations = assessment?.limitations as { code: string; subjects: string[] }[];
+      expect(limitations.find((l) => l.code === 'organizer_supplied_source')).toMatchObject({
+        count: 1,
+        subjects: ['devpost'],
+      });
+      const evidence = (await db.select().from(evidenceItems)).filter(
+        (row) => row.projectId === run.world.project.id && row.origin === 'devpost',
+      );
+      expect(evidence.length).toBeGreaterThan(0);
+      expect(
+        evidence.every((row) => row.kind === 'claim' && row.verificationLevel === 'team_claim'),
+      ).toBe(true);
+    });
+
+    it('adds no such limitation when the text was fetched', async () => {
+      const run = await execute(db, {});
+      const [assessment] = await run.assessments();
+      const codes = (assessment?.limitations as { code: string }[]).map((l) => l.code);
+      expect(codes).not.toContain('organizer_supplied_source');
+    });
+  },
+);

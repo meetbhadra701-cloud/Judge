@@ -73,3 +73,35 @@ and resolve it with the owners; submissions are append-only, so do not delete ro
 Every rule above exists twice: as an application check that answers with a precise message, and as a database constraint or trigger that holds even if the application is bypassed or two requests race. The
 tests in `packages/database/src/void-guards.test.ts` go straight to SQL; `tests/integration/submission-correction.test.ts` goes through the routes. A rule that only the application checks is stated as such in the
 code and in `docs/ARCHITECTURE.md`.
+
+## 5. P6B-beta3: `0019_p6b_beta3_identity_registry`
+
+Hand-written (functions and triggers); one transaction; additive for data. It adds `project_claim()`, claim triggers on `projects`, `project_sources` and `project_submissions`, a backfill, and `BEFORE TRUNCATE`
+guards on `project_submissions`, `project_submission_requests`, `project_submission_claims`, `project_voids` and `project_replacements`. No table or column is added, dropped or rewritten.
+
+### 5.1 The backfill never fails on, and never rewrites, shared identities
+
+It inserts a claim for every active project's label and for the links of every active project that holds at most one GitHub and one Devpost link, with `ON CONFLICT DO NOTHING`: an identity already shared by several
+projects (possible only in a database that held legacy data) keeps its first owner in the registry and the others are left alone. Nothing is merged, deleted or re-pointed. After upgrading, list what the database
+sees with `GET /events/<id>/submission-integrity` (`registryProblems`, and the earlier findings) or directly:
+
+```sql
+-- identities held by more than one active project (the registry holds only one of them)
+WITH active AS (SELECT p.id, p.event_id, p.name FROM projects p WHERE NOT EXISTS (SELECT 1 FROM project_voids v WHERE v.project_id = p.id)),
+holdings AS (
+  SELECT a.event_id, a.id AS project_id, s.source_type AS kind, s.url AS value FROM active a JOIN project_sources s ON s.project_id = a.id WHERE s.source_type IN ('github','devpost')
+  UNION SELECT a.event_id, a.id, 'name', lower(btrim(a.name)) FROM active a)
+SELECT event_id, kind, value, array_agg(project_id) FROM holdings GROUP BY 1,2,3 HAVING count(DISTINCT project_id) > 1;
+```
+
+Resolve each with the owners by **voiding** the erroneous project (`docs/DEMO_RUNBOOK.md` §1.8); do not delete rows.
+
+### 5.2 If the migration fails, and rollback
+
+One transaction: a failure leaves the previous version. The backfill cannot fail on data (conflicts are skipped). There is no down migration; rollback is restoring the pre-upgrade backup. After a restore the
+application of this version must not be started against it (it expects the functions).
+
+### 5.3 Behaviour to expect after upgrading
+
+A legacy declaration of a link another active project owns is now refused with the same errors a submission gets. A project created through the earlier route now owns its label in the registry, so a later
+submission with a case-variant label is refused (`PROJECT_NAME_TAKEN`) where it previously could succeed. Voiding releases the claims as before.

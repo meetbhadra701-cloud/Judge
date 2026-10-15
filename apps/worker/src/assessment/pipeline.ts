@@ -472,6 +472,17 @@ async function execute(
       `evidence_cap:${String(plan.plan.evidenceCap)}`,
     ]);
   }
+  const supplied = [
+    ...new Set(
+      sources.pins
+        .filter((pin) => pin.provenance === 'organizer_supplied')
+        .map((pin) => pin.sourceType),
+    ),
+  ].sort();
+  if (supplied.length > 0) {
+    // the text was typed or pasted by an organizer: it is a team statement that nobody fetched from the source or compared with it
+    note('organizer_supplied_source', supplied);
+  }
   if (draft === null) note('extraction_reused', [source.extractionKey]);
   if (draft === null && recorded === null) {
     // an extraction created before its notices were recorded: its fidelity and rejection notices cannot be reproduced, and the judge is told so

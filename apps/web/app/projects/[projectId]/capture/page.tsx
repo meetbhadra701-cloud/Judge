@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { apiRequest, eventPath, projectPath } from '../../../../lib/api';
 import { openMessage } from '../../../../lib/flash';
 import { ErrorBanner } from '../../../components/ui';
-import { retryCaptureAction } from './actions';
+import { retryCaptureAction, supplyContentAction } from './actions';
 import { CaptureView } from './view';
 import { projectPageTitle } from '../../../../lib/titles';
 
@@ -49,6 +49,7 @@ export default async function CapturePage({
       event={event.ok ? event.data : null}
       error={error}
       retryAction={retryCaptureAction}
+      supplyAction={supplyContentAction}
     />
   );
 }

@@ -141,6 +141,20 @@ A submission cannot be edited. If the wrong repository or Devpost page was enter
 - **Refusals.** The corrected pair overlaps another project's links, is invalid, or uses a label another project already has: nothing is voided and nothing is created. The reason is shown; fix the links and send again.
 - **Conservative defaults.** Only organizers can void. A judge sees voided projects as history. Upgrading an existing database: [MIGRATIONS](./MIGRATIONS.md).
 
+### 1.9 No worker is running, and a correction or the Devpost text is needed (P6B-beta3)
+
+A submission queues two captures. If no capture worker is running they stay queued, and the correction in §1.8 is refused with `PROJECT_HAS_PENDING_WORK`. Two safe ways out:
+
+- **Start the worker** (`pnpm --filter @judge-copilot/worker start`, §1.2), let the captures finish, then correct. Nothing is lost.
+- **Cancel what has not been started.** On the correction page tick **Also cancel requests that have not been started**. The captures (and any assessment request) that no worker has started are cancelled _in the same
+  step_ as the void; the cancelled captures show **CAPTURE CANCELLED** ("nothing was read"). A request a worker has already started is never cancelled; the correction is refused until it finishes or its lease
+  expires. If the correction cannot be completed for another reason, nothing is cancelled.
+
+**Devpost cannot be fetched from this deployment** (the environment's network policy blocks it before the request leaves; that is not a statement about Devpost). Open the project's capture page, expand
+**Provide the submission text yourself** on the Devpost row, paste the text you can see on the Devpost page, and store it. It becomes a snapshot labelled **TEXT SUPPLIED BY AN ORGANIZER**: it was not fetched and has
+not been compared with the page; anything derived from it stays a team claim, and the report lists `organizer_supplied_source`. Pasting the same text twice stores nothing new; changed text becomes a new numbered
+snapshot and the old one stays.
+
 ## 2. Checking the experience does not mislead
 
 | Question                                  | Where the page answers it                                                                                                                                     |

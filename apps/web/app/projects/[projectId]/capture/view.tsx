@@ -25,9 +25,17 @@ export interface CaptureViewProps {
   readonly event: EventDetail | null;
   readonly error: string | undefined;
   readonly retryAction: (formData: FormData) => void | Promise<void>;
+  /** Stores Devpost submission text an organizer typed or pasted (labelled organizer-supplied). Omitted: the form is not offered. */
+  readonly supplyAction?: (formData: FormData) => void | Promise<void>;
 }
 
-export function CaptureView({ project, event, error, retryAction }: CaptureViewProps): ReactNode {
+export function CaptureView({
+  project,
+  event,
+  error,
+  retryAction,
+  supplyAction,
+}: CaptureViewProps): ReactNode {
   const overview = overviewOf(project.sources);
   const contentCount = project.sources.filter(
     (source) => describeCapture(source.latestSnapshot).hasContent,
@@ -146,6 +154,37 @@ export function CaptureView({ project, event, error, retryAction }: CaptureViewP
                             }
                           />
                         </form>
+                      ) : null}
+                      {source.sourceType === 'devpost' &&
+                      project.voided === null &&
+                      supplyAction !== undefined &&
+                      source.latestSnapshot?.status !== 'pending' ? (
+                        <details data-testid="supply-content">
+                          <summary>Provide the submission text yourself</summary>
+                          <p>
+                            <small>
+                              If this deployment cannot fetch the Devpost page, paste the submission
+                              text you can see. It is stored as an immutable snapshot labelled{' '}
+                              <strong>organizer-supplied</strong>: it is not fetched from Devpost
+                              and not checked against the page, and anything derived from it stays a
+                              team claim.
+                            </small>
+                          </p>
+                          <form action={supplyAction}>
+                            <input type="hidden" name="projectId" value={project.id} />
+                            <input type="hidden" name="sourceId" value={source.id} />
+                            <label>
+                              Submission text
+                              <textarea
+                                name="submissionText"
+                                rows={8}
+                                maxLength={250000}
+                                required
+                              />
+                            </label>
+                            <button type="submit">Store this text</button>
+                          </form>
+                        </details>
                       ) : null}
                     </td>
                   </tr>

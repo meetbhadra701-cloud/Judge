@@ -338,6 +338,8 @@ export interface CorrectionInput {
   readonly github: string;
   readonly devpost: string;
   readonly name: string;
+  /** Also cancel this project's capture and assessment requests that no worker has started (recovery when no worker is running). */
+  readonly cancelPending?: boolean;
 }
 
 export type CorrectionOutcome =
@@ -403,7 +405,7 @@ function explainCorrection(refusal: CorrectionRefusal): CorrectionOutcome {
       return {
         kind: 'failed',
         message:
-          'A capture or run of this project is still in progress. Wait until it has finished (the capture page shows its progress), then try again. Nothing was changed.',
+          'A capture or run of this project is still pending. If a worker is running, wait until it has finished (the capture page shows its progress) and try again. If NO worker is running, tick “Also cancel requests that have not been started” and send the form again: that cancels only requests no worker has started, and it is recorded. A request a worker has already started is never cancelled. Nothing was changed.',
       };
     case 'SUBMISSION_CONFLICT':
       return {
@@ -481,6 +483,7 @@ export async function runCorrection(
     `/projects/${encodeURIComponent(projectId)}/void`,
     {
       reason: input.reason.trim(),
+      ...(input.cancelPending === true ? { cancelPendingWork: true } : {}),
       ...(submission?.ok
         ? {
             replacement: {

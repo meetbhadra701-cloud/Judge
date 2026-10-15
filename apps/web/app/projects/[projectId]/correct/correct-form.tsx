@@ -7,7 +7,7 @@ import { correctProjectAction, type CorrectState } from './actions';
 
 const INITIAL: CorrectState = {
   attempt: 0,
-  values: { reason: '', replace: true, github: '', devpost: '', name: '' },
+  values: { reason: '', replace: true, github: '', devpost: '', name: '', cancelPending: false },
   errors: {},
   formError: null,
   projectId: null,
@@ -82,6 +82,17 @@ export function CorrectForm({
           key={`c-${String(state.attempt)}`}
         />{' '}
         Submit the corrected links as a replacement project
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          name="cancelPending"
+          value="yes"
+          defaultChecked={state.values.cancelPending}
+          key={`p-${String(state.attempt)}`}
+        />{' '}
+        Also cancel requests that have not been started (only if no worker is running; a request a
+        worker has started is never cancelled)
       </label>
       <label>
         Corrected GitHub repository URL

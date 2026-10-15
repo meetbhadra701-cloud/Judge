@@ -12,6 +12,7 @@ export interface CorrectState {
     readonly github: string;
     readonly devpost: string;
     readonly name: string;
+    readonly cancelPending: boolean;
   };
   readonly errors: Readonly<Partial<Record<CorrectionField, string>>>;
   readonly formError: string | null;
@@ -39,6 +40,7 @@ export async function correctProjectAction(
     github: text(formData, 'github'),
     devpost: text(formData, 'devpost'),
     name: text(formData, 'name'),
+    cancelPending: text(formData, 'cancelPending') === 'yes',
   };
   const outcome = await runCorrection(
     apiRequest,

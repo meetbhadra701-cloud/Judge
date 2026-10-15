@@ -8,3 +8,4 @@ export * from './result.js';
 export * from './sanitize.js';
 export * from './urls.js';
 export * from './static-fetcher.js';
+export * from './supplied.js';

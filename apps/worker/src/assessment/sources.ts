@@ -31,6 +31,8 @@ export interface PinnedSnapshot {
   readonly sourceType: RoutedSourceType;
   readonly status: 'captured' | 'partial';
   readonly contentHash: string;
+  /** Where the stored text came from: a capture worker read it from the source, or an organizer typed/pasted it (never verified against the source). */
+  readonly provenance: 'fetched' | 'organizer_supplied';
 }
 
 export interface PinnedSources {
@@ -83,6 +85,10 @@ export async function loadPinnedSources(
       sourceType: snapshot.sourceType,
       status: snapshot.status,
       contentHash: row.pinnedHash,
+      provenance:
+        snapshot.metadata?.['provenance'] === 'organizer_supplied'
+          ? 'organizer_supplied'
+          : 'fetched',
     });
   }
 

@@ -324,3 +324,50 @@ describe.skipIf(!URL_)('pending-expiry versus claim races, two connections (Post
     }
   });
 });
+
+describe.each(testDatabaseTargets())(
+  'cancelPendingWithin: cancelling a pending run inside a caller’s transaction (P6B-beta3) on %s',
+  (_name, open) => {
+    let testDb: TestDatabase;
+    let db: JudgeDatabase;
+    let store: AssessmentRunStore;
+    beforeAll(async () => {
+      testDb = await open();
+      db = testDb.db;
+      store = new AssessmentRunStore({ db });
+    });
+    afterAll(async () => {
+      await testDb.close();
+    });
+
+    it('cancels a pending run with the given code through the same terminal path (outcome row, zero totals), and only that run', async () => {
+      const { runId } = await pendingRun(db, store, await world(db));
+      const cancelled = await db.transaction((tx) =>
+        store.cancelPendingWithin(tx, runId, 'cancelled_by_void'),
+      );
+      expect(cancelled).toBe(true);
+      expect(await stateOf(db, runId)).toMatchObject({ state: 'cancelled', failureCategory: null });
+      const outcomes = await outcomesOf(db, runId);
+      expect(outcomes).toHaveLength(1);
+      expect(outcomes[0]).toMatchObject({
+        outcome: 'cancelled',
+        failureCode: 'cancelled_by_void',
+        stageReached: 'pending',
+      });
+      expect(await callsOf(db, runId)).toHaveLength(0);
+    });
+
+    it('refuses to end a run that is not pending (a worker took it): returns false and changes nothing', async () => {
+      const { runId } = await pendingRun(db, store, await world(db));
+      await db.execute(
+        sql`UPDATE analysis_runs SET state = 'running', started_at = now(), lease_token = ${randomUUID()}, lease_expires_at = now() + interval '10 minutes' WHERE id = ${runId}`,
+      );
+      const cancelled = await db.transaction((tx) =>
+        store.cancelPendingWithin(tx, runId, 'cancelled_by_void'),
+      );
+      expect(cancelled).toBe(false);
+      expect(await stateOf(db, runId)).toMatchObject({ state: 'running' });
+      expect(await outcomesOf(db, runId)).toHaveLength(0);
+    });
+  },
+);

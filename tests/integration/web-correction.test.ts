@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { runSupplyContent } from '../../apps/web/lib/action-errors.js';
 import {
   runCorrection,
   validateCorrection,
@@ -110,7 +111,11 @@ describe('runCorrection', () => {
 
   it.each([
     ['PROJECT_ALREADY_VOIDED', 409, /already voided/],
-    ['PROJECT_HAS_PENDING_WORK', 409, /still in progress.*Nothing was changed/s],
+    [
+      'PROJECT_HAS_PENDING_WORK',
+      409,
+      /still pending.*NO worker is running.*never cancelled.*Nothing was changed/s,
+    ],
     ['SUBMISSION_CONFLICT', 409, /Nothing was changed: the project is not voided/],
     ['IDEMPOTENCY_KEY_REUSED', 422, /different correction/],
   ])('%s is explained, with what happened to the data', async (code, status, message) => {
@@ -152,6 +157,73 @@ describe('voidedNotice', () => {
     );
     expect(voidedNotice({ voided: { ...base, replacedByProjectId: 'p2' } })).toMatch(
       /replaced by a corrected submission/,
+    );
+  });
+});
+
+describe('the recovery flag reaches the API only when the organizer ticked it (P6B-beta3)', () => {
+  it('sends cancelPendingWork: true when asked and omits it otherwise', async () => {
+    const withFlag = recorder({ project: { id: 'p' }, replacement: null, result: 'voided' });
+    await runCorrection(withFlag.api, 'p', { ...input(), cancelPending: true }, KEY);
+    expect(JSON.stringify(withFlag.calls)).toContain('cancelPendingWork');
+    const without = recorder({ project: { id: 'p' }, replacement: null, result: 'voided' });
+    await runCorrection(without.api, 'p', input(), KEY);
+    expect(JSON.stringify(without.calls)).not.toContain('cancelPendingWork');
+  });
+});
+
+describe('runSupplyContent (P6B-beta3)', () => {
+  const answer = (value: Awaited<ReturnType<Parameters<typeof runSupplyContent>[0]>>) =>
+    (() => Promise.resolve(value)) as Parameters<typeof runSupplyContent>[0];
+
+  it('refuses empty text locally without calling the API', async () => {
+    let called = false;
+    const outcome = await runSupplyContent(
+      () => {
+        called = true;
+        return Promise.resolve({ ok: true });
+      },
+      'p',
+      's',
+      '   ',
+    );
+    expect(outcome).toEqual({ kind: 'failed', message: 'Paste the submission text first.' });
+    expect(called).toBe(false);
+  });
+
+  it('distinguishes stored from unchanged, and keeps the API’s own words for a refusal', async () => {
+    expect(
+      await runSupplyContent(answer({ ok: true, data: { result: 'stored' } }), 'p', 's', 'text'),
+    ).toEqual({ kind: 'stored' });
+    expect(
+      await runSupplyContent(answer({ ok: true, data: { result: 'unchanged' } }), 'p', 's', 'text'),
+    ).toEqual({ kind: 'unchanged' });
+    const refused = await runSupplyContent(
+      answer({
+        ok: false,
+        status: 422,
+        code: 'SUPPLIED_CONTENT_INVALID',
+        message: 'The submission text is too short to be a submission',
+      }),
+      'p',
+      's',
+      'text',
+    );
+    expect(refused).toEqual({
+      kind: 'failed',
+      message: 'The submission text is too short to be a submission',
+    });
+  });
+
+  it('says the outcome is unknown, and how to recover safely, when no usable answer arrived', async () => {
+    const outcome = await runSupplyContent(
+      answer({ ok: false, status: 502, code: 'API_NO_ANSWER', message: 'x' }),
+      'p',
+      's',
+      'text',
+    );
+    expect(outcome.kind === 'failed' && outcome.message).toContain(
+      'Sending the same text again is safe',
     );
   });
 });

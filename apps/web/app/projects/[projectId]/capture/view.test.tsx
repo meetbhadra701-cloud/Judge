@@ -240,3 +240,69 @@ describe('P6B-beta2: a voided project is presented as history, and a live one of
     expect(html).not.toContain('data-testid="voided-project"');
   });
 });
+
+describe('organizer-supplied Devpost text (P6B-beta3)', () => {
+  const renderWith = (p: ProjectDetail) =>
+    renderToStaticMarkup(
+      <CaptureView
+        project={p}
+        event={event}
+        error={undefined}
+        retryAction={() => undefined}
+        supplyAction={() => undefined}
+      />,
+    );
+  const failedDevpost = snapshot({
+    status: 'failed',
+    sourceType: 'devpost',
+    failureCategory: 'connection_failure',
+  });
+
+  it('offers the form for a Devpost source only, says what the stored text will be, and never for a repository', () => {
+    const html = renderWith(
+      project([source('github', snapshot({})), source('devpost', failedDevpost)]),
+    );
+    expect(html).toContain('data-testid="supply-content"');
+    expect(html).toContain('name="submissionText"');
+    expect(html).toContain('organizer-supplied');
+    expect(html).toContain('not fetched from');
+    expect(html.match(/data-testid="supply-content"/g)).toHaveLength(1);
+  });
+
+  it('is not offered while a fetch is waiting, for a voided project, or when no action is wired', () => {
+    const waiting = renderWith(
+      project([source('devpost', snapshot({ status: 'pending', sourceType: 'devpost' }))]),
+    );
+    expect(waiting).not.toContain('supply-content');
+    const voidedProject = {
+      ...project([source('devpost', failedDevpost)]),
+      voided: {
+        voidedAt: '2026-01-02T00:00:00.000Z',
+        voidedByActorId: null,
+        reason: 'wrong',
+        nameBefore: 'o/r',
+        replacedByProjectId: null,
+      },
+    } as unknown as ProjectDetail;
+    expect(renderWith(voidedProject)).not.toContain('supply-content');
+    expect(render(project([source('devpost', failedDevpost)]))).not.toContain('supply-content');
+  });
+
+  it('labels a supplied snapshot as supplied, not as a Devpost capture', () => {
+    const html = renderWith(
+      project([
+        source(
+          'devpost',
+          snapshot({
+            status: 'captured',
+            sourceType: 'devpost',
+            provenance: 'organizer_supplied',
+          }),
+        ),
+      ]),
+    );
+    expect(html).toContain('TEXT SUPPLIED BY AN ORGANIZER');
+    expect(html).toContain('NOT fetched from the source');
+    expect(html).not.toContain('>CAPTURED<');
+  });
+});

@@ -97,6 +97,10 @@ export const SnapshotSummary = z.object({
   contentHash: z.string().nullable(),
   partialReasons: z.array(CapturePartialReason),
   failureCategory: CaptureFailureCategory.nullable(),
+  /** The machine reason stored with a failure (for example `cancelled_by_void`), or null. Never a message or a response body. */
+  failureReason: z.string().max(64).nullable().optional(),
+  /** Where the stored content came from: read from the source by a capture worker, or typed/pasted by an organizer. Absent on older rows (= fetched). */
+  provenance: z.enum(['fetched', 'organizer_supplied']).optional(),
   requestedAt: IsoDateTime,
   capturedAt: IsoDateTime.nullable(),
   completedAt: IsoDateTime.nullable(),
@@ -211,6 +215,12 @@ export type SubmitProjectResponse = z.infer<typeof SubmitProjectResponse>;
  */
 export const VoidProjectRequest = z.strictObject({
   reason: LabelText(1_000),
+  /**
+   * Recovery when no worker is running: also cancel this project's capture and assessment requests that NO worker has started (they are `pending`;
+   * a request a worker is running still blocks the void). Default false -- a void that finds pending work is refused and changes nothing. What is
+   * cancelled is recorded (counts in the audit event, `cancelled_by_void` on each run); a cancelled capture is a failed snapshot with that reason.
+   */
+  cancelPendingWork: z.boolean().optional(),
   replacement: z
     .strictObject({
       githubUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
@@ -222,7 +232,31 @@ export const VoidProjectRequest = z.strictObject({
 });
 export type VoidProjectRequest = z.input<typeof VoidProjectRequest>;
 
+/**
+ * `POST /projects/:projectId/sources/:sourceId/supplied-content` (organizer, `source.capture`): the submission text of a DEVPOST source, typed or pasted by an
+ * organizer, stored as an immutable snapshot labelled `organizer_supplied`. Nothing is fetched. See ARCHITECTURE.md ("Organizer-supplied submission text").
+ */
+export const SupplyContentRequest = z.strictObject({
+  // the service bounds the NORMALIZED text in code points; this bound only rejects absurd bodies early
+  text: z.string().min(1).max(250_000),
+});
+export type SupplyContentRequest = z.input<typeof SupplyContentRequest>;
+
+export const SupplyContentResponse = z.object({
+  /** `stored`: a new snapshot was recorded. `unchanged`: the latest supplied snapshot already holds exactly this text. */
+  result: z.enum(['stored', 'unchanged']),
+  snapshot: SnapshotSummary,
+  /** True when a not-yet-started fetch of the same source was cancelled because the supplied text replaces it. */
+  cancelledPendingFetch: z.boolean(),
+});
+export type SupplyContentResponse = z.infer<typeof SupplyContentResponse>;
+
 export const VoidProjectResponse = z.object({
+  /** How many unstarted captures and assessment runs the void cancelled (0 unless `cancelPendingWork` was set). */
+  cancelledPending: z.object({
+    captures: z.number().int().min(0),
+    assessments: z.number().int().min(0),
+  }),
   /** `voided`: this request voided it. `replayed`: the same key and content already did. */
   result: z.enum(['voided', 'replayed']),
   project: ProjectDetail,

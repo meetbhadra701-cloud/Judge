@@ -3,6 +3,7 @@ import {
   CreateProjectRequest,
   IdempotencyKey,
   SubmitProjectRequest,
+  SupplyContentRequest,
   Uuid,
   VoidProjectRequest,
 } from '@judge-copilot/schemas';
@@ -118,6 +119,23 @@ export function registerProjectRoutes(app: ApiApp, service: ProjectService, guar
       return reply
         .code(202)
         .send(await service.requestCapture(projectId, sourceId, actorOf(request).id));
+    },
+  );
+
+  // Organizer-supplied Devpost submission text (P6B-beta3): nothing is fetched; the snapshot is labelled `organizer_supplied`.
+  app.post(
+    '/projects/:projectId/sources/:sourceId/supplied-content',
+    { preHandler: [guard('project.write'), guard('source.capture')] },
+    async (request, reply) => {
+      const { projectId, sourceId } = parseRequest(SourceParams, request.params, 'params');
+      const body = parseRequest(SupplyContentRequest, request.body, 'body');
+      const response = await service.supplyContent(
+        projectId,
+        sourceId,
+        body.text,
+        actorOf(request).id,
+      );
+      return reply.code(response.result === 'stored' ? 201 : 200).send(response);
     },
   );
 

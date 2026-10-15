@@ -64,3 +64,35 @@ export async function runCaptureRetry(
   if (result.code === 'CAPTURE_ALREADY_PENDING') return { kind: 'already_pending' };
   return { kind: 'failed', message: describeFailure(result, CAPTURE_RETRY_RECOVERY) };
 }
+
+// -- Supplying the Devpost submission text by hand (P6B-beta3) ---------------------------------------------------------------------------
+
+export const SUPPLY_CONTENT_RECOVERY =
+  'Reload the capture page to see whether the text was stored. Sending the same text again is safe: identical text is recognized and never stored twice.';
+
+export type SupplyContentOutcome =
+  | { readonly kind: 'stored' }
+  | { readonly kind: 'unchanged' }
+  | { readonly kind: 'failed'; readonly message: string };
+
+/**
+ * Sends the text an organizer typed or pasted for a Devpost source. The text is data: it is sent as-is, and the API normalizes and bounds it (a person
+ * is told why it was refused, never "internal error").
+ */
+export async function runSupplyContent(
+  request: (path: string, body: unknown) => Promise<ApiAnswer & { readonly data?: unknown }>,
+  projectId: string,
+  sourceId: string,
+  text: string,
+): Promise<SupplyContentOutcome> {
+  if (text.trim() === '') return { kind: 'failed', message: 'Paste the submission text first.' };
+  const result = await request(
+    `/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(sourceId)}/supplied-content`,
+    { text },
+  );
+  if (result.ok) {
+    const answer = (result.data as { result?: unknown } | undefined)?.result;
+    return answer === 'unchanged' ? { kind: 'unchanged' } : { kind: 'stored' };
+  }
+  return { kind: 'failed', message: describeFailure(result, SUPPLY_CONTENT_RECOVERY) };
+}

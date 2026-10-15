@@ -406,22 +406,23 @@ Adding a new package requires assigning it a layer in the test and in this table
 Migrations live in `packages/database/drizzle/` and are applied in order. Each milestone adds
 its own migrations; existing migrations are never edited after being committed.
 
-| Migration                                     | Contents                                                                                                                                                                                                                   |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0000_m0_foundation`                          | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                                                        |
-| `0001_audit_events_append_only`               | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                                                                 |
-| `0002_m1_event_context`                       | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id`                                      |
-| `0003_m1_event_context_immutability`          | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                                                        |
-| `0004_m2_source_ingestion`                    | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK        |
-| `0005_m2_source_ingestion_immutability`       | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                             |
-| `0006_m2_partial_reason_html_structure_limit` | adds `html_structure_limit` to the `source_snapshots` partial-reason CHECK (the vocabulary is generated from the shared tuple)                                                                                             |
-| `0007_m3_evidence_graph`                      | `claims`, `evidence_items`, `evidence_relations`, `unknowns`, `contradictions`; the composite-key target `source_snapshot_artifacts(id, snapshot_id)`                                                                      |
-| `0008_m3_evidence_graph_integrity`            | append-only triggers (UPDATE/DELETE/TRUNCATE), supersession verification guard, evidence provenance guard, relation/contradiction kind guards, unknown reference guard                                                     |
-| `0009_m3_supersession_guard_hardening`        | redefines `claims_supersession_guard`: a predecessor that is not already visible is rejected (no forward references) instead of deferring to the end-of-statement foreign key                                              |
-| `0015_p6b_submission_intents`                 | `project_submissions` (one per project: event, canonical GitHub + Devpost URLs, case-folded name key; unique per event on each) and `project_submission_requests` (idempotency records: actor + key, request hash, result) |
-| `0016_p6b_submission_integrity`               | append-only triggers on both tables; `project_sources` refuses a GitHub/Devpost URL different from the project's submission; a submission cannot be recorded over a project that already holds other links                 |
-| `0017_p6b_beta2_claims_and_voids`             | `project_submission_claims` (who owns a link or a label, unique per event), `project_voids`, `project_replacements`; the three unique constraints on `project_submissions` are replaced by the claims registry             |
-| `0018_p6b_beta2_integrity`                    | hand-written: claims backfill; ownership, void and voided-project triggers; label key derived by the database; canonical-URL CHECK on `project_sources` (`NOT VALID`). Recovery notes: [MIGRATIONS](./MIGRATIONS.md)       |
+| Migration                                     | Contents                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0000_m0_foundation`                          | `events`, `event_context_versions`, `analysis_runs`, `audit_events`                                                                                                                                                                                                                                                                         |
+| `0001_audit_events_append_only`               | trigger rejecting UPDATE/DELETE/TRUNCATE on `audit_events`                                                                                                                                                                                                                                                                                  |
+| `0002_m1_event_context`                       | `event_sources`, `tracks`, `rubrics`, `rubric_criteria`, `rubric_anchors`; `event_context_versions.content/extracted_content/locked_content_hash`; `analysis_runs.context_version_id`                                                                                                                                                       |
+| `0003_m1_event_context_immutability`          | freeze triggers for frozen versions and all their children; immutable source rows; same-version provenance triggers (JSONB and `source_ids` arrays)                                                                                                                                                                                         |
+| `0004_m2_source_ingestion`                    | `actors`, `projects`, `project_track_selections`, `project_sources`, `source_snapshots`, `source_snapshot_artifacts`; `analysis_runs` `pending` state, project/snapshot links and lease; `audit_events.actor_id` FK                                                                                                                         |
+| `0005_m2_source_ingestion_immutability`       | identity/immutability triggers for actors, projects, track selections, sources, snapshots and artifacts; capture-number sequencing; no TRUNCATE; terminal analysis runs frozen                                                                                                                                                              |
+| `0006_m2_partial_reason_html_structure_limit` | adds `html_structure_limit` to the `source_snapshots` partial-reason CHECK (the vocabulary is generated from the shared tuple)                                                                                                                                                                                                              |
+| `0007_m3_evidence_graph`                      | `claims`, `evidence_items`, `evidence_relations`, `unknowns`, `contradictions`; the composite-key target `source_snapshot_artifacts(id, snapshot_id)`                                                                                                                                                                                       |
+| `0008_m3_evidence_graph_integrity`            | append-only triggers (UPDATE/DELETE/TRUNCATE), supersession verification guard, evidence provenance guard, relation/contradiction kind guards, unknown reference guard                                                                                                                                                                      |
+| `0009_m3_supersession_guard_hardening`        | redefines `claims_supersession_guard`: a predecessor that is not already visible is rejected (no forward references) instead of deferring to the end-of-statement foreign key                                                                                                                                                               |
+| `0015_p6b_submission_intents`                 | `project_submissions` (one per project: event, canonical GitHub + Devpost URLs, case-folded name key; unique per event on each) and `project_submission_requests` (idempotency records: actor + key, request hash, result)                                                                                                                  |
+| `0016_p6b_submission_integrity`               | append-only triggers on both tables; `project_sources` refuses a GitHub/Devpost URL different from the project's submission; a submission cannot be recorded over a project that already holds other links                                                                                                                                  |
+| `0017_p6b_beta2_claims_and_voids`             | `project_submission_claims` (who owns a link or a label, unique per event), `project_voids`, `project_replacements`; the three unique constraints on `project_submissions` are replaced by the claims registry                                                                                                                              |
+| `0018_p6b_beta2_integrity`                    | hand-written: claims backfill; ownership, void and voided-project triggers; label key derived by the database; canonical-URL CHECK on `project_sources` (`NOT VALID`). Recovery notes: [MIGRATIONS](./MIGRATIONS.md)                                                                                                                        |
+| `0019_p6b_beta3_identity_registry`            | hand-written: `project_claim()` and the triggers that make EVERY write path (submissions, the earlier project/source routes, project creation) claim its identity in `project_submission_claims`; backfill that never rewrites shared data; `TRUNCATE` guards on the five identity tables. Recovery notes: [MIGRATIONS](./MIGRATIONS.md) §5 |
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` timestamps.
 - Vocabulary CHECK constraints are generated from the same tuples as the Zod schemas
@@ -940,3 +941,70 @@ A submission is **never edited in place**. When an organizer entered the wrong G
   the replacement being a _new_ submission (an identical pair already submitted converges on its project, which a correction refuses), the idempotent replay answer, and authorization (`project.write` + `source.capture`,
   organizers only).
 - **Unchanged limits.** The system cannot know whether two _different_ links are the same project in reality; it records what organizers say and keeps the record.
+
+## Identity ownership: one registry for every write path (P6B-beta3, R9-1)
+
+The invariant: **at most one active project of an event owns a given canonical GitHub link, Devpost link or case-folded label, whichever route created it and whatever the concurrency.** It is a database
+fact, not an application check.
+
+- **Why the earlier guard failed.** Before 0019 only a recorded submission wrote to `project_submission_claims`; the project/source routes were guarded by _reading_ other projects' rows, and a concurrent
+  transaction's uncommitted rows are invisible to a read. A legacy declaration and a submission (two legacy declarations, two labels differing by case) could each find the identity free and both commit. This
+  was reproduced with held transactions before the repair (`tests/integration/identity-races.test.ts`, the "REPRODUCTION" cases) and by independent operating-system processes (`identity-processes.test.ts`).
+- **The repair.** `project_claim()` inserts `(event, kind, value)` with `ON CONFLICT DO NOTHING` and re-checks ownership in a new snapshot. A second writer of the same key _waits_ on the unique index until the
+  first transaction ends and then yields to it. Triggers on `projects` (label), `project_sources` (GitHub/Devpost declarations) and `project_submissions` call it in the same transaction as the row they describe, so
+  there is one serialization point for every path. The application translates the resulting `unique_violation` into the same answers as before (`SUBMISSION_CONFLICT`, `PROJECT_NAME_TAKEN`), retries only
+  transient deadlocks, and answers a retry of a lost response from the idempotency record.
+- **What a void does to ownership.** Claims are deleted only for a voided project, and a void and a new creation of the same identity either serialize (the new one waits for the void to commit) or the new one is
+  refused: never both owning.
+- **Historical data.** The backfill claims only what is unambiguous and skips (never rewrites, merges or deletes) identities that were already shared. `GET /events/:id/submission-integrity` now also reports
+  `registryProblems` (a missing claim, a stale claim, an identity held by several projects), computed from the base tables and independent of the registry; reading it changes nothing.
+- **Bounds.** Different links are never assumed to be the same project; a name is a label, not identity; ownership is per event (the same link in two events is two independent claims). `TRUNCATE` of the five
+  identity tables is refused by trigger (row triggers do not fire on `TRUNCATE`).
+
+## Evidence coverage: `source-selection/v2` (P6B-beta3, R9-B1)
+
+**What was wrong, measured.** On the reconstructed 404-artifact capture of this repository (`tests/fixtures/real-github/coverage-profile-judge-9459c98.json`, metadata only), the selection of v1 showed 110 artifacts, left
+293 to the budget and skipped 3; 3 of 18 implementation components were seen; one document used 59 % of the prose budget; tests were 52 % of the shown source. Causes, in path order: capture took the first 400
+files by (priority, depth, path); routing put every document in the prose bucket; v1 consumed whole files one after another in a fixed order and closed a bucket at the first passage that did not fit; a monorepo's
+packages were one top-level directory; tests and generated snapshots competed with implementation; and the windowing step's detail (which regions were not shown) was reduced to a coarse `source_sampled`
+limitation that the dimension assessors never saw.
+
+**The rules of v2** (`packages/assessment/src/selection-v2.ts`, `repository-roles.ts`; pure, deterministic, a function of keys, kinds and lengths, never of what the text says):
+
+1. Heads before depth: every eligible artifact is offered a small head before any is read deeper; the head is sized so that every file still waiting can afford one.
+2. Fair across components (a monorepo package or a top-level directory): round _k_ offers the _k_-th best implementation file of every component; components are visited in a fixed scrambled order, never alphabetically.
+3. Roles from the path alone: deployment, manifest, configuration (a guaranteed share), implementation, test (a reserved share, read only after implementation heads), generated (last).
+4. No artifact takes more than a quarter of its bucket's budget while others are unseen; a prose class never takes what the classes after it need for one passage per document.
+5. Byte-identical copies of a shown file are reported as duplicates, not as unseen material.
+6. Work-conserving: leftover budget is spent; a passage that does not fit never closes a bucket.
+
+**Acceptance thresholds were fixed before v2 was written** (`packages/assessment/src/testing/coverage-thresholds.ts`) and measured by an independent oracle (`coverage-metrics.ts`) that imports no selection code.
+Results are in `docs/milestones/P6B_BETA3_IMPLEMENTATION_REPORT.md`.
+
+**Coverage metadata.** `WindowingResult.coverage` records, per artifact, its role, component, status (`full`, `partial`, `unseen`, `duplicate`), the exact code-point ranges shown and not shown, and, per
+component, how much implementation was shown; plus a verdict. Verdict rules (`COVERAGE_POLICY`): `insufficient` when implementation exists and none of it was shown or fewer than half of its components have any
+shown file; `partial` when anything eligible went unshown; otherwise `complete`. These are facts about the _selection_; none says anything about the project.
+
+**What the pipeline does with it** (the strongest safe behaviour available before a later milestone):
+
+- `insufficient` stops the run **before any spend** (`source_unavailable` / `source_coverage_insufficient`); it is never turned into a low score.
+- `partial` is disclosed twice: as report limitations (`source_sampled`, `implementation_components_unseen`, `implementation_partially_seen`, `documentation_partially_seen`, `configuration_partially_seen`,
+  `tests_partially_seen`, with bounded sorted subjects and a true count) and as the closed notices `sampled_source` / `partial_capture` attached to **every** dimension's input.
+- The policy id is part of the frozen pipeline configuration (and so of the extraction identity); a configuration frozen under `source-selection/v1` still reproduces under v1.
+- Capture itself takes README and manifests first and then one file of every component before a second of any (`orderCandidatesForCapture`), so a repository larger than the file limit loses files evenly.
+
+**What remains gated (not built here).** A reviewer-visible "assess with partial coverage" flow; a read-only recomputation of coverage for historic runs; per-dimension coverage requirements (which part of a repository
+a rubric criterion needs); deeper reading of a part the first pass left unseen. Until then an assessment of a large repository is advisory, discloses what it did not see, and abstains when too little was seen.
+
+## Organizer-supplied submission text (P6B-beta3)
+
+Fetching a Devpost page is blocked at this deployment's egress proxy (the CONNECT is refused before the request reaches Devpost; this is an environment policy, not a statement of Devpost's rules, and it is not worked
+around). An organizer may instead paste the text they can see (`POST /projects/:id/sources/:sid/supplied-content`, organizers only). The text is stored as an ordinary immutable `devpost` snapshot that is
+**labelled**: `metadata.provenance = organizer_supplied`, a `submission.json` note saying it was not fetched from Devpost and has not been compared with the page, `provenance` in the snapshot summary, the wording
+"TEXT SUPPLIED BY AN ORGANIZER" on the capture page, and the report limitation `organizer_supplied_source`. Everything derived from it routes and verifies exactly like fetched submission text: **team claim**, never
+machine-verified. It is bounded (60,000 code points), normalized (NFC, line endings), refuses control and direction-changing characters, is idempotent (identical text is `unchanged`), and numbers like any capture. A
+fetch no worker has started is replaced; one a worker is running is never touched.
+
+**Known gap.** The evidence origin vocabulary is not split: evidence from supplied text still carries origin `devpost` (with `team_claim`), distinguished by the limitation and the snapshot labels rather than by a
+separate origin. Splitting it needs a vocabulary migration and is left to a later milestone. Real-source readiness stays **blocked** for Devpost until the input path has been demonstrated by a person on a real
+submission.

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { runCaptureRetry } from '../../../../lib/action-errors';
+import { runCaptureRetry, runSupplyContent } from '../../../../lib/action-errors';
 import { apiRequest } from '../../../../lib/api';
 import { withSealedError } from '../../../../lib/flash';
 
@@ -20,6 +20,25 @@ export async function retryCaptureAction(formData: FormData): Promise<void> {
   const sourceId = text(formData, 'sourceId');
   const page = `/projects/${encodeURIComponent(projectId)}/capture`;
   const outcome = await runCaptureRetry((path) => apiRequest('POST', path), projectId, sourceId);
+  revalidatePath(page);
+  if (outcome.kind === 'failed') redirect(withSealedError(page, outcome.message));
+  redirect(page);
+}
+
+/**
+ * Stores the Devpost submission text an organizer typed or pasted, as an immutable snapshot labelled "organizer-supplied". Nothing is fetched, and
+ * the text is not checked against the Devpost page.
+ */
+export async function supplyContentAction(formData: FormData): Promise<void> {
+  const projectId = text(formData, 'projectId');
+  const sourceId = text(formData, 'sourceId');
+  const page = `/projects/${encodeURIComponent(projectId)}/capture`;
+  const outcome = await runSupplyContent(
+    (path, body) => apiRequest('POST', path, body),
+    projectId,
+    sourceId,
+    text(formData, 'submissionText'),
+  );
   revalidatePath(page);
   if (outcome.kind === 'failed') redirect(withSealedError(page, outcome.message));
   redirect(page);
