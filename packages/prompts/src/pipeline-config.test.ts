@@ -15,16 +15,42 @@ const MODELS = {
 const hashOf = (value: unknown) => sha256Hex(canonicalJson(value));
 
 describe('the shared pipeline configuration (API and worker)', () => {
-  it('has the SAME canonical hash it had when it lived in the worker (P6A moved it; no identity changed)', () => {
-    // recorded at ed0259b, before the move, with the same options
+  it('has the pinned canonical hash of the current configuration (the identity moves ONLY when a policy or prompt does)', () => {
+    // P6A recorded eb9201ad.../e894fd68... at ed0259b. P6B-beta3 changed `policies.selection` from source-selection/v1 to v2 (a deliberate identity
+    // change: a run frozen under v1 keeps v1 and its old hash; checkPipelineConfig still accepts it), which moves these two values and nothing else.
     expect(
       hashOf(buildPipelineConfig({ provider: { id: 'replay', mode: 'replay' }, models: MODELS })),
-    ).toBe('eb9201ad3dc9a80c1e6494b6d3aa0e49213519394b7e91fde794b29298b7bbe8');
+    ).toBe('e4710a40807392c60a10b755004149c48f81c9f882150c9865fc01291d536a1b');
     expect(
       hashOf(
         buildPipelineConfig({ provider: { id: 'scripted', mode: 'scripted' }, models: MODELS }),
       ),
-    ).toBe('e894fd682e6ddc6b00a0a02dce6c67b94fa169465765de67940cb30651697924');
+    ).toBe('fcb8e3447e223575d2783b9f5cf975ae417f76af85b734478908004e4756a933');
+  });
+
+  it('still accepts a configuration frozen under source-selection/v1 (earlier runs stay reproducible) and refuses an unknown policy', () => {
+    const config = buildPipelineConfig({
+      provider: { id: 'replay', mode: 'replay' },
+      models: MODELS,
+    });
+    const runtime = {
+      providerId: 'replay',
+      providerMode: 'replay',
+      prompts: currentPromptIdentities(),
+    };
+    const frozenV1 = {
+      ...config,
+      policies: { ...config.policies, selection: 'source-selection/v1' },
+    };
+    expect(checkPipelineConfig(frozenV1, runtime)).toMatchObject({ ok: true });
+    const unknown = {
+      ...config,
+      policies: { ...config.policies, selection: 'source-selection/v3' },
+    };
+    expect(checkPipelineConfig(unknown, runtime)).toEqual({
+      ok: false,
+      code: 'pipeline_config_invalid',
+    });
   });
 
   it('carries exactly the current prompt identities, in stage order, and nothing secret', () => {

@@ -245,7 +245,7 @@ const MONOREPO_ROOTS = new Set([
 
 /**
  * The part of a repository a path belongs to: `packages/x` for a monorepo package, otherwise its top-level directory, `(root)` for a file at
- * the root. It must agree with `repositoryComponent` of `@judge-copilot/assessment` (tests/integration pins the two together), because capture
+ * the root. It must agree with `repositoryComponent` of the assessment package (tests/integration pins the two together), because capture
  * decides which files exist at all and selection decides which of those a model sees.
  */
 export function captureComponent(path: string): string {
