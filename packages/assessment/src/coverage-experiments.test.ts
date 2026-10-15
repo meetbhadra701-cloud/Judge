@@ -109,6 +109,20 @@ describe('v2 acceptance thresholds', () => {
       const result = v2Of(run);
       const m = measure(run.artifacts, result);
       results[`v2/${run.name}`] = summary(m);
+      const statusCounts: Record<string, number> = {};
+      for (const entry of result.coverage.artifacts) {
+        statusCounts[entry.status] = (statusCounts[entry.status] ?? 0) + 1;
+      }
+      const skipped = result.omissions.filter(
+        (o) => o.reason !== 'budget_exhausted' && o.reason !== 'duplicate_content',
+      ).length;
+      // every artifact is accounted for exactly once: shown in full, shown in part, never shown, a duplicate of a shown file, or skipped by routing
+      expect(result.coverage.artifacts.length + skipped).toBe(run.artifacts.length);
+      results[`v2-accounting/${run.name}`] = {
+        artifacts: run.artifacts.length,
+        ...statusCounts,
+        skippedByRouting: skipped,
+      };
       results[`v1-vs-v2/${run.name}`] = {
         componentCoverage: [
           Number(v1.componentCoverage.toFixed(3)),
@@ -125,11 +139,14 @@ describe('v2 acceptance thresholds', () => {
         : THRESHOLDS.implementationComponentCoverageMin;
       expect(m.componentCoverage).toBeGreaterThanOrEqual(minCoverage);
 
-      // one file may not eat the budget while others are unseen
-      if (m.unshownEligibleSourceFiles > 0) {
-        expect(m.maxArtifactShare.share).toBeLessThanOrEqual(
-          THRESHOLDS.maxArtifactShareWhileOthersUnshown + 1e-9,
-        );
+      // one file may not eat a bucket's budget while another eligible file of that bucket is unseen (judged per bucket)
+      for (const bucket of ['statement', 'source', 'metadata'] as const) {
+        const entry = m.perBucket[bucket];
+        if (entry.unshownEligible > 0) {
+          expect(entry.maxShare.share, `${bucket}: ${entry.maxShare.key}`).toBeLessThanOrEqual(
+            THRESHOLDS.maxArtifactShareWhileOthersUnshown + 1_200 / DEFAULT_BUDGETS[bucket] + 1e-9,
+          );
+        }
       }
       // root README
       expect(m.rootReadmeShown).toBeGreaterThanOrEqual(

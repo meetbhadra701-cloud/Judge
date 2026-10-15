@@ -163,10 +163,16 @@ describe('voidedNotice', () => {
 
 describe('the recovery flag reaches the API only when the organizer ticked it (P6B-beta3)', () => {
   it('sends cancelPendingWork: true when asked and omits it otherwise', async () => {
-    const withFlag = recorder({ project: { id: 'p' }, replacement: null, result: 'voided' });
+    const withFlag = recorder({
+      ok: true,
+      data: { project: { id: 'p' }, replacement: null, result: 'voided' },
+    } as never);
     await runCorrection(withFlag.api, 'p', { ...input(), cancelPending: true }, KEY);
     expect(JSON.stringify(withFlag.calls)).toContain('cancelPendingWork');
-    const without = recorder({ project: { id: 'p' }, replacement: null, result: 'voided' });
+    const without = recorder({
+      ok: true,
+      data: { project: { id: 'p' }, replacement: null, result: 'voided' },
+    } as never);
     await runCorrection(without.api, 'p', input(), KEY);
     expect(JSON.stringify(without.calls)).not.toContain('cancelPendingWork');
   });

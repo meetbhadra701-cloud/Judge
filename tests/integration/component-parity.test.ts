@@ -23,8 +23,8 @@ describe('capture and selection agree on what a component is', () => {
     expect(real.length).toBeGreaterThan(300);
   });
 
-  it.each([
-    ...real.map((p) => [p] as const),
+  it.each<[string]>([
+    ...real.map((p): [string] => [p]),
     ['README.md'],
     ['Packages/Core/src/a.ts'],
     ['packages/only-two.ts'],

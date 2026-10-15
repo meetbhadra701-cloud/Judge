@@ -134,6 +134,19 @@ export interface Metrics {
   readonly componentCoverage: number;
   /** The largest share of its bucket's BUDGET that one file consumed, over the three buckets. */
   readonly maxArtifactShare: { readonly key: string; readonly share: number };
+  /**
+   * Per bucket: eligible files nothing of which was shown (generated files and byte-identical copies of a shown file excluded) and the largest share
+   * of THAT bucket's budget one file used. The "no file eats the budget while others are unseen" threshold is judged per bucket.
+   */
+  readonly perBucket: Readonly<
+    Record<
+      'statement' | 'source' | 'metadata',
+      {
+        readonly unshownEligible: number;
+        readonly maxShare: { readonly key: string; readonly share: number };
+      }
+    >
+  >;
   /** Some eligible file of the source bucket was not shown at all. */
   readonly unshownEligibleSourceFiles: number;
   /**
@@ -233,6 +246,20 @@ export function measure(artifacts: readonly SourceArtifact[], result: WindowingR
   const unshownDistinctImplementation = implementation.filter(
     (f) => f.shown === 0 && !shownTexts.has(textOf.get(f.key)),
   ).length;
+  const perBucket = Object.fromEntries(
+    (['statement', 'source', 'metadata'] as const).map((b) => {
+      const inBucket = facts.filter((f) => f.bucket === b);
+      let top = { key: '', share: 0 };
+      for (const f of inBucket) {
+        const share = f.shown / budget(b);
+        if (share > top.share) top = { key: f.key, share };
+      }
+      const unshownEligible = inBucket.filter(
+        (f) => f.shown === 0 && f.role !== 'generated' && !shownTexts.has(textOf.get(f.key)),
+      ).length;
+      return [b, { unshownEligible, maxShare: top }];
+    }),
+  ) as Metrics['perBucket'];
   const sourceFacts = facts.filter((f) => f.role !== 'prose');
   const sourceShown = sourceFacts.reduce((s, f) => s + f.shown, 0);
   const readme = facts.find((f) => f.path.toLowerCase() === 'readme.md');
@@ -248,6 +275,7 @@ export function measure(artifacts: readonly SourceArtifact[], result: WindowingR
     componentCoverage:
       components.length === 0 ? 1 : (components.length - uncovered.length) / components.length,
     maxArtifactShare: max,
+    perBucket,
     unshownDistinctImplementationFiles: unshownDistinctImplementation,
     unshownEligibleSourceFiles: sourceFacts.filter((f) => f.shown === 0 && f.role !== 'generated')
       .length,
