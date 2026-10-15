@@ -105,3 +105,26 @@ application of this version must not be started against it (it expects the funct
 
 A legacy declaration of a link another active project owns is now refused with the same errors a submission gets. A project created through the earlier route now owns its label in the registry, so a later
 submission with a case-variant label is refused (`PROJECT_NAME_TAKEN`) where it previously could succeed. Voiding releases the claims as before.
+
+## 6. P6B-beta3-R1: `0020_p6b_beta3_r1_coverage_record`
+
+Generated table plus hand-written triggers; one transaction; additive. It adds `assessment_run_coverage` (one row per run: the content-addressed coverage record of the run's source selection) with CHECK constraints
+(hash is hex, the hash equals SHA-256 of the canonical text, the text is bounded, the verdict is one of `complete | partial | insufficient`), an immutability trigger (`UPDATE`/`DELETE` refused), a
+`BEFORE TRUNCATE` guard, and an insert guard (the run must be `running`; the jsonb mirror must equal the canonical text; the columns must agree with the record). No existing table, column or row is changed.
+
+### 6.1 Historical runs
+
+Runs and assessments made before this migration have **no** coverage row and none is invented. The API reports them as `coverage.status = "not_recorded"` (coverage unknown, never "complete"); the assessment
+page says so before the score. `source-selection/v1` and `v2` configurations stay valid, so a frozen configuration still reproduces; only newly requested runs use v3, and their pipeline-config hash changes
+accordingly (`packages/prompts/src/pipeline-config.test.ts`).
+
+### 6.2 Verifying an upgrade
+
+```sql
+SELECT count(*) FROM assessment_run_coverage;   -- 0 right after the upgrade; one per run that reaches source selection afterwards
+SELECT tgname FROM pg_trigger WHERE tgrelid = 'assessment_run_coverage'::regclass AND NOT tgisinternal ORDER BY 1;
+-- assessment_run_coverage_immutable_guard, assessment_run_coverage_insert_guard, assessment_run_coverage_no_truncate
+```
+
+There is no down migration; rollback is restoring the pre-upgrade backup. `registryProblems` (the read-only registry check) changed its _logic_, not its schema: it now also reports `shared_identity` and
+`claim_owned_by_voided_project`, and no longer reports the claims of a project holding several links of one type as stale.

@@ -113,16 +113,27 @@ describe.each(testDatabaseTargets())('coverage record in the pipeline on %s', (_
     ).rejects.toThrow();
   });
 
-  it('a stored text whose hash or mirror does not match is refused by the database', async () => {
+  it('the database refuses a record for a run that has ended, naming the reason', async () => {
     const run = await execute(db, { worldOptions: { extraFiles: packages(2, 40) } });
     const row = await rowOf(run);
     if (!row) throw new Error('missing row');
-    const other = await execute(db, { worldOptions: { extraFiles: packages(3, 40) } });
-    await expect(
-      db.execute(sql`INSERT INTO assessment_run_coverage
-        (run_id, project_id, schema_id, selection_policy, verdict, record_canonical, record_sha256, record)
-        VALUES (${other.runId}, ${other.world.project.id}, 'coverage-record/v1', 'source-selection/v3', 'complete',
-          '{}', ${row.recordSha256}, '{}'::jsonb)`),
-    ).rejects.toThrow();
+    const ended = await execute(db, { worldOptions: { extraFiles: packages(3, 40) } });
+    const reason = async (statement: Promise<unknown>): Promise<string> => {
+      try {
+        await statement;
+      } catch (error) {
+        const cause = (error as { cause?: { message?: string } }).cause;
+        return cause?.message ?? String(error);
+      }
+      return 'accepted';
+    };
+    expect(
+      await reason(
+        db.execute(sql`INSERT INTO assessment_run_coverage
+          (run_id, project_id, schema_id, selection_policy, verdict, record_canonical, record_sha256, record)
+          VALUES (${ended.runId}, ${ended.world.project.id}, ${row.schemaId}, ${row.selectionPolicy}, ${row.verdict},
+                  ${row.recordCanonical}, ${row.recordSha256}, ${row.recordCanonical}::jsonb)`),
+      ),
+    ).toContain('only be written while its run is running');
   });
 });

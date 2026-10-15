@@ -375,7 +375,7 @@ Reviewed explicitly rather than classified as low priority; what each item prote
 - **`TRUNCATE` of the identity tables.** Row triggers do not fire on `TRUNCATE`, so without a statement trigger the whole ownership record could be erased by one statement. 0019 guards the five identity tables;
   `registry-consistency.test.ts` asserts each refusal. Residual: a database superuser can still disable triggers or `DROP` objects; that is an operator capability, not an application one.
 - **Registry consistency.** The registry is authoritative for ownership, so it is also checked against the base tables it summarizes (`registryProblems`), by SQL that does not read the registry's own claims as
-  truth. The tests damage the registry with `session_replication_role = replica` (the only way to bypass the triggers) and require the report to name each problem; the report is read-only.
+  truth and that compares ownership per project (a case-colliding label or a shared link is `shared_identity`; a claim of a voided project is `claim_owned_by_voided_project`). The tests damage the registry with `session_replication_role = replica` (the only way to bypass the triggers) and require the report to name each problem; the report is read-only.
 - **Cross-event organizer authorization (characterized, not redesigned).** Roles are global: an organizer may act on any event's projects (`tests/integration/cross-event-authorization.test.ts` pins this). The
   deployment is a single organizing team's; a second tenant needs per-event grants, which is deliberately out of scope. What limits the damage today: every write is audited with its actor; a void is
   append-only and never deletes; ownership is per event, so organizers of one event cannot make another's links unavailable (claims are keyed by event). Do not host unrelated organizers on one deployment.
@@ -386,3 +386,11 @@ Reviewed explicitly rather than classified as low priority; what each item prote
 - **Coverage and prompt injection.** Selection never reads file content (a test shows hostile instructions in files move nothing); the assessor is told when part of the repository was not shown, and the
   base rule stands that what was not shown is not negative evidence.
 - **GitHub rate limits.** A 403/429 carrying `Retry-After` or the documented secondary-limit message is `rate_limited` (with a bounded wait), not a generic error; any other 403 stays an API error.
+
+## Coverage records (P6B-beta3-R1)
+
+- `assessment_run_coverage` holds, per run, a bounded description of what the source selection examined: identities, sizes, statuses, ranges and SHA-256 hashes. It contains **no repository text** and no secret;
+  the shown text is recomputed from the immutable snapshot artifact. It is append-only (trigger), cannot be truncated, and cannot be written after the run ends.
+- A record that fails verification is never shown in part: the API returns `verified: false` with problem codes and no derived field. A tampered coverage record cannot make an assessment look more complete;
+  at worst it makes coverage "unknown". The assessment's own report verification is independent.
+- Residual: a database superuser can still disable triggers (as for every table in this system); coverage records are checked on read, not signed.

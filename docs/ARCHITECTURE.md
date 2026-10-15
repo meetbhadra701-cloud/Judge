@@ -957,7 +957,7 @@ fact, not an application check.
 - **What a void does to ownership.** Claims are deleted only for a voided project, and a void and a new creation of the same identity either serialize (the new one waits for the void to commit) or the new one is
   refused: never both owning.
 - **Historical data.** The backfill claims only what is unambiguous and skips (never rewrites, merges or deletes) identities that were already shared. `GET /events/:id/submission-integrity` now also reports
-  `registryProblems` (a missing claim, a stale claim, an identity held by several projects), computed from the base tables and independent of the registry; reading it changes nothing.
+  `registryProblems` (a missing claim, a stale claim, an identity shared by several active projects, a claim still owned by a voided project; ownership is compared per project), computed from the base tables and independent of the registry; reading it changes nothing.
 - **Bounds.** Different links are never assumed to be the same project; a name is a label, not identity; ownership is per event (the same link in two events is two independent claims). `TRUNCATE` of the five
   identity tables is refused by trigger (row triggers do not fire on `TRUNCATE`).
 
@@ -993,8 +993,41 @@ shown file; `partial` when anything eligible went unshown; otherwise `complete`.
 - The policy id is part of the frozen pipeline configuration (and so of the extraction identity); a configuration frozen under `source-selection/v1` still reproduces under v1.
 - Capture itself takes README and manifests first and then one file of every component before a second of any (`orderCandidatesForCapture`), so a repository larger than the file limit loses files evenly.
 
-**What remains gated (not built here).** A reviewer-visible "assess with partial coverage" flow; a read-only recomputation of coverage for historic runs; per-dimension coverage requirements (which part of a repository
+**What remains gated (not built here).** A reviewer-visible "assess with partial coverage" flow; a read-only recomputation of coverage for historic runs (v3 stores a record for new runs; older runs are reported as `not_recorded`); per-dimension coverage requirements (which part of a repository
 a rubric criterion needs); deeper reading of a part the first pass left unseen. Until then an assessment of a large repository is advisory, discloses what it did not see, and abstains when too little was seen.
+
+## Evidence coverage, integrity and provenance: `source-selection/v3` (P6B-beta3-R1)
+
+Hostile review R7D found eight ways the coverage logic of v2 could mislead (`docs/milestones/P6B_BETA3_R1_REMEDIATION_REPORT.md`). The remedy keeps v2's selection ideas and changes what is _counted_, _stored_ and
+_shown_. **Coverage is a set of heuristics over file paths and sizes. It can show that material was not examined; it can never show that examined material was relevant to a criterion or sufficient to judge it**
+(`relevance: "not_established"`, `roleBasis: "path_only"` are fixed fields of every report and record).
+
+- **Inventory versus consumption.** The coverage report is built from the _original_ eligible artifacts, duplicates included. Suppressing a byte-identical copy removes text from the model's input, never an entry
+  from the inventory or a unit from a denominator. A copy counts as inspected only when a twin of the **same role** was actually shown (`represented`); a test file that happens to equal an implementation file is
+  not a twin of it.
+- **Measures that do not move with cosmetics.** File representation, implementation content (code points), components, roles and documentation categories are separate measures. A component with fewer than 600
+  implementation code points is a _stub_: it is visited after every meaningful component and does not count toward the "meaningful components" gate, so adding hundreds of near-empty components can neither hide
+  the real ones nor manufacture reassurance. The gates are on volume as well as count: the three largest components, any component holding at least a quarter of the code, and the inspected share of all code.
+- **No secret ordering.** The order in which components are visited is public and deterministic (hash of the name within a root, roots interleaved). Nothing relies on its secrecy; the guarantee is the itemized
+  accounting and the gates above, which a path-naming strategy cannot change.
+- **Documentation is allocated by category** (submission, root README, deployment page, video, key documents, package READMEs, other documents, history), each with its own head pool and directory-group
+  round-robin, so a flood of READMEs cannot take the architecture document's turn. Per-category counts are reported, not one blended number.
+- **Limitations are derived by code from the outcome** (`coverageLimitations`): `partial_capture` and the pinned snapshots' own reasons, `source_sampled`, `implementation_*`, `dominant_component_unseen`,
+  `largest_components_unseen`, `documentation_*`, `duplicates_not_represented`, `component_flood`, ... The closed notices `sampled_source` / `partial_capture` still reach every dimension assessor; whether a model
+  repeats them is irrelevant to whether the judge is told.
+- **Provenance is stored** (`assessment_run_coverage`, migration 0020): per run, one immutable, content-addressed record (canonical JSON text + SHA-256 + a jsonb mirror) of the frozen policy identities, the pinned
+  snapshots and their capture status, every inventory artifact (identity, role, component, status, size, shown prefix and the unshown range, the SHA-256 of its text), the artifacts routing skipped and why, the
+  measures and concerns, and the limitations/notices that reached the assessors. It is bounded (at most 2,000 artifacts, 500 components). It is written under the run's lease **before any spend**, so a run refused at
+  the gate also leaves one. The shown text is not copied: it is recomputed from the immutable snapshot artifact the record names.
+- **Verification is a re-derivation.** The read model rebuilds the report from the record's own entries and compares verdict, concerns, measures and limitations; checks the hash, the mirror, the pinned snapshot
+  ids, and that every limitation the record says reached the assessors is in the stored assessment. A record that fails any check shows **nothing** derived from it (`coverage.verified = false` with stable
+  problem codes). An assessment from before the table (`status = not_recorded`) is reported as coverage **unknown**, never complete; historical rows are not rewritten.
+- **The judge is told before the number.** The assessment page opens with a source-coverage section: statement A ("N of N rubric dimensions received an advisory score") is kept apart from statement B ("not all of
+  the project's evidence was examined"), followed by the components not fully examined, the documentation categories, what the scores cannot support, and the fixed caveat that relevance and sufficiency are not
+  established. The overall line, every scored dimension and every version row carry the same qualifier. Missing evidence is never presented as negative evidence.
+
+**Still gated:** a reviewer-visible "assess with partial coverage" flow; deeper reading of unseen regions; per-dimension coverage requirements (which part of a repository a criterion needs); semantic judgment of
+relevance. A run whose verdict is `insufficient` still stops before spend.
 
 ## Organizer-supplied submission text (P6B-beta3)
 
