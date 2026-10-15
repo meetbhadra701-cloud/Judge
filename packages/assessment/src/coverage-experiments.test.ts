@@ -218,7 +218,8 @@ describe('v2 acceptance thresholds', () => {
         expect(entry.shownCodePoints).toBeLessThanOrEqual(entry.totalCodePoints);
         // the part never shown starts where the shown prefix ends and runs to the end of the stored text (recomputed here from the text itself)
         const text = run.artifacts.find((a) => a.key === entry.artifactKey)?.text ?? '';
-        const length = [...text].length;
+        let length = 0;
+        for (const _ of text) length += 1;
         const lastShownEnd =
           entry.shownRanges.length === 0
             ? 0
