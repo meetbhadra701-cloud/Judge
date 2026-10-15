@@ -51,6 +51,13 @@ function run(overrides: Partial<AssessmentRunView>): AssessmentRunView {
     assessmentId: null,
     usage,
     guard: {} as unknown as AssessmentRunView['guard'],
+    coverage: {
+      status: 'not_recorded',
+      verified: false,
+      verdict: null,
+      concerns: [],
+      partialCapture: false,
+    },
     ...overrides,
   };
 }
