@@ -13,7 +13,18 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { CapturedArtifact, CaptureResult } from '../../packages/capture/src/index.js';
+import {
+  captureComponent,
+  type CapturedArtifact,
+  type CaptureResult,
+} from '../../packages/capture/src/index.js';
+import {
+  buildPassages,
+  SELECTION_POLICY,
+  SELECTION_POLICY_V1,
+  type SelectionPolicyId,
+} from '../../packages/assessment/src/index.js';
+import { repositoryComponent } from '../../packages/assessment/src/repository-roles.js';
 import { createGithubAdapter } from '../../packages/github/src/index.js';
 import {
   createFixtureNetwork,
@@ -154,7 +165,10 @@ describe('real recorded GitHub responses through the production adapter', () => 
         )
         .every((u) => /[0-9a-f]{40}/.test(u)),
     ).toBe(true);
-    expect(new Set(urls)).toEqual(new Set(Object.keys(RECORDED.routes)));
+    // the recording also holds the blobs of a larger capture (see its README); a capture limited to four files reads only its nine core routes
+    expect(urls).toHaveLength(9);
+    expect(new Set(urls).size).toBe(9);
+    expect([...new Set(urls)].every((u) => u in RECORDED.routes)).toBe(true);
     for (const contact of network.contacts) {
       expect(Object.keys(contact.headers).map((h) => h.toLowerCase())).not.toContain(
         'authorization',
@@ -372,7 +386,7 @@ describe('real recorded GitHub responses through the production adapter', () => 
     const result = await capture();
     expect(result.status).toBe('partial');
     if (result.status === 'partial') expect(result.revision).toBe(REVISION);
-    expect(network.contacts.length).toBeGreaterThan(Object.keys(RECORDED.routes).length); // each redirect cost one more request
+    expect(network.contacts.length).toBeGreaterThan(9); // each redirect cost one more request than the nine core routes
     expect(network.contacts.every((c) => c.url.startsWith(`${API}/`))).toBe(true);
   });
 
@@ -623,3 +637,69 @@ describe.each(testDatabaseTargets())(
     });
   },
 );
+
+describe('a larger capture of the same real repository (P6B-beta3)', () => {
+  const LARGE = { maxFiles: 40, maxCommits: 5 } as const;
+  const large = async () => {
+    const network = createFixtureNetwork(world());
+    const http = createSafeHttpClient({ resolver: network.resolver, transport: network.transport });
+    return createGithubAdapter({ http, limits: LARGE }).capture({
+      sourceType: 'github',
+      url: REPO_URL,
+      signal: new AbortController().signal,
+    });
+  };
+
+  it('captures forty real files of mixed kinds (workflow, manifests, configuration, documentation), each verified against its Git object id', async () => {
+    const result = await large();
+    expect(result.status).toBe('partial');
+    if (result.status !== 'partial') throw new Error('unreachable');
+    expect(result.partialReasons).toContain('file_count_limit');
+    const files = result.artifacts.filter((a) => a.kind === 'file');
+    expect(files).toHaveLength(40);
+    const tree = (
+      RECORDED.routes[`${BASE}/git/trees/${TREE_SHA}?recursive=1`]?.json as {
+        tree: { path: string; sha: string }[];
+      }
+    ).tree;
+    for (const file of files) {
+      const listed = tree.find((entry) => entry.path === file.key.replace(/^files\//, ''));
+      expect(gitBlob(Buffer.from(file.textContent, 'utf8')), file.key).toBe(listed?.sha);
+    }
+    const keys = files.map((f) => f.key);
+    expect(keys).toContain('files/.github/workflows/ci.yml');
+    expect(keys.some((k) => k.endsWith('/package.json'))).toBe(true);
+    expect(keys.some((k) => k.endsWith('.md'))).toBe(true);
+    // fair across the repository's components: a quarter of the files are not all from one package
+    const components = new Set(files.map((f) => captureComponent(f.key.replace(/^files\//, ''))));
+    expect(components.size).toBeGreaterThanOrEqual(15);
+  });
+
+  it('the selection that follows (v2) shows at least as many of the repository’s components as v1 at the same tight budget, on real files', async () => {
+    const result = await large();
+    if (result.status !== 'partial') throw new Error('unreachable');
+    const artifacts = result.artifacts
+      .filter((a) => a.kind === 'file')
+      .map((a, i) => ({
+        snapshotId: 'snap-1',
+        artifactId: `art-${String(i)}`,
+        sourceType: 'github' as const,
+        snapshotStatus: 'partial',
+        key: a.key,
+        kind: a.kind,
+        mediaType: a.mediaType,
+        text: a.textContent,
+      }));
+    const budgets = { statement: 6_000, source: 6_000, metadata: 1_000 };
+    const shownComponents = (policy: SelectionPolicyId) =>
+      new Set(
+        buildPassages(artifacts, budgets, policy).passages.map((p) =>
+          repositoryComponent(p.artifactKey.replace(/^files\//, '')),
+        ),
+      ).size;
+    const v1 = shownComponents(SELECTION_POLICY_V1);
+    const v2 = shownComponents(SELECTION_POLICY);
+    expect(v2).toBeGreaterThanOrEqual(v1);
+    expect(buildPassages(artifacts, budgets).coverage.verdict).not.toBe('complete');
+  });
+});

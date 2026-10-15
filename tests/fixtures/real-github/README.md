@@ -13,6 +13,14 @@ responses the real GitHub REST API returned on 2026-10-14 for the **public** rep
 - Routes: repository metadata, `git/ref/heads/main`, the commit, the recursive tree (500 entries, 124 KB), the first page of commit history, and the four blobs the adapter selects.
   The file selection and every limit are the adapter's, unchanged.
 
+## Extended on 2026-10-15 (P6B-beta3)
+
+The recording was extended, additively, with the **36 further blob responses** the production adapter requests when captured with `maxFiles = 40` (the capture order changed in
+P6B-beta3: README and manifests first, then one file of every component before a second of any; see `orderCandidatesForCapture`). The nine original responses are byte-for-byte unchanged
+(checked by comparing the parsed JSON before and after); the additional blobs were fetched with `curl` from the same public repository by object id (content-addressed, so the commit
+being re-read later cannot change them) and contain no e-mail addresses beyond `judge@127.0.0.1` in the repository's own CI configuration. A capture limited to four files still reads
+only the nine core routes; the forty-file capture is used by the "larger capture" tests. The recording is now 474 KB.
+
 ## What was changed after recording
 
 Only e-mail addresses: every `email` field, and the same address inside signed-commit payload text, was replaced by `redacted@example.invalid`. The adapter never stores e-mail

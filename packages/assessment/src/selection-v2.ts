@@ -200,7 +200,9 @@ export function selectV2(
     for (let r = 0; ; r += 1) {
       const members = groups.map((g) => g[r]).filter((s): s is State => s !== undefined);
       if (members.length === 0) return;
-      const fit = Math.floor(poolLeft / members.length / PASSAGE) * PASSAGE;
+      // the head is sized so that EVERY file still waiting (this round and all later ones) can afford one, not just this round's files
+      const waiting = groups.reduce((n, g) => n + Math.max(0, g.length - r), 0);
+      const fit = Math.floor(poolLeft / waiting / PASSAGE) * PASSAGE;
       const head = Math.max(PASSAGE, Math.min(headMax, fit));
       for (const member of members) {
         if (poolLeft < PASSAGE && poolLeft < (member.item.lengths[member.next] ?? 0)) continue;
@@ -251,13 +253,20 @@ export function selectV2(
               : 2_400;
     // heads in classes (a class's heads are fitted together, so a document class cannot starve the class after it)
     const classes = [...new Set(prose.map((s) => `${String(s.rank[0])}/${String(s.rank[1])}`))];
-    for (const klass of classes) {
-      const members = prose.filter((s) => `${String(s.rank[0])}/${String(s.rank[1])}` === klass);
+    const membersOf = (klass: string): State[] =>
+      prose.filter((s) => `${String(s.rank[0])}/${String(s.rank[1])}` === klass);
+    classes.forEach((klass, position) => {
+      const members = membersOf(klass);
       const headMax = classHead(members[0] as State);
-      const fit = Math.floor(remaining[bucket] / members.length / PASSAGE) * PASSAGE;
+      // a class never takes what the classes after it need for one passage per document (when the budget can afford that at all)
+      const reserved = classes
+        .slice(position + 1)
+        .reduce((total, later) => total + membersOf(later).length * PASSAGE, 0);
+      const available = Math.max(0, remaining[bucket] - reserved);
+      const fit = Math.floor(available / members.length / PASSAGE) * PASSAGE;
       const head = Math.max(PASSAGE, Math.min(headMax, fit));
       for (const member of members) grant(member, bucket, head, Infinity);
-    }
+    });
     const cap = Math.floor(budget * 0.25);
     deepen(prose, bucket, remaining[bucket], cap);
     deepen(prose, bucket, remaining[bucket], Infinity);
@@ -335,6 +344,14 @@ export function selectV2(
     const unseenImplementation = groups.flat().filter((s) => s.next === 0);
     rounds(
       unseenImplementation.map((s) => [s]),
+      bucket,
+      remaining[bucket],
+      PASSAGE,
+      Infinity,
+    );
+    // deployment, manifest and configuration files the 20% pool could not hold still outrank tests and generated files
+    rounds(
+      small.filter((s) => s.next === 0).map((s) => [s]),
       bucket,
       remaining[bucket],
       PASSAGE,

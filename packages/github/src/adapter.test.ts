@@ -253,6 +253,93 @@ describe('GitHub adapter', () => {
     expect(JSON.stringify(authed.adapter)).not.toContain(token);
   });
 
+  describe('GitHub secondary rate limits (P6B-beta3)', () => {
+    const NOW = Date.parse('2026-01-02T03:04:05Z');
+    async function answer(response: {
+      status: number;
+      headers?: Record<string, string>;
+      json: unknown;
+    }) {
+      const routes = githubFixtureRoutes(ATLAS);
+      routes['https://api.github.com/repos/synthetic/atlas'] = response;
+      return createGithubAdapter({ http: fakeHttp(routes).http, now: () => NOW }).capture({
+        sourceType: 'github',
+        url: URL_,
+        signal: signal(),
+      });
+    }
+    const limited = (retryAfterSeconds?: number) => ({
+      status: 'failed',
+      failure: {
+        category: 'rate_limited',
+        ...(retryAfterSeconds === undefined ? {} : { metadata: { retryAfterSeconds } }),
+      },
+    });
+
+    it.each([
+      [
+        '403 with Retry-After seconds while the primary quota remains',
+        403,
+        { 'x-ratelimit-remaining': '4999', 'retry-after': '60' },
+        60,
+      ],
+      ['429 with Retry-After seconds', 429, { 'retry-after': '30' }, 30],
+      [
+        '403 with an HTTP-date Retry-After',
+        403,
+        { 'retry-after': 'Fri, 02 Jan 2026 03:05:05 GMT' },
+        60,
+      ],
+      [
+        'a Retry-After of more than a day is capped, not trusted',
+        403,
+        { 'retry-after': '999999999' },
+        86_400,
+      ],
+      [
+        'a primary limit carries only its reset time',
+        403,
+        { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(NOW / 1000 + 90) },
+        90,
+      ],
+    ] as const)('%s', async (_name, status, headers, seconds) => {
+      expect(
+        await answer({ status, headers: { ...headers }, json: { message: 'wait' } }),
+      ).toMatchObject(limited(seconds));
+    });
+
+    it('recognises a secondary limit by its documented message when no Retry-After is sent, and records no wait', async () => {
+      const result = await answer({
+        status: 403,
+        headers: { 'x-ratelimit-remaining': '4999' },
+        json: {
+          message:
+            'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.',
+        },
+      });
+      expect(result).toMatchObject(limited());
+      expect(JSON.stringify(result)).not.toContain('retryAfterSeconds');
+    });
+
+    it('ignores a Retry-After it cannot read instead of guessing a wait', async () => {
+      for (const value of ['-5', 'soon', '1e9', '12.5', 'Thu, 01 Jan 1970 00:00:00 GMT']) {
+        const result = await answer({ status: 429, headers: { 'retry-after': value }, json: {} });
+        expect(result, value).toMatchObject(limited());
+        expect(JSON.stringify(result), value).not.toContain('retryAfterSeconds');
+      }
+    });
+
+    it('does not mistake an unrelated 403 for a rate limit', async () => {
+      expect(
+        await answer({
+          status: 403,
+          headers: { 'x-ratelimit-remaining': '4999' },
+          json: { message: 'Repository access blocked' },
+        }),
+      ).toMatchObject({ status: 'failed', failure: { category: 'http_api_error' } });
+    });
+  });
+
   it('maps API errors to sanitized failures', async () => {
     const notFound = await capture({ ...ATLAS, repo: 'missing' });
     expect(notFound.result).toMatchObject({

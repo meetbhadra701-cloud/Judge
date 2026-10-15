@@ -1,7 +1,7 @@
 import {
   canonicalJson,
   classifyRepositoryPath,
-  compareSelection,
+  orderCandidatesForCapture,
   failure,
   IGNORED_DIRECTORIES,
   failureResult,
@@ -165,15 +165,47 @@ function subjectOf(message: string): string {
   return (message.split('\n')[0] ?? '').trim().slice(0, 300);
 }
 
+/** A wait longer than a day is not a wait a person can act on; it is stored capped rather than trusted. */
+const MAX_RETRY_AFTER_SECONDS = 86_400;
+
+/**
+ * How long GitHub asks us to wait. `Retry-After` is either a number of seconds or an HTTP date (RFC 9110); a primary limit also carries the
+ * epoch second at which the window resets. Anything that is not a clean non-negative number or a future date is ignored, never guessed.
+ */
 function retryAfter(
   headers: Readonly<Record<string, string>>,
   nowSeconds: number,
 ): number | undefined {
-  const after = Number(headers['retry-after']);
-  if (Number.isInteger(after) && after >= 0) return after;
+  const raw = headers['retry-after']?.trim();
+  if (raw !== undefined && raw !== '') {
+    if (/^\d{1,9}$/.test(raw)) return Math.min(Number(raw), MAX_RETRY_AFTER_SECONDS);
+    const date = Date.parse(raw);
+    if (Number.isFinite(date)) {
+      const seconds = Math.ceil(date / 1000 - nowSeconds);
+      if (seconds >= 0) return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
+    }
+  }
   const reset = Number(headers['x-ratelimit-reset']);
-  if (Number.isInteger(reset) && reset > nowSeconds) return reset - Math.floor(nowSeconds);
+  if (Number.isInteger(reset) && reset > nowSeconds) {
+    return Math.min(reset - Math.floor(nowSeconds), MAX_RETRY_AFTER_SECONDS);
+  }
   return undefined;
+}
+
+/**
+ * GitHub's SECONDARY limits (abuse detection) answer 403 or 429 with a `Retry-After` header and the primary quota NOT exhausted
+ * (`x-ratelimit-remaining` is still positive), so the primary-limit test alone misfiled them as a generic API error that no one would retry.
+ * A 403 or 429 is a rate limit when it says so by `Retry-After` or by its documented message; any other 403 (a blocked repository, a
+ * forbidden resource) stays an API error.
+ */
+function isSecondaryRateLimit(
+  status: number,
+  headers: Readonly<Record<string, string>>,
+  body: string,
+): boolean {
+  if (status !== 403 && status !== 429) return false;
+  if (headers['retry-after'] !== undefined) return true;
+  return /secondary rate limit|abuse detection|exceeded a secondary/i.test(body.slice(0, 2_000));
 }
 
 /**
@@ -270,7 +302,11 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
     const meta = { adapter: 'github', host: 'api.github.com', httpStatus: status };
     if (status === 404) throw new CaptureAbort(failure('not_found', meta));
     const remaining = responseHeaders['x-ratelimit-remaining'];
-    if (status === 429 || ((status === 403 || status === 401) && remaining === '0')) {
+    if (
+      status === 429 ||
+      ((status === 403 || status === 401) && remaining === '0') ||
+      isSecondaryRateLimit(status, responseHeaders, result.response.body ?? '')
+    ) {
       const seconds = retryAfter(responseHeaders, now() / 1000);
       throw new CaptureAbort(
         failure(
@@ -437,10 +473,10 @@ export function createGithubAdapter(options: GithubAdapterOptions): ProjectSourc
         }
         candidates.push({ ...entry, priority: decision.priority });
       }
-      candidates.sort(compareSelection);
+      const ordered = orderCandidatesForCapture(candidates);
       const selected: TreeEntry[] = [];
       let plannedBytes = 0;
-      for (const candidate of candidates) {
+      for (const candidate of ordered) {
         const size = candidate.size ?? 0;
         if (size > limits.maxFileBytes) {
           omit('file_too_large', candidate.path);

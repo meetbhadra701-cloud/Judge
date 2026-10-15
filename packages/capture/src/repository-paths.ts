@@ -231,6 +231,77 @@ export function compareSelection(
   return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
 
+const MONOREPO_ROOTS = new Set([
+  'packages',
+  'apps',
+  'libs',
+  'services',
+  'modules',
+  'crates',
+  'cmd',
+  'plugins',
+  'workspaces',
+]);
+
+/**
+ * The part of a repository a path belongs to: `packages/x` for a monorepo package, otherwise its top-level directory, `(root)` for a file at
+ * the root. It must agree with `repositoryComponent` of `@judge-copilot/assessment` (tests/integration pins the two together), because capture
+ * decides which files exist at all and selection decides which of those a model sees.
+ */
+export function captureComponent(path: string): string {
+  const segments = path.split('/');
+  if (segments.length === 1) return '(root)';
+  const first = segments[0] ?? '';
+  return MONOREPO_ROOTS.has(first.toLowerCase()) && segments.length >= 3
+    ? `${first}/${segments[1] ?? ''}`
+    : first;
+}
+
+function scrambled(name: string): number {
+  let h = 2_166_136_261;
+  for (let i = 0; i < name.length; i += 1) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 16_777_619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * The order in which candidate files are taken when the file-count or total-text limit will cut the list. Root README and manifests first
+ * (priority 0 and 1), then the rest ROUND-ROBIN across components: one file of every component before a second of any, each component's own
+ * files in `compareSelection` order. The previous order (priority, depth, then path across the whole repository) let the alphabet decide which
+ * parts of a large repository existed at all in the snapshot: a repository of thirty packages lost whole packages. Components are visited in
+ * a fixed scrambled order, never alphabetically and never by size.
+ */
+export function orderCandidatesForCapture<
+  T extends { readonly path: string; readonly priority: number },
+>(candidates: readonly T[]): T[] {
+  const head = candidates.filter((c) => c.priority <= 1).sort(compareSelection);
+  const groups = new Map<string, T[]>();
+  for (const candidate of candidates.filter((c) => c.priority > 1)) {
+    const name = captureComponent(candidate.path);
+    const list = groups.get(name);
+    if (list) list.push(candidate);
+    else groups.set(name, [candidate]);
+  }
+  const ordered = [...groups.entries()]
+    .sort(([a], [b]) => scrambled(a) - scrambled(b) || (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, list]) => list.sort(compareSelection));
+  const rest: T[] = [];
+  for (let round = 0; ; round += 1) {
+    let any = false;
+    for (const list of ordered) {
+      const item = list[round];
+      if (item) {
+        rest.push(item);
+        any = true;
+      }
+    }
+    if (!any) break;
+  }
+  return [...head, ...rest];
+}
+
 /** True when decoded content looks binary (NUL bytes). Such files are never stored. */
 export function looksBinary(text: string): boolean {
   return text.includes('\u0000');

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyRepositoryPath,
+  captureComponent,
   compareSelection,
+  orderCandidatesForCapture,
   isSafeRepositoryPath,
   looksBinary,
 } from './index.js';
@@ -133,5 +135,45 @@ describe('repository path rules', () => {
   it('detects binary content by NUL bytes', () => {
     expect(looksBinary('abc\u0000def')).toBe(true);
     expect(looksBinary('plain text')).toBe(false);
+  });
+});
+
+describe('capture order for repositories larger than the file limit (P6B-beta3)', () => {
+  const thirty = Array.from({ length: 30 }, (_, p) => `packages/pkg-${String(p).padStart(2, '0')}`);
+  const entries = [
+    { path: 'README.md', priority: 0 },
+    { path: 'package.json', priority: 1 },
+    ...thirty.flatMap((dir) =>
+      Array.from({ length: 100 }, (_, f) => ({
+        path: `${dir}/src/file-${String(f).padStart(3, '0')}.ts`,
+        priority: 3,
+      })),
+    ),
+  ];
+  const components = (list: readonly { path: string }[]) =>
+    new Set(list.map((e) => captureComponent(e.path)));
+
+  it('REPRODUCTION: the previous order (depth, then path) filled the limit with the first packages of the alphabet', () => {
+    const before = [...entries].sort(compareSelection).slice(0, 400);
+    expect(components(before.filter((e) => e.path.startsWith('packages/'))).size).toBeLessThan(5);
+  });
+
+  it('keeps README and manifests first and then takes one file of every component before a second of any', () => {
+    const order = orderCandidatesForCapture(entries);
+    expect(order.slice(0, 2).map((e) => e.path)).toEqual(['README.md', 'package.json']);
+    expect(order).toHaveLength(entries.length);
+    const kept = order.slice(0, 400).filter((e) => e.path.startsWith('packages/'));
+    expect(components(kept).size).toBe(30);
+    const counts = thirty.map((dir) => kept.filter((e) => e.path.startsWith(`${dir}/`)).length);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+  });
+
+  it('is a pure permutation, independent of input order, and does not favour the alphabet', () => {
+    const a = orderCandidatesForCapture(entries).map((e) => e.path);
+    const b = orderCandidatesForCapture([...entries].reverse()).map((e) => e.path);
+    expect(b).toEqual(a);
+    expect([...a].sort()).toEqual(entries.map((e) => e.path).sort());
+    const firstOfEach = a.slice(2, 32).map((path) => captureComponent(path));
+    expect(firstOfEach).not.toEqual([...firstOfEach].sort());
   });
 });
