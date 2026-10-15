@@ -1,4 +1,5 @@
 import type {
+  AssessmentCoverageSummary,
   AssessmentDetail,
   AssessmentJudgmentView,
   AssessmentListResponse,
@@ -306,4 +307,202 @@ export function withheldGuidance(code: string | null): { reason: string; action:
     (code ? WITHHELD_GUIDANCE[code] : undefined) ??
     `${INTEGRITY_CHECK_FAILED} The check that failed is not recognized by this page.`;
   return { reason, action: WHAT_TO_DO };
+}
+
+// -- Source coverage (P6B-beta3-R1) -----------------------------------------------------------------------------------------------------
+
+/*
+ * What the judge must be told about HOW MUCH of the project's evidence an assessment was built from. "Every rubric dimension received an
+ * advisory score" (A) and "all of the project's evidence was examined" (B) are different statements; this module is the one place that
+ * keeps them apart. It only describes the verified coverage record: it never computes a score, never says what the unexamined part contains
+ * and never turns an unexamined part into a negative.
+ */
+
+export type CoverageLevel =
+  /** A verified record with no coverage concern (by path-based heuristics only). */
+  | 'no_concern'
+  /** A verified record with at least one concern: some evidence was not examined. */
+  | 'partial'
+  /** A verified record whose verdict is insufficient. */
+  | 'insufficient'
+  /** An assessment from before coverage records existed, or a record that failed its checks: coverage is UNKNOWN. */
+  | 'unknown';
+
+export interface CoverageNotice {
+  readonly level: CoverageLevel;
+  /** True when nothing may be read as "all project evidence was examined". */
+  readonly notAllExamined: boolean;
+  readonly headline: string;
+  /** What "complete" would NOT mean either: relevance and sufficiency are never established here. */
+  readonly caveat: string;
+  /** Statement A, kept separate from B. */
+  readonly dimensionsStatement: string;
+  /** Plain-language account of the concerns, most important first. */
+  readonly details: readonly string[];
+  /** Conclusions this evidence cannot support, derived from the concerns. */
+  readonly unsupported: readonly string[];
+  readonly omitted: readonly {
+    readonly component: string;
+    readonly codePoints: number;
+    readonly inspectedCodePoints: number;
+  }[];
+}
+
+const CONCERN_TEXT: Readonly<Record<string, { detail: string; unsupported: string | null }>> = {
+  no_implementation_shown: {
+    detail: 'No implementation code was shown to the assessors.',
+    unsupported: 'Anything about how the project is built or whether it works.',
+  },
+  implementation_mostly_unseen: {
+    detail: 'Most of the implementation code was not shown.',
+    unsupported: 'Conclusions about the implementation as a whole.',
+  },
+  implementation_components_unseen: {
+    detail: 'Some implementation components were never shown.',
+    unsupported: 'Anything about the components that were not shown.',
+  },
+  implementation_partially_seen: {
+    detail: 'Some implementation components were shown only in part.',
+    unsupported: 'Anything about the parts of those components that were not shown.',
+  },
+  dominant_component_unseen: {
+    detail: 'The largest part of the implementation was not shown.',
+    unsupported: 'Anything about the largest component, which is most of the code.',
+  },
+  largest_components_unseen: {
+    detail: 'One or more of the three largest implementation components was not shown.',
+    unsupported: 'Anything about those large components.',
+  },
+  generated_volume_large: {
+    detail: 'A large share of the code looks generated or vendored (judged from file paths only).',
+    unsupported: null,
+  },
+  duplicates_not_represented: {
+    detail: 'Some byte-identical copies of files were not represented by a shown twin.',
+    unsupported: null,
+  },
+  component_flood: {
+    detail: 'The repository has an unusually large number of components.',
+    unsupported: null,
+  },
+  documentation_partially_seen: {
+    detail: 'Some documentation was shown only in part or not at all.',
+    unsupported: 'Anything the unshown documentation says.',
+  },
+  documentation_category_unseen: {
+    detail: 'A whole category of documentation was not shown.',
+    unsupported: 'Anything that category of documentation says.',
+  },
+  configuration_partially_seen: {
+    detail: 'Some configuration or deployment files were shown only in part.',
+    unsupported: 'Anything about how the project is configured or deployed beyond what was shown.',
+  },
+  tests_partially_seen: {
+    detail: 'Some test files were shown only in part.',
+    unsupported: 'Anything about the testing that was not shown.',
+  },
+};
+
+const DIMENSIONS_SENTENCE = (assessed: number, total: number): string =>
+  total === 0
+    ? 'No rubric dimension received an advisory score.'
+    : assessed === total
+      ? `All ${String(total)} rubric dimensions received an advisory score.`
+      : `${String(assessed)} of ${String(total)} rubric dimensions received an advisory score; the others have no number.`;
+
+export function coverageNotice(detail: AssessmentDetail): CoverageNotice {
+  const coverage = detail.coverage;
+  const dimensions = detail.report?.dimensions ?? [];
+  const dimensionsStatement = DIMENSIONS_SENTENCE(
+    dimensions.filter((d) => d.state === 'assessed').length,
+    dimensions.length,
+  );
+  const caveat =
+    'Coverage is judged from file paths and sizes only. It cannot show that what was examined was relevant to a criterion, or that it was enough to judge it.';
+  if (coverage.status === 'not_recorded' || !coverage.verified) {
+    return {
+      level: 'unknown',
+      notAllExamined: true,
+      headline:
+        coverage.status === 'not_recorded'
+          ? 'Source coverage was not recorded for this assessment. Do not read it as based on all of the project’s evidence.'
+          : 'The stored source-coverage record failed its integrity checks, so how much of the project was examined is unknown.',
+      caveat,
+      dimensionsStatement,
+      details:
+        coverage.status === 'not_recorded'
+          ? [
+              'This assessment was made before coverage was recorded. What the assessors were shown cannot be reconstructed from the stored data.',
+            ]
+          : coverage.problems.map((code) => `Integrity check failed: ${code}.`),
+      unsupported: [
+        'Any statement that all of the project’s evidence was examined.',
+        'Any conclusion about a part of the project that cannot be shown to have been examined.',
+      ],
+      omitted: [],
+    };
+  }
+  const concerns = coverage.concerns;
+  const captured = coverage.snapshots.filter((s) => s.status === 'partial');
+  const level: CoverageLevel =
+    coverage.verdict === 'insufficient'
+      ? 'insufficient'
+      : concerns.length > 0 || coverage.verdict === 'partial' || captured.length > 0
+        ? 'partial'
+        : 'no_concern';
+  const details = [
+    ...concerns.map((code) => CONCERN_TEXT[code]?.detail ?? `Coverage concern: ${code}.`),
+    ...captured.map(
+      (s) =>
+        `The ${s.sourceType} capture itself was partial (${s.partialReasons.join(', ') || 'reason not stated'}): material beyond the capture limits was never obtained.`,
+    ),
+  ];
+  const measures = coverage.measures;
+  if (measures !== null && measures.implementation.files > 0) {
+    details.push(
+      `Implementation inspected: ${String(measures.implementation.filesShown + measures.implementation.filesRepresented)} of ${String(measures.implementation.files)} files, ${formatRatio(measures.implementation.inspectedShare)} of its code; ${String(measures.components.withShownFile)} of ${String(measures.components.total)} components had a file shown.`,
+    );
+  }
+  const unsupported = [
+    ...new Set(
+      concerns.flatMap((code) => {
+        const text = CONCERN_TEXT[code]?.unsupported;
+        return text === null || text === undefined ? [] : [text];
+      }),
+    ),
+  ];
+  if (captured.length > 0) {
+    unsupported.push('Anything about the material the partial capture never obtained.');
+  }
+  const notAllExamined = level !== 'no_concern';
+  return {
+    level,
+    notAllExamined,
+    headline:
+      level === 'insufficient'
+        ? 'SOURCE COVERAGE INSUFFICIENT — too little of the project was examined for these scores to say much about it.'
+        : notAllExamined
+          ? 'PARTIAL SOURCE COVERAGE — not all of the project’s evidence was examined.'
+          : 'No source-coverage concern was found by the path-based checks.',
+    caveat,
+    dimensionsStatement,
+    details,
+    unsupported,
+    omitted: coverage.omittedComponents.map((c) => ({
+      component: c.component,
+      codePoints: c.codePoints,
+      inspectedCodePoints: c.inspectedCodePoints,
+    })),
+  };
+}
+
+/** The qualifier that must accompany any scored headline or version row: a number is never shown as "complete" evidence by itself. */
+export function coverageQualifier(coverage: AssessmentCoverageSummary): string {
+  if (coverage.status === 'not_recorded') return 'source coverage not recorded';
+  if (!coverage.verified) return 'source coverage unverified';
+  if (coverage.verdict === 'insufficient') return 'source coverage insufficient';
+  if (coverage.verdict === 'partial' || coverage.concerns.length > 0 || coverage.partialCapture) {
+    return 'partial source coverage';
+  }
+  return 'no source-coverage concern';
 }

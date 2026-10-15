@@ -202,3 +202,23 @@ export interface AssessmentCoverageView {
   readonly skippedCount: number;
   readonly componentsTruncated: boolean;
 }
+
+/** The one-line account of coverage that travels with a list row or a run (the full view is on the assessment detail). */
+export interface AssessmentCoverageSummary {
+  readonly status: 'recorded' | 'not_recorded';
+  /** false when the record failed its checks: nothing derived from it is shown. */
+  readonly verified: boolean;
+  readonly verdict: CoverageVerdictValue | null;
+  readonly concerns: readonly string[];
+  /** A pinned capture was itself partial (material beyond its limits was never obtained). */
+  readonly partialCapture: boolean;
+}
+
+/** The full stored record of one assessment, returned only when it passed verification. */
+export interface AssessmentCoverageRecordResponse {
+  readonly assessmentId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly view: AssessmentCoverageView;
+  readonly record: CoverageRecord | null;
+}

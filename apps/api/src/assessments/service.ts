@@ -8,6 +8,7 @@ import {
 import {
   ASSESSMENT_API_NOTICE,
   type AssessmentDetail,
+  type AssessmentCoverageRecordResponse,
   type AssessmentUnknownsResponse,
   type AssessmentLaunchView,
   type AssessmentListResponse,
@@ -209,6 +210,15 @@ export class AssessmentService {
     const unknowns = await this.reads.getUnknowns(projectId, assessmentId);
     if (!unknowns) throw new AssessmentApiError('ASSESSMENT_NOT_FOUND', 'Assessment not found');
     return unknowns;
+  }
+
+  async getCoverage(
+    projectId: string,
+    assessmentId: string,
+  ): Promise<AssessmentCoverageRecordResponse> {
+    const coverage = await this.reads.getCoverage(projectId, assessmentId);
+    if (!coverage) throw new AssessmentApiError('ASSESSMENT_NOT_FOUND', 'Assessment not found');
+    return coverage;
   }
 
   async getRun(projectId: string, runId: string): Promise<AssessmentRunView> {

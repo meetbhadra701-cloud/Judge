@@ -11,6 +11,9 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import {
   classifyPage,
+  coverageNotice,
+  coverageQualifier,
+  type CoverageNotice,
   explainFailure,
   formatCostNanoUsd,
   formatRatio,
@@ -124,6 +127,7 @@ export function AssessmentPageView(props: AssessmentPageViewProps): ReactNode {
                 · {formatDate(item.createdAt)}
                 {item.replayDemonstration ? ' · replay demonstration' : ''}
                 {item.verified ? '' : ' · not verified'}
+                {item.verified ? ` · ${coverageQualifier(item.coverage)}` : ''}
               </li>
             ))}
           </ul>
@@ -177,6 +181,13 @@ function RunPanel({ run }: { run: AssessmentRunView }) {
       <p role="alert" className="error">
         {explainFailure(run)} No assessment was produced and no score is shown for this run.
       </p>
+      {run.coverage.status === 'recorded' && run.coverage.verified && run.coverage.verdict ? (
+        <p data-testid="run-coverage">
+          Source coverage of this run: <strong>{run.coverage.verdict}</strong>
+          {run.coverage.concerns.length > 0 ? ` (${run.coverage.concerns.join(', ')})` : ''}. It was
+          recorded before the run stopped.
+        </p>
+      ) : null}
       <p>
         <small>
           {run.failureCategory ?? '—'}
@@ -259,6 +270,7 @@ function AssessmentView({
   const report = detail.report;
   if (!report) return null;
   const overall = report.overall;
+  const notice = coverageNotice(detail);
   const judgmentByDimension = new Map(detail.judgments.map((j) => [j.dimensionId, j]));
   return (
     <>
@@ -268,6 +280,7 @@ function AssessmentView({
           recorded fixtures, not a live model, and say nothing about a real submission.
         </p>
       ) : null}
+      <CoveragePanel notice={notice} />
       <section>
         <h2>Overall (version {detail.versionNumber})</h2>
         {overall.state === 'scored' || overall.state === 'scored_partial' ? (
@@ -278,8 +291,9 @@ function AssessmentView({
             ·{' '}
             {overall.state === 'scored_partial'
               ? `partial: based on ${formatRatio(overall.assessedWeightShare)} of the weight`
-              : 'all weighted dimensions assessed'}{' '}
-            · confidence index {formatRatio(overall.confidence)}
+              : 'every weighted dimension received an advisory score'}{' '}
+            · <span data-testid="overall-coverage">{overallQualifier(notice)}</span> · confidence
+            index {formatRatio(overall.confidence)}
             {overall.coverage !== null ? ` · coverage ${formatRatio(overall.coverage)}` : ''}
             {overall.state === 'scored_partial' && overall.missingCriterionKeys.length > 0
               ? ` · not assessed: ${overall.missingCriterionKeys.join(', ')}`
@@ -361,6 +375,7 @@ function AssessmentView({
             dimension={dimension}
             judgment={judgmentByDimension.get(dimension.id) ?? null}
             scale={report.rubric.scale}
+            partiallyExamined={notice.notAllExamined}
           />
         ))}
       </section>
@@ -416,14 +431,90 @@ function AssessmentView({
   );
 }
 
+function overallQualifier(notice: CoverageNotice): string {
+  switch (notice.level) {
+    case 'no_concern':
+      return 'no source-coverage concern (path-based)';
+    case 'partial':
+      return 'PARTIAL source coverage: not all project evidence was examined';
+    case 'insufficient':
+      return 'INSUFFICIENT source coverage';
+    case 'unknown':
+      return 'source coverage UNKNOWN: do not read as all evidence examined';
+  }
+}
+
+/** Shown before any number: A (every dimension scored) is never presented as B (all evidence examined). */
+function CoveragePanel({ notice }: { notice: CoverageNotice }) {
+  return (
+    <section data-testid="coverage-notice" data-level={notice.level}>
+      <h2>Source coverage</h2>
+      <p
+        role={notice.notAllExamined ? 'alert' : 'note'}
+        className={notice.notAllExamined ? 'error' : 'notice'}
+      >
+        <strong>{notice.headline}</strong>
+      </p>
+      <p data-testid="coverage-a">{notice.dimensionsStatement}</p>
+      <p data-testid="coverage-b">
+        {notice.notAllExamined
+          ? 'That is not a statement that all of the project’s evidence was examined; it was not.'
+          : 'That is not a statement that the project was understood: relevance and sufficiency of the examined text are not established.'}
+      </p>
+      {notice.details.length > 0 ? (
+        <ul data-testid="coverage-details">
+          {notice.details.map((text) => (
+            <li key={text}>{text}</li>
+          ))}
+        </ul>
+      ) : null}
+      {notice.omitted.length > 0 ? (
+        <>
+          <h3>Components not fully examined</h3>
+          <ul data-testid="coverage-omitted">
+            {notice.omitted.map((c) => (
+              <li key={c.component}>
+                <code>{c.component}</code> — {String(c.inspectedCodePoints)} of{' '}
+                {String(c.codePoints)} code points examined
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {notice.unsupported.length > 0 ? (
+        <>
+          <h3>What these scores cannot support</h3>
+          <ul data-testid="coverage-unsupported">
+            {notice.unsupported.map((text) => (
+              <li key={text}>{text}</li>
+            ))}
+          </ul>
+          <p>
+            <small>
+              Nothing is concluded from the part that was not examined, and missing evidence is not
+              evidence against the project.
+            </small>
+          </p>
+        </>
+      ) : null}
+      <p>
+        <small>{notice.caveat}</small>
+      </p>
+    </section>
+  );
+}
+
 function DimensionCard({
   dimension,
   judgment,
   scale,
+  partiallyExamined,
 }: {
   dimension: DimensionReport;
   judgment: AssessmentJudgmentView | null;
   scale: RubricScale;
+  /** Coverage is not "no concern": a number here was derived from evidence that was not all examined. */
+  partiallyExamined: boolean;
 }) {
   return (
     <div className="fact">
@@ -457,6 +548,11 @@ function DimensionCard({
             {judgment.criticReviewRequired ? (
               <span className="tag">
                 {judgment.criticReviewed ? 'critic reviewed' : 'critic pending'}
+              </span>
+            ) : null}
+            {partiallyExamined && dimension.state === 'assessed' ? (
+              <span className="tag tag-warn" data-testid="dimension-partial-coverage">
+                scored from partly examined evidence
               </span>
             ) : null}
             <span className="tag tag-warn">relevance not verified</span>

@@ -139,6 +139,7 @@ describe.each(testDatabaseTargets())('M5 P6A assessment HTTP API on %s', (_name,
   const LIST = (p: string) => `/projects/${p}/assessments`;
   const RUN = (p: string, r: string) => `/projects/${p}/assessment-runs/${r}`;
   const ONE = (p: string, a: string) => `/projects/${p}/assessments/${a}`;
+  const COVERAGE = (p: string, a: string) => `/projects/${p}/assessments/${a}/coverage`;
 
   describe('authentication, authorization and methods', () => {
     it('rejects anonymous, malformed and unauthorized callers on every route (and answers before any validation)', async () => {
@@ -146,6 +147,7 @@ describe.each(testDatabaseTargets())('M5 P6A assessment HTTP API on %s', (_name,
         ['POST', LIST(projectId)],
         ['GET', LIST(projectId)],
         ['GET', ONE(projectId, MISSING)],
+        ['GET', COVERAGE(projectId, MISSING)],
         ['GET', RUN(projectId, MISSING)],
       ];
       for (const [method, url] of routes) {
@@ -188,6 +190,10 @@ describe.each(testDatabaseTargets())('M5 P6A assessment HTTP API on %s', (_name,
         ['PUT', ONE(projectId, MISSING)],
         ['PATCH', ONE(projectId, MISSING)],
         ['DELETE', ONE(projectId, MISSING)],
+        ['POST', COVERAGE(projectId, MISSING)],
+        ['PUT', COVERAGE(projectId, MISSING)],
+        ['PATCH', COVERAGE(projectId, MISSING)],
+        ['DELETE', COVERAGE(projectId, MISSING)],
         ['POST', RUN(projectId, MISSING)],
         ['PUT', RUN(projectId, MISSING)],
         ['PATCH', RUN(projectId, MISSING)],
@@ -493,6 +499,10 @@ describe.each(testDatabaseTargets())('M5 P6A assessment HTTP API on %s', (_name,
       expect(crossAssessment.status).toBe(404);
       expect(crossAssessment.body).toEqual(missingAssessment.body);
       expect(code(crossAssessment.body)).toBe('ASSESSMENT_NOT_FOUND');
+      const crossCoverage = await call('GET', COVERAGE(projectId, requireValue(otherRun).id));
+      const missingCoverage = await call('GET', COVERAGE(projectId, MISSING));
+      expect(crossCoverage.status).toBe(404);
+      expect(crossCoverage.body).toEqual(missingCoverage.body);
       // a capture run id is not an assessment run either
       expect(requireValue(otherRun).runType).toBe('pre_interview_assessment');
     });

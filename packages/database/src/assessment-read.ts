@@ -1,5 +1,7 @@
 import {
   attributeDisposition,
+  coverageViewOf,
+  verifyCoverageRecord,
   verifyJudgmentsAgainstReport,
   verifyStoredAssessment,
 } from '@judge-copilot/assessment';
@@ -9,6 +11,9 @@ import {
   ASSESSMENT_RUN_TYPE,
   ASSESSMENT_UNKNOWNS_NOTICE,
   ScoreReport,
+  type AssessmentCoverageRecordResponse,
+  type AssessmentCoverageSummary,
+  type AssessmentCoverageView,
   type AssessmentDetail,
   type AssessmentGuardView,
   type AssessmentJudgmentView,
@@ -19,6 +24,7 @@ import {
   type AssessmentUnknownView,
   type AssessmentUsageView,
   type JudgmentCitationView,
+  type CoverageRecord as CoverageRecordType,
   type NewerCaptureView,
   type ProviderMode,
 } from '@judge-copilot/schemas';
@@ -30,7 +36,9 @@ import {
   assessmentRequests,
   assessmentRunBudget,
   assessmentRunCalls,
+  assessmentRunCoverage,
   assessmentRunInputs,
+  assessmentRunInputSnapshots,
   assessmentRunOutcomes,
   evidenceItems,
   graphExtractionItems,
@@ -147,6 +155,51 @@ export class AssessmentReadStore {
     return row !== undefined;
   }
 
+  // -- Coverage (P6B-beta3-R1) --------------------------------------------------------------------------------------------
+
+  /**
+   * The verified coverage view of one run. Fails closed: a record that does not verify shows nothing derived from it; a run with no record
+   * (one from before coverage records) is `not_recorded`, which is "coverage unknown", never "complete".
+   */
+  private async coverageOf(
+    runId: string,
+    storedLimitations:
+      readonly { code: string; count: number; subjects: readonly string[] }[] | null,
+  ): Promise<{ view: AssessmentCoverageView; record: CoverageRecordType | null }> {
+    const [row] = await this.db
+      .select()
+      .from(assessmentRunCoverage)
+      .where(eq(assessmentRunCoverage.runId, runId));
+    if (!row) return { view: coverageViewOf(null, null), record: null };
+    const pins = await this.db
+      .select({ id: assessmentRunInputSnapshots.snapshotId })
+      .from(assessmentRunInputSnapshots)
+      .where(eq(assessmentRunInputSnapshots.runId, runId));
+    const verification = verifyCoverageRecord(
+      { canonical: row.recordCanonical, sha256: row.recordSha256, mirror: row.record },
+      { pinnedSnapshotIds: pins.map((pin) => pin.id), storedLimitations },
+    );
+    return {
+      view: coverageViewOf(verification, row.recordSha256),
+      record: verification.ok ? verification.record : null,
+    };
+  }
+
+  private async coverageSummaryOf(
+    runId: string,
+    storedLimitations:
+      readonly { code: string; count: number; subjects: readonly string[] }[] | null,
+  ): Promise<AssessmentCoverageSummary> {
+    const { view } = await this.coverageOf(runId, storedLimitations);
+    return {
+      status: view.status,
+      verified: view.verified,
+      verdict: view.verdict,
+      concerns: view.concerns,
+      partialCapture: view.snapshots.some((snapshot) => snapshot.status === 'partial'),
+    };
+  }
+
   // -- Runs ---------------------------------------------------------------------------------------------------------------
 
   private async usageOf(runId: string): Promise<AssessmentUsageView> {
@@ -238,6 +291,7 @@ export class AssessmentReadStore {
       assessmentId: run.state === 'succeeded' ? (assessment?.id ?? null) : null,
       usage: await this.usageOf(run.id),
       guard,
+      coverage: await this.coverageSummaryOf(run.id, null),
     };
   }
 
@@ -350,6 +404,7 @@ export class AssessmentReadStore {
                     : null,
               },
         verified: inspection.ok,
+        coverage: await this.coverageSummaryOf(row.runId, storedLimitationsOf(row)),
       });
     }
     return summaries;
@@ -513,6 +568,7 @@ export class AssessmentReadStore {
         report: null,
         judgments: [],
         limitations: [],
+        coverage: (await this.coverageOf(row.runId, storedLimitationsOf(row))).view,
       };
     }
 
@@ -602,8 +658,50 @@ export class AssessmentReadStore {
       report: inspection.report,
       judgments,
       limitations,
+      coverage: (await this.coverageOf(row.runId, storedLimitationsOf(row))).view,
     };
   }
+
+  /** The full coverage record of one assessment of THIS project, only when it verified (the view says why not otherwise). */
+  async getCoverage(
+    projectId: string,
+    assessmentId: string,
+  ): Promise<AssessmentCoverageRecordResponse | null> {
+    const [row] = await this.db
+      .select()
+      .from(preInterviewAssessments)
+      .where(
+        and(
+          eq(preInterviewAssessments.id, assessmentId),
+          eq(preInterviewAssessments.projectId, projectId),
+        ),
+      );
+    if (!row) return null;
+    const { view, record } = await this.coverageOf(row.runId, storedLimitationsOf(row));
+    return { assessmentId, projectId, runId: row.runId, view, record };
+  }
+}
+
+/** The assessment-level limitations as stored, read defensively (a malformed entry is dropped here and shows up as a mismatch). */
+function storedLimitationsOf(row: typeof preInterviewAssessments.$inferSelect): {
+  code: string;
+  count: number;
+  subjects: string[];
+}[] {
+  return row.limitations.flatMap((raw) => {
+    const entry = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+    return typeof entry['code'] === 'string' && typeof entry['count'] === 'number'
+      ? [
+          {
+            code: entry['code'],
+            count: entry['count'],
+            subjects: Array.isArray(entry['subjects'])
+              ? entry['subjects'].filter((item): item is string => typeof item === 'string')
+              : [],
+          },
+        ]
+      : [];
+  });
 }
 
 type Inspection =

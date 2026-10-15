@@ -278,7 +278,7 @@ export {
 } from './selection-v3.js';
 export type { ProseCategory } from './selection-v3.js';
 export { buildCoverageReport } from './coverage.js';
-export { buildCoverageRecord, verifyCoverageRecord } from './coverage-record.js';
+export { buildCoverageRecord, coverageViewOf, verifyCoverageRecord } from './coverage-record.js';
 export type {
   BuiltCoverageRecord,
   CoverageVerification,

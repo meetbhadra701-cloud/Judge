@@ -1,4 +1,6 @@
 import type {
+  AssessmentCoverageSummary,
+  AssessmentCoverageView,
   AssessmentDetail,
   AssessmentJudgmentView,
   AssessmentListResponse,
@@ -18,6 +20,39 @@ import { AssessmentPageView, type UnknownsView } from './view';
 const SECRET_RATIONALE = 'Rationale text that must stay hidden when unverified.';
 const SECRET_EVIDENCE = 'Evidence text that must stay hidden when unverified.';
 
+/** A verified record with no concern (the baseline of every other test on this page). */
+const NO_CONCERN: AssessmentCoverageSummary = {
+  status: 'recorded',
+  verified: true,
+  verdict: 'complete',
+  concerns: [],
+  partialCapture: false,
+};
+const coverageView = (overrides: Partial<AssessmentCoverageView> = {}): AssessmentCoverageView => ({
+  status: 'recorded',
+  verified: true,
+  problems: [],
+  recordSha256: 'a'.repeat(64),
+  policy: {
+    windowing: 'windowing/v1',
+    selection: 'source-selection/v3',
+    routing: 'source-routing/v1',
+  },
+  verdict: 'complete',
+  concerns: [],
+  relevance: 'not_established',
+  roleBasis: 'path_only',
+  measures: null,
+  omittedComponents: [],
+  documentation: [],
+  snapshots: [],
+  assessorNotices: [],
+  artifactCount: 3,
+  skippedCount: 0,
+  componentsTruncated: false,
+  ...overrides,
+});
+
 const summary = (overrides: Partial<AssessmentSummary> = {}): AssessmentSummary => ({
   id: 'a1',
   versionNumber: 1,
@@ -28,6 +63,7 @@ const summary = (overrides: Partial<AssessmentSummary> = {}): AssessmentSummary 
   target: 'overall',
   overall: null,
   verified: true,
+  coverage: NO_CONCERN,
   ...overrides,
 });
 
@@ -179,6 +215,7 @@ const detail = (overrides: Partial<AssessmentDetail>): AssessmentDetail => ({
   report: reportWith(SCORED, true),
   judgments: [judgment({})],
   limitations: [],
+  coverage: coverageView(),
   pipeline: null,
   usage: {
     attemptsStarted: 1,
@@ -930,5 +967,207 @@ describe('P6B-beta1: the report of a project that mixes several submissions carr
     expect(withNotice).toContain('data-testid="mixed-project"');
     expect(withNotice).toContain('does not form a single submission');
     expect(render(scoredList, detail({}))).not.toContain('mixed-project');
+  });
+});
+
+// -- P6B-beta3-R1: source coverage is shown before any number, and "all dimensions scored" is never "all evidence examined" ------------
+
+describe('P6B-beta3-R1: source coverage on the assessment page', () => {
+  const PARTIAL_VIEW = coverageView({
+    verdict: 'partial',
+    concerns: ['implementation_components_unseen', 'documentation_category_unseen'],
+    omittedComponents: [
+      { component: 'packages/core', codePoints: 90_000, inspectedCodePoints: 0, stub: false },
+      {
+        component: '<img src=x onerror=alert(1)>',
+        codePoints: 5_000,
+        inspectedCodePoints: 100,
+        stub: false,
+      },
+    ],
+    snapshots: [
+      {
+        snapshotId: 's1',
+        sourceType: 'github',
+        status: 'partial',
+        contentHash: 'b'.repeat(64),
+        provenance: 'fetched',
+        partialReasons: ['file_count_limit'],
+      },
+    ],
+  });
+  const renderWith = (coverage: AssessmentCoverageView, summaryCoverage = NO_CONCERN) =>
+    render(list([summary({ coverage: summaryCoverage })]), detail({ coverage }));
+  const sectionOf = (html: string): string => {
+    const start = html.indexOf('data-testid="coverage-notice"');
+    const end = html.indexOf('<h2>Overall');
+    return html.slice(start, end);
+  };
+
+  it('puts a partial-coverage alert BEFORE the overall score, and says plainly that not all evidence was examined', () => {
+    const html = renderWith(PARTIAL_VIEW);
+    expect(html.indexOf('data-testid="coverage-notice"')).toBeGreaterThan(-1);
+    expect(html.indexOf('data-testid="coverage-notice"')).toBeLessThan(html.indexOf('<h2>Overall'));
+    const notice = sectionOf(html);
+    expect(notice).toContain('PARTIAL SOURCE COVERAGE');
+    expect(notice).toContain('role="alert"');
+    expect(notice).toContain('it was not');
+  });
+
+  it('keeps statement A (dimensions scored) apart from statement B (evidence examined)', () => {
+    const html = renderWith(PARTIAL_VIEW);
+    expect(html).toContain('data-testid="coverage-a"');
+    expect(html).toMatch(/rubric dimensions? received an advisory score/);
+    expect(html).toContain('not a statement that all of the project’s evidence was examined');
+    expect(html).not.toContain('all weighted dimensions assessed');
+    expect(html).toMatch(/data-testid="overall-coverage">PARTIAL source coverage/);
+  });
+
+  it('names the components that were not fully examined, escapes hostile names, and lists what cannot be supported', () => {
+    const html = renderWith(PARTIAL_VIEW);
+    const omitted = html.slice(html.indexOf('data-testid="coverage-omitted"'));
+    expect(omitted).toContain('packages/core');
+    expect(omitted).toContain('0 of 90000 code points examined');
+    expect(omitted).not.toContain('<img src=x');
+    expect(omitted).toContain('&lt;img src=x');
+    expect(html).toContain('data-testid="coverage-unsupported"');
+    expect(html).toContain('Anything about the components that were not shown.');
+    expect(html).toContain('missing evidence is not evidence against the project');
+    expect(html).toContain('The github capture itself was partial (file_count_limit)');
+  });
+
+  it('tags each scored dimension when coverage is partial, and not otherwise', () => {
+    expect(renderWith(PARTIAL_VIEW)).toContain('data-testid="dimension-partial-coverage"');
+    expect(renderWith(coverageView())).not.toContain('data-testid="dimension-partial-coverage"');
+  });
+
+  it('a clean record says only that no path-based concern was found, and still disclaims relevance and sufficiency', () => {
+    const html = renderWith(coverageView());
+    const notice = sectionOf(html);
+    expect(notice).toContain('No source-coverage concern was found by the path-based checks.');
+    expect(notice).toContain('relevance and sufficiency of the examined text are not established');
+    expect(notice).not.toContain('role="alert"');
+    expect(notice).not.toContain('PARTIAL SOURCE COVERAGE');
+  });
+
+  it('an assessment from before coverage records is "not recorded": coverage UNKNOWN, never complete', () => {
+    const html = renderWith(
+      coverageView({ status: 'not_recorded', verified: false, verdict: null, recordSha256: null }),
+    );
+    const notice = sectionOf(html);
+    expect(notice).toContain('Source coverage was not recorded for this assessment');
+    expect(notice).toContain('role="alert"');
+    expect(html).toMatch(/data-testid="overall-coverage">source coverage UNKNOWN/);
+    expect(html).toContain('data-testid="dimension-partial-coverage"');
+  });
+
+  it('a record that failed its checks shows its failure codes and nothing derived from it', () => {
+    const html = renderWith(
+      coverageView({
+        verified: false,
+        verdict: null,
+        problems: ['record_text_hash_mismatch'],
+        omittedComponents: [],
+      }),
+    );
+    const notice = sectionOf(html);
+    expect(notice).toContain('failed its integrity checks');
+    expect(notice).toContain('record_text_hash_mismatch');
+    expect(notice).not.toContain('No source-coverage concern');
+  });
+
+  it('qualifies the version list rows, so a number is never listed without its coverage', () => {
+    const html = render(
+      list([
+        summary({
+          id: 'a2',
+          versionNumber: 2,
+          coverage: {
+            ...NO_CONCERN,
+            verdict: 'partial',
+            concerns: ['implementation_partially_seen'],
+          },
+        }),
+        summary({
+          id: 'a1',
+          coverage: {
+            status: 'not_recorded',
+            verified: false,
+            verdict: null,
+            concerns: [],
+            partialCapture: false,
+          },
+        }),
+      ]),
+      detail({ coverage: PARTIAL_VIEW }),
+    );
+    expect(html).toContain('partial source coverage');
+    expect(html).toContain('source coverage not recorded');
+  });
+
+  it('an unverified assessment shows no coverage detail either (nothing derived from stored rows)', () => {
+    const html = render(
+      list([summary({ verified: false })]),
+      detail({
+        verified: false,
+        verificationFailure: 'judgment_mismatch_score',
+        report: null,
+        judgments: [],
+        coverage: PARTIAL_VIEW,
+      }),
+    );
+    expect(html).not.toContain('data-testid="coverage-notice"');
+    expect(html).not.toContain('packages/core');
+  });
+
+  it('a run refused at the coverage gate shows the coverage it was refused for', () => {
+    const refused = {
+      ...list([]),
+      latestRun: {
+        id: 'r9',
+        projectId: 'p1',
+        state: 'failed',
+        mode: 'assess',
+        failureCategory: 'source_unavailable',
+        failureCode: 'source_coverage_insufficient',
+        stageReached: 'select',
+        providerMode: 'replay',
+        replayDemonstration: true,
+        createdAt: '2026-01-02T03:04:05.000Z',
+        startedAt: '2026-01-02T03:04:05.000Z',
+        finishedAt: '2026-01-02T03:04:06.000Z',
+        assessmentId: null,
+        usage: {
+          attemptsStarted: 0,
+          settledCalls: 0,
+          unknownCalls: 0,
+          releasedCalls: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          costNanoUsd: 0,
+        },
+        guard: {
+          maxCalls: 1,
+          maxInputTokens: 1,
+          maxOutputTokens: 1,
+          maxCostNanoUsd: 1,
+          maxReservedInputTokensPerCall: 1,
+          runWallClockMs: 1,
+          priceTableId: 'p',
+          notice: 'local_spending_guard_not_a_provider_billing_limit',
+        },
+        coverage: {
+          status: 'recorded',
+          verified: true,
+          verdict: 'insufficient',
+          concerns: ['no_implementation_shown'],
+          partialCapture: false,
+        },
+      },
+    } as AssessmentListResponse;
+    const html = render(refused, null);
+    expect(html).toContain('data-testid="run-coverage"');
+    expect(html).toContain('insufficient');
+    expect(html).toContain('no_implementation_shown');
   });
 });

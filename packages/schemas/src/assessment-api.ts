@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AssessmentCoverageSummary, AssessmentCoverageView } from './coverage.js';
 import type { ProviderMode } from './assessment.js';
 import type { SourceSnapshotStatus, UnknownType } from './enums.js';
 import { AssessmentRequestMode } from './assessment.js';
@@ -104,6 +105,8 @@ export interface AssessmentRunView {
   readonly assessmentId: string | null;
   readonly usage: AssessmentUsageView;
   readonly guard: AssessmentGuardView;
+  /** What the run's source selection did (a run refused at the coverage gate still has one). `not_recorded` for runs from before coverage records. */
+  readonly coverage: AssessmentCoverageSummary;
 }
 
 export interface AssessmentOverallSummary {
@@ -122,6 +125,8 @@ export interface AssessmentSummary {
   readonly target: 'overall';
   readonly overall: AssessmentOverallSummary | null;
   readonly verified: boolean;
+  /** A scored headline never travels without this: `all dimensions scored` is not `all evidence examined`. */
+  readonly coverage: AssessmentCoverageSummary;
 }
 
 /** What the "Run" action may do right now (from the configured offline runtime gate). */
@@ -209,6 +214,7 @@ export interface AssessmentDetail {
   readonly report: ScoreReport | null;
   readonly judgments: readonly AssessmentJudgmentView[];
   readonly limitations: readonly AssessmentLimitationView[];
+  readonly coverage: AssessmentCoverageView;
   readonly pipeline: {
     readonly provider: { readonly id: string; readonly mode: ProviderMode };
     readonly models: {

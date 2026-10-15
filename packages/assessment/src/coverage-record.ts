@@ -3,6 +3,7 @@ import {
   COVERAGE_RECORD_LIMITS,
   COVERAGE_RECORD_SCHEMA_ID,
   CoverageRecord,
+  type AssessmentCoverageView,
   type CoverageProblem,
 } from '@judge-copilot/schemas';
 import { buildCoverageReport, type ArtifactCoverage, type CoverageRole } from './coverage.js';
@@ -227,4 +228,89 @@ export function verifyCoverageRecord(
     }
   }
   return { ok: problems.size === 0, problems: [...problems], record: parsed };
+}
+
+export const COVERAGE_VIEW_OMITTED_COMPONENTS = 25;
+
+/** The judge-readable summary of a verified record. A record that failed verification shows NOTHING derived from it. */
+export function coverageViewOf(
+  verification: CoverageVerification | null,
+  recordSha256: string | null,
+): AssessmentCoverageView {
+  const base = {
+    relevance: 'not_established',
+    roleBasis: 'path_only',
+  } as const;
+  if (verification === null) {
+    return {
+      ...base,
+      status: 'not_recorded',
+      verified: false,
+      problems: [],
+      recordSha256: null,
+      policy: null,
+      verdict: null,
+      concerns: [],
+      measures: null,
+      omittedComponents: [],
+      documentation: [],
+      snapshots: [],
+      assessorNotices: [],
+      artifactCount: 0,
+      skippedCount: 0,
+      componentsTruncated: false,
+    };
+  }
+  const record = verification.ok ? verification.record : null;
+  if (record === null) {
+    return {
+      ...base,
+      status: 'recorded',
+      verified: false,
+      problems: verification.problems,
+      recordSha256,
+      policy: null,
+      verdict: null,
+      concerns: [],
+      measures: null,
+      omittedComponents: [],
+      documentation: [],
+      snapshots: [],
+      assessorNotices: [],
+      artifactCount: 0,
+      skippedCount: 0,
+      componentsTruncated: false,
+    };
+  }
+  return {
+    ...base,
+    status: 'recorded',
+    verified: true,
+    problems: [],
+    recordSha256,
+    policy: record.policy,
+    verdict: record.verdict,
+    concerns: record.concerns,
+    measures: record.measures,
+    omittedComponents: record.components
+      .filter(
+        (c) =>
+          c.implementationCodePointsShown + c.implementationCodePointsRepresented <
+          c.implementationCodePoints,
+      )
+      .slice(0, COVERAGE_VIEW_OMITTED_COMPONENTS)
+      .map((c) => ({
+        component: c.component,
+        codePoints: c.implementationCodePoints,
+        inspectedCodePoints:
+          c.implementationCodePointsShown + c.implementationCodePointsRepresented,
+        stub: c.stub,
+      })),
+    documentation: record.measures.documentation,
+    snapshots: record.snapshots,
+    assessorNotices: record.assessorInputs.notices,
+    artifactCount: record.artifacts.length,
+    skippedCount: record.skipped.length,
+    componentsTruncated: record.componentsTruncated,
+  };
 }
