@@ -1,0 +1,2033 @@
+{
+ "source": "capture of https://github.com/meetbhadra701-cloud/Judge at 9459c9830086e9c7bf889ff22aaf9c19a1369d5d with the production GitHub adapter, 400-file limits (metadata only: no file content)",
+ "revision": "9459c9830086e9c7bf889ff22aaf9c19a1369d5d",
+ "artifactCount": 404,
+ "files": [
+  {
+   "path": ".github/workflows/ci.yml",
+   "bytes": 2521,
+   "mediaType": "application/yaml"
+  },
+  {
+   "path": ".gitignore",
+   "bytes": 272,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": ".prettierrc.json",
+   "bytes": 73,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "AGENTS.md",
+   "bytes": 226,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "CLAUDE.md",
+   "bytes": 3387,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "README.md",
+   "bytes": 7307,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "apps/api/package.json",
+   "bytes": 1066,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "apps/api/src/app.test.ts",
+   "bytes": 3608,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/app.ts",
+   "bytes": 3253,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/auth.ts",
+   "bytes": 3793,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/env.test.ts",
+   "bytes": 2298,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/env.ts",
+   "bytes": 4066,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/errors.ts",
+   "bytes": 4043,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/event-context/mappers.ts",
+   "bytes": 1897,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/event-context/routes.test.ts",
+   "bytes": 12237,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/event-context/routes.ts",
+   "bytes": 4266,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/event-context/service.test.ts",
+   "bytes": 39787,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/event-context/service.ts",
+   "bytes": 38499,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/evidence-graph/errors.ts",
+   "bytes": 773,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/evidence-graph/routes.test.ts",
+   "bytes": 20078,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/evidence-graph/routes.ts",
+   "bytes": 4291,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/evidence-graph/service.ts",
+   "bytes": 4034,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/http.ts",
+   "bytes": 1317,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/main.ts",
+   "bytes": 2637,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/projects/artifact-order.test.ts",
+   "bytes": 6050,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/projects/errors.ts",
+   "bytes": 1189,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/projects/mappers.ts",
+   "bytes": 3155,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/projects/routes.test.ts",
+   "bytes": 19946,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/projects/routes.ts",
+   "bytes": 5307,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/projects/service.ts",
+   "bytes": 20602,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/replay.ts",
+   "bytes": 607,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/testing/graph-fixtures.ts",
+   "bytes": 7359,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/src/testing/harness.ts",
+   "bytes": 5799,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/api/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "apps/api/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "apps/web/app/actions.ts",
+   "bytes": 6012,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/app/components/ui.tsx",
+   "bytes": 3421,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/app/layout.tsx",
+   "bytes": 380,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/app/page.tsx",
+   "bytes": 1823,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/app/styles.css",
+   "bytes": 2379,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/lib/api.ts",
+   "bytes": 2491,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/lib/editable.ts",
+   "bytes": 1742,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/next.config.ts",
+   "bytes": 156,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/web/package.json",
+   "bytes": 709,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "apps/web/tsconfig.json",
+   "bytes": 815,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "apps/worker/package.json",
+   "bytes": 1136,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "apps/worker/src/adapters.ts",
+   "bytes": 1556,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/clock-skew.test.ts",
+   "bytes": 6920,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/evidence-graph-demo.test.ts",
+   "bytes": 22403,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/finalization.test.ts",
+   "bytes": 9686,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/fixtures.test.ts",
+   "bytes": 14401,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/hostile-html.test.ts",
+   "bytes": 4628,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/loop.ts",
+   "bytes": 3814,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/queue.test.ts",
+   "bytes": 12141,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/queue.ts",
+   "bytes": 11784,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/runner.ts",
+   "bytes": 5880,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/capture/safe-error.ts",
+   "bytes": 916,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/env.ts",
+   "bytes": 1666,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/fixtures.ts",
+   "bytes": 2318,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/main.ts",
+   "bytes": 1814,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/testing/harness.ts",
+   "bytes": 7255,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/worker.test.ts",
+   "bytes": 938,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/src/worker.ts",
+   "bytes": 1314,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "apps/worker/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "apps/worker/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "docs/AI_PIPELINE.md",
+   "bytes": 11983,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/ARCHITECTURE.md",
+   "bytes": 70776,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/PRODUCT.md",
+   "bytes": 7520,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/SCORING.md",
+   "bytes": 22949,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/SECURITY.md",
+   "bytes": 25206,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/V1_CONTRACT.md",
+   "bytes": 9932,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/milestones/M0-report.md",
+   "bytes": 11516,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/milestones/M1-report.md",
+   "bytes": 21503,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/milestones/M2-report.md",
+   "bytes": 41427,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/milestones/M3-report.md",
+   "bytes": 41360,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/milestones/M4-design.md",
+   "bytes": 53928,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "docs/milestones/M4-report.md",
+   "bytes": 41707,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "eslint.config.js",
+   "bytes": 2153,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "package.json",
+   "bytes": 1096,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/audit/README.md",
+   "bytes": 350,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/audit/package.json",
+   "bytes": 620,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/audit/src/audit-event.test.ts",
+   "bytes": 1319,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/audit/src/audit-event.ts",
+   "bytes": 1751,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/audit/src/index.ts",
+   "bytes": 140,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/audit/tsconfig.build.json",
+   "bytes": 190,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/audit/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/auth/README.md",
+   "bytes": 702,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/auth/package.json",
+   "bytes": 728,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/auth/src/auth.test.ts",
+   "bytes": 4246,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/auth/src/dev.ts",
+   "bytes": 1133,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/auth/src/index.ts",
+   "bytes": 272,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/auth/src/jwt.ts",
+   "bytes": 3497,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/auth/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/auth/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/browser/README.md",
+   "bytes": 706,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/capture/README.md",
+   "bytes": 1105,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/capture/package.json",
+   "bytes": 761,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/capture/src/aggregate.test.ts",
+   "bytes": 4407,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/aggregate.ts",
+   "bytes": 1759,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/artifacts.ts",
+   "bytes": 881,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/hash.ts",
+   "bytes": 1747,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/html.test.ts",
+   "bytes": 6966,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/html.ts",
+   "bytes": 18730,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/index.ts",
+   "bytes": 314,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/ports.ts",
+   "bytes": 4247,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/repository-paths.test.ts",
+   "bytes": 3087,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/repository-paths.ts",
+   "bytes": 7498,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/result.ts",
+   "bytes": 7420,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/sanitize.test.ts",
+   "bytes": 3887,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/sanitize.ts",
+   "bytes": 2261,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/static-fetcher.ts",
+   "bytes": 2654,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/urls.test.ts",
+   "bytes": 4108,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/src/urls.ts",
+   "bytes": 9453,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/capture/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/capture/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/context/README.md",
+   "bytes": 1009,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/context/package.json",
+   "bytes": 674,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/context/src/authority.test.ts",
+   "bytes": 1392,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/authority.ts",
+   "bytes": 917,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/blank.ts",
+   "bytes": 1003,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/conflicts.test.ts",
+   "bytes": 2484,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/conflicts.ts",
+   "bytes": 2676,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/document.test.ts",
+   "bytes": 9514,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/document.ts",
+   "bytes": 16466,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/errors.ts",
+   "bytes": 2390,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/extractor.ts",
+   "bytes": 1389,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/facts.ts",
+   "bytes": 816,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/fingerprints.test.ts",
+   "bytes": 3955,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/fingerprints.ts",
+   "bytes": 2186,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/hash.test.ts",
+   "bytes": 1369,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/hash.ts",
+   "bytes": 1383,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/index.ts",
+   "bytes": 1452,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/references.ts",
+   "bytes": 1442,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/replay-extractor.test.ts",
+   "bytes": 3117,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/replay-extractor.ts",
+   "bytes": 3613,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/snapshot.ts",
+   "bytes": 954,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/testing/sample.ts",
+   "bytes": 3060,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/unresolved.ts",
+   "bytes": 999,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/validation.test.ts",
+   "bytes": 2408,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/src/validation.ts",
+   "bytes": 9306,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/context/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/context/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/README.md",
+   "bytes": 1570,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/database/drizzle.config.ts",
+   "bytes": 402,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0000_m0_foundation.sql",
+   "bytes": 4660,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0001_audit_events_append_only.sql",
+   "bytes": 726,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0002_m1_event_context.sql",
+   "bytes": 7862,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0003_m1_event_context_immutability.sql",
+   "bytes": 8194,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0004_m2_source_ingestion.sql",
+   "bytes": 15144,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0005_m2_source_ingestion_immutability.sql",
+   "bytes": 9141,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0006_m2_partial_reason_html_structure_limit.sql",
+   "bytes": 507,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0007_m3_evidence_graph.sql",
+   "bytes": 15984,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0008_m3_evidence_graph_integrity.sql",
+   "bytes": 11120,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/0009_m3_supersession_guard_hardening.sql",
+   "bytes": 3390,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0000_snapshot.json",
+   "bytes": 13880,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0001_snapshot.json",
+   "bytes": 13880,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0002_snapshot.json",
+   "bytes": 35138,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0003_snapshot.json",
+   "bytes": 35138,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0004_snapshot.json",
+   "bytes": 68295,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0005_snapshot.json",
+   "bytes": 68295,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0006_snapshot.json",
+   "bytes": 68319,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0007_snapshot.json",
+   "bytes": 104565,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0008_snapshot.json",
+   "bytes": 104565,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/0009_snapshot.json",
+   "bytes": 104565,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/drizzle/meta/_journal.json",
+   "bytes": 1592,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/package.json",
+   "bytes": 1146,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/src/audit-sink.ts",
+   "bytes": 652,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/client.ts",
+   "bytes": 1227,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/event-context-guards.test.ts",
+   "bytes": 5582,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/evidence-graph-concurrency.test.ts",
+   "bytes": 12798,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/evidence-graph-direct-sql-trust.test.ts",
+   "bytes": 11376,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/evidence-graph-guards.test.ts",
+   "bytes": 41326,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/evidence-graph-snapshot-reads.test.ts",
+   "bytes": 20262,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/evidence-graph-store.test.ts",
+   "bytes": 34147,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/evidence-graph-store.ts",
+   "bytes": 29190,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/evidence-graph-trust-boundary.test.ts",
+   "bytes": 10732,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/index.ts",
+   "bytes": 862,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/m3-migration-upgrade.test.ts",
+   "bytes": 4970,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/migrations.test.ts",
+   "bytes": 11150,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/actors.ts",
+   "bytes": 1163,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/analysis-runs.ts",
+   "bytes": 4597,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/audit-events.ts",
+   "bytes": 1499,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/event-context-versions.ts",
+   "bytes": 3509,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/event-sources.ts",
+   "bytes": 3198,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/events.ts",
+   "bytes": 1128,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/evidence-graph.ts",
+   "bytes": 16856,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/index.ts",
+   "bytes": 724,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/project-sources.ts",
+   "bytes": 2166,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/projects.ts",
+   "bytes": 3613,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/provenance.ts",
+   "bytes": 821,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/rubrics.ts",
+   "bytes": 3874,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/source-snapshots.ts",
+   "bytes": 10086,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/sql.ts",
+   "bytes": 1061,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/schema/tracks.ts",
+   "bytes": 1520,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/source-ingestion-guards.test.ts",
+   "bytes": 19369,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/testing/databases.ts",
+   "bytes": 4987,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/testing/graph-world.ts",
+   "bytes": 8115,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/src/testing/instrument.ts",
+   "bytes": 3052,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/database/tsconfig.build.json",
+   "bytes": 238,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/database/tsconfig.json",
+   "bytes": 142,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/deployment/README.md",
+   "bytes": 576,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/deployment/package.json",
+   "bytes": 667,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/deployment/src/adapter.test.ts",
+   "bytes": 4541,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/deployment/src/adapter.ts",
+   "bytes": 5255,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/deployment/src/index.ts",
+   "bytes": 184,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/deployment/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/deployment/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/devpost/README.md",
+   "bytes": 561,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/devpost/package.json",
+   "bytes": 648,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/devpost/src/adapter.test.ts",
+   "bytes": 9553,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/devpost/src/adapter.ts",
+   "bytes": 21941,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/devpost/src/index.ts",
+   "bytes": 276,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/devpost/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/devpost/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/domain/README.md",
+   "bytes": 365,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/domain/package.json",
+   "bytes": 598,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/domain/src/authorization.test.ts",
+   "bytes": 2186,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/domain/src/authorization.ts",
+   "bytes": 2246,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/domain/src/index.ts",
+   "bytes": 831,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/domain/src/lifecycle.test.ts",
+   "bytes": 1013,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/domain/src/lifecycle.ts",
+   "bytes": 3620,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/domain/tsconfig.build.json",
+   "bytes": 190,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/domain/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/evidence/README.md",
+   "bytes": 4475,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/evidence/package.json",
+   "bytes": 711,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/evidence/src/artifacts.test.ts",
+   "bytes": 4235,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/artifacts.ts",
+   "bytes": 3852,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/graph.ts",
+   "bytes": 4987,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/ids.test.ts",
+   "bytes": 1351,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/ids.ts",
+   "bytes": 1485,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/index.ts",
+   "bytes": 662,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/integrity.test.ts",
+   "bytes": 10623,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/integrity.ts",
+   "bytes": 9930,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/issues.ts",
+   "bytes": 3499,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/known.ts",
+   "bytes": 5160,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/plan.test.ts",
+   "bytes": 40120,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/plan.ts",
+   "bytes": 17010,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/provenance.ts",
+   "bytes": 11460,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/queries.test.ts",
+   "bytes": 12579,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/queries.ts",
+   "bytes": 15809,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/testing/builders.ts",
+   "bytes": 10783,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/verification.test.ts",
+   "bytes": 9759,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/src/verification.ts",
+   "bytes": 14355,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/evidence/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/evidence/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/github/README.md",
+   "bytes": 1109,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/github/package.json",
+   "bytes": 682,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/github/src/adapter.test.ts",
+   "bytes": 19796,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/github/src/adapter.ts",
+   "bytes": 25351,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/github/src/fixtures.ts",
+   "bytes": 8035,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/github/src/git.ts",
+   "bytes": 317,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/github/src/index.ts",
+   "bytes": 415,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/github/src/testing/fake-http.ts",
+   "bytes": 1880,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/github/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/github/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/llm/README.md",
+   "bytes": 550,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/prompts/README.md",
+   "bytes": 489,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/questions/README.md",
+   "bytes": 607,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/safe-http/README.md",
+   "bytes": 934,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/safe-http/package.json",
+   "bytes": 734,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/safe-http/src/client.test.ts",
+   "bytes": 12795,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/client.ts",
+   "bytes": 14331,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/fixture-network.ts",
+   "bytes": 6561,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/index.ts",
+   "bytes": 753,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/ip-policy.test.ts",
+   "bytes": 3440,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/ip-policy.ts",
+   "bytes": 2837,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/resolver.ts",
+   "bytes": 566,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/transport-tls.test.ts",
+   "bytes": 7166,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/transport.test.ts",
+   "bytes": 2830,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/transport.ts",
+   "bytes": 4196,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/src/url-policy.ts",
+   "bytes": 2029,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/safe-http/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/safe-http/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/schemas/README.md",
+   "bytes": 525,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/schemas/package.json",
+   "bytes": 552,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/schemas/src/enums.ts",
+   "bytes": 5245,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/event-context-api.ts",
+   "bytes": 5148,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/event-context.test.ts",
+   "bytes": 4874,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/event-context.ts",
+   "bytes": 15530,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/evidence-graph-api.ts",
+   "bytes": 10015,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/evidence-graph.test.ts",
+   "bytes": 7896,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/evidence-graph.ts",
+   "bytes": 10789,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/index.ts",
+   "bytes": 327,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/primitives.ts",
+   "bytes": 1772,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/schemas.test.ts",
+   "bytes": 4715,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/scoring.test.ts",
+   "bytes": 13527,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/scoring.ts",
+   "bytes": 16660,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/source-ingestion-api.ts",
+   "bytes": 5348,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/src/source-ingestion.ts",
+   "bytes": 5036,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/schemas/tsconfig.build.json",
+   "bytes": 190,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/schemas/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/README.md",
+   "bytes": 5828,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/scoring/golden/all-insufficient.json",
+   "bytes": 23522,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/contradictions-lineage-and-unmapped.json",
+   "bytes": 25488,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/direct-sql-privileged-labels.json",
+   "bytes": 25404,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/fallback-no-tracks-with-gaps.json",
+   "bytes": 27521,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/fallback-with-declared-track.json",
+   "bytes": 32708,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/high-quality-low-confidence.json",
+   "bytes": 23700,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/missing-evidence-partial-criterion.json",
+   "bytes": 24179,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/official-citation-presence-proxy.json",
+   "bytes": 3454,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/official-unweighted-with-unofficial-preview.json",
+   "bytes": 4775,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/official-unweighted.json",
+   "bytes": 4260,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/official-weighted-scale-1-5.json",
+   "bytes": 3618,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/rejections-invalid-ids.json",
+   "bytes": 1480,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/rejections-invalid-weights.json",
+   "bytes": 1710,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/scored-without-usable-citation.json",
+   "bytes": 24198,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/ten-statements-one-source.json",
+   "bytes": 25345,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/golden/weak-but-well-supported.json",
+   "bytes": 23791,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/package.json",
+   "bytes": 781,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/src/aggregate.test.ts",
+   "bytes": 16841,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/aggregate.ts",
+   "bytes": 11608,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/boundary.test.ts",
+   "bytes": 6533,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/canonical.ts",
+   "bytes": 1655,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/context.immutability.test.ts",
+   "bytes": 16700,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/context.ts",
+   "bytes": 15191,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/dimension.ts",
+   "bytes": 7941,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/engine.hashes.test.ts",
+   "bytes": 8871,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/engine.scenarios.test.ts",
+   "bytes": 37338,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/engine.ts",
+   "bytes": 14913,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/engine.validation.test.ts",
+   "bytes": 16062,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/freeze.ts",
+   "bytes": 365,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/golden.test.ts",
+   "bytes": 11844,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/groups.test.ts",
+   "bytes": 7200,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/groups.ts",
+   "bytes": 4187,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/index.ts",
+   "bytes": 1651,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/lineage.ts",
+   "bytes": 3656,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/metamorphic.test.ts",
+   "bytes": 26317,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/overlap.test.ts",
+   "bytes": 3670,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/parameters-hash.ts",
+   "bytes": 489,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/parameters.ts",
+   "bytes": 3806,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rational.test.ts",
+   "bytes": 9428,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rational.ts",
+   "bytes": 5761,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/fallback.ts",
+   "bytes": 6579,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/locked.ts",
+   "bytes": 3274,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/rubric.test.ts",
+   "bytes": 16571,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/scale-locked.test.ts",
+   "bytes": 9280,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/scale.ts",
+   "bytes": 2155,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/select.ts",
+   "bytes": 7952,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/spec.ts",
+   "bytes": 1913,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/weights.test.ts",
+   "bytes": 7031,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/rubric/weights.ts",
+   "bytes": 1934,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/snapshot.ts",
+   "bytes": 6446,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/strength.test.ts",
+   "bytes": 7147,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/strength.ts",
+   "bytes": 1249,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/testing/builders.ts",
+   "bytes": 15334,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/testing/hash-cli.ts",
+   "bytes": 554,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/testing/scenarios.ts",
+   "bytes": 10102,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/trust.test.ts",
+   "bytes": 12610,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/src/trust.ts",
+   "bytes": 5579,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/scoring/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/scoring/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/shared/README.md",
+   "bytes": 415,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/shared/package.json",
+   "bytes": 622,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/shared/src/env.test.ts",
+   "bytes": 1028,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/shared/src/env.ts",
+   "bytes": 1588,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/shared/src/index.ts",
+   "bytes": 254,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/shared/src/logger.test.ts",
+   "bytes": 2148,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/shared/src/logger.ts",
+   "bytes": 2138,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/shared/src/shutdown.ts",
+   "bytes": 1347,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/shared/tsconfig.build.json",
+   "bytes": 190,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/shared/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/uncertainty/README.md",
+   "bytes": 574,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/video/README.md",
+   "bytes": 447,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "packages/video/package.json",
+   "bytes": 666,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/video/src/adapter.test.ts",
+   "bytes": 4733,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/video/src/adapter.ts",
+   "bytes": 7134,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/video/src/index.ts",
+   "bytes": 151,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "packages/video/tsconfig.build.json",
+   "bytes": 208,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "packages/video/tsconfig.json",
+   "bytes": 121,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "pnpm-workspace.yaml",
+   "bytes": 159,
+   "mediaType": "application/yaml"
+  },
+  {
+   "path": "tests/benchmark/README.md",
+   "bytes": 291,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "tests/e2e/README.md",
+   "bytes": 136,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "tests/fixtures/README.md",
+   "bytes": 377,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "tests/fixtures/event-context/README.md",
+   "bytes": 1514,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "tests/fixtures/event-context/a-clear-official-rubric.json",
+   "bytes": 5523,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/event-context/b-ambiguous-policy.json",
+   "bytes": 3456,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/event-context/c-conflicting-authority.json",
+   "bytes": 3018,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/event-context/d-malformed-rubric.json",
+   "bytes": 3169,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/event-context/e-multiple-tracks.json",
+   "bytes": 5378,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/README.md",
+   "bytes": 2045,
+   "mediaType": "text/markdown"
+  },
+  {
+   "path": "tests/fixtures/source-capture/a-normal-project.json",
+   "bytes": 2493,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/b-branch-moves.json",
+   "bytes": 842,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/c-oversized-repository.json",
+   "bytes": 4945,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/d-prompt-injection.json",
+   "bytes": 778,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/e-secret-prone-files.json",
+   "bytes": 950,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/f-deployment-http-errors.json",
+   "bytes": 641,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/g-ssrf-redirect.json",
+   "bytes": 579,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/h-dns-rebinding.json",
+   "bytes": 504,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/i-network-failures.json",
+   "bytes": 385,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tests/fixtures/source-capture/pages/atlas-home.html",
+   "bytes": 589,
+   "mediaType": "text/html"
+  },
+  {
+   "path": "tests/fixtures/source-capture/pages/devpost-sparse.html",
+   "bytes": 322,
+   "mediaType": "text/html"
+  },
+  {
+   "path": "tests/integration/dependency-rules.test.ts",
+   "bytes": 6948,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "tests/integration/milestone-scope.test.ts",
+   "bytes": 15317,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "tests/integration/no-network-guard.test.ts",
+   "bytes": 625,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "tests/integration/services-boot.test.ts",
+   "bytes": 3551,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "tests/integration/web-binding.test.ts",
+   "bytes": 1968,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "tests/support/no-network.mjs",
+   "bytes": 1289,
+   "mediaType": "text/plain"
+  },
+  {
+   "path": "tsconfig.base.json",
+   "bytes": 782,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "tsconfig.json",
+   "bytes": 139,
+   "mediaType": "application/json"
+  },
+  {
+   "path": "vitest.config.ts",
+   "bytes": 818,
+   "mediaType": "text/plain"
+  }
+ ],
+ "metaArtifacts": [
+  {
+   "key": "repository.json",
+   "kind": "repository_metadata",
+   "bytes": 467,
+   "mediaType": "application/json"
+  },
+  {
+   "key": "commits.json",
+   "kind": "commit_history",
+   "bytes": 9526,
+   "mediaType": "application/json"
+  },
+  {
+   "key": "tree.json",
+   "kind": "tree",
+   "bytes": 93556,
+   "mediaType": "application/json"
+  },
+  {
+   "key": "omissions.json",
+   "kind": "omissions",
+   "bytes": 1265,
+   "mediaType": "application/json"
+  }
+ ]
+}
