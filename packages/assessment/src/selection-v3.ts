@@ -263,7 +263,7 @@ export function selectV3(
   // -- exact duplicates: same bucket, SAME ROLE and the same bytes (a test file never stands in for an implementation file) -----------------
   const seen = new Map<string, State>();
   for (const state of [...states].filter((s) => s.item.textDigest !== null).sort(byPath)) {
-    const digest = `${state.item.bucket}:${String(state.role)}:${state.item.textDigest ?? ''}`;
+    const digest = `${state.item.bucket}:${state.role}:${state.item.textDigest ?? ''}`;
     const first = seen.get(digest);
     if (first) state.duplicateOf = first.item.key;
     else seen.set(digest, state);

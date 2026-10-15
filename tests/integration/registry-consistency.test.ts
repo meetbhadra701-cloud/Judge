@@ -207,9 +207,10 @@ describe.each(testDatabaseTargets())('ownership registry consistency on %s', (_n
         const inserted = await tx.execute(
           sql`INSERT INTO projects (event_id, name) VALUES (${eventId}, ${`ORBIT ${n}`}) RETURNING id`,
         );
-        second = (
+        const created = (
           Array.isArray(inserted) ? inserted : (inserted as { rows: { id: string }[] }).rows
-        )[0]!.id as string;
+        ) as { id: string }[];
+        second = created[0]?.id ?? '';
       });
       expect(await problems(eventId)).toEqual([
         {

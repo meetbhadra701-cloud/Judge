@@ -1,5 +1,9 @@
 import { verifyCoverageRecord } from '@judge-copilot/assessment';
-import { assessmentRunCoverage, type JudgeDatabase } from '@judge-copilot/database';
+import {
+  assessmentRunCoverage,
+  assessmentRunInputSnapshots,
+  type JudgeDatabase,
+} from '@judge-copilot/database';
 import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -39,12 +43,13 @@ describe.each(testDatabaseTargets())('coverage record in the pipeline on %s', (_
       .where(eq(assessmentRunCoverage.runId, run.runId));
     return row;
   };
-  const pinnedIds = async (run: Executed): Promise<string[]> => {
-    const rows = await db.execute<{ snapshot_id: string }>(
-      sql`SELECT snapshot_id FROM assessment_run_input_snapshots WHERE run_id = ${run.runId}`,
-    );
-    return (Array.isArray(rows) ? rows : rows.rows).map((r) => r.snapshot_id);
-  };
+  const pinnedIds = async (run: Executed): Promise<string[]> =>
+    (
+      await db
+        .select({ id: assessmentRunInputSnapshots.snapshotId })
+        .from(assessmentRunInputSnapshots)
+        .where(eq(assessmentRunInputSnapshots.runId, run.runId))
+    ).map((row) => row.id);
 
   it('a run that stops at the coverage gate still leaves its record, and spent nothing', async () => {
     const run = await execute(db, {

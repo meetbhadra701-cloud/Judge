@@ -294,12 +294,12 @@ describe('documentation floods (finding 6)', () => {
       {
         path: 'README.md',
         bytes: 3_000,
-        text: `${'This project has no authentication and never stores passwords.\n'.repeat(60)}`,
+        text: 'This project has no authentication and never stores passwords.\n'.repeat(60),
       },
       {
         path: 'docs/architecture.md',
         bytes: 4_000,
-        text: `${'The auth module stores salted password hashes.\n'.repeat(80)}`,
+        text: 'The auth module stores salted password hashes.\n'.repeat(80),
       },
       ...Array.from({ length: 8 }, (_, i) => ({
         path: `packages/mod-${i}/src/index.ts`,

@@ -2,7 +2,7 @@ import { canonicalJson, sha256Hex } from '@judge-copilot/context';
 import { describe, expect, it } from 'vitest';
 import { artifactsOf, filler, type RepoFile } from './testing/coverage-repos.js';
 import { buildCoverageRecord, verifyCoverageRecord } from './coverage-record.js';
-import { buildPassages, DEFAULT_BUDGETS, SELECTION_POLICY } from './windowing.js';
+import { buildPassages, SELECTION_POLICY } from './windowing.js';
 
 const files: RepoFile[] = [
   { path: 'README.md', bytes: 2_000 },

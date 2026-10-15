@@ -12,7 +12,6 @@ import { SOURCE_ROUTING_POLICY, type RoutedSourceType } from './routing.js';
 import type { ProseCategory } from './selection-v3.js';
 import {
   SELECTION_POLICY_VALUES,
-  WINDOWING_POLICY,
   type SelectionPolicyId,
   type WindowingBudgets,
   type WindowingResult,
@@ -100,7 +99,7 @@ export function buildCoverageRecord(input: {
       }))
       .slice(0, COVERAGE_RECORD_LIMITS.skipped),
     assessorInputs: {
-      sampledBuckets: [...sampled].sort() as CoverageRecord['assessorInputs']['sampledBuckets'],
+      sampledBuckets: [...sampled].sort(),
       notices: [...input.notices],
       limitations: coverageLimitations(report, sampled, input.snapshots).map((l) => ({
         code: l.code,
@@ -189,12 +188,6 @@ export function verifyCoverageRecord(
   if (report === null) {
     problems.add('record_inconsistent');
   } else {
-    const sampled: string[] = [];
-    const sampledFromRecord = parsed.assessorInputs.limitations.some(
-      (l) => l.code === 'source_sampled',
-    )
-      ? (parsed.assessorInputs.limitations.find((l) => l.code === 'source_sampled')?.subjects ?? [])
-      : sampled;
     const consistent =
       report.verdict === parsed.verdict &&
       canonicalJson(report.concerns) === canonicalJson(parsed.concerns) &&
