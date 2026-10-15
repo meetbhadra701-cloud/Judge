@@ -33,6 +33,8 @@ export interface PinnedSnapshot {
   readonly contentHash: string;
   /** Where the stored text came from: a capture worker read it from the source, or an organizer typed/pasted it (never verified against the source). */
   readonly provenance: 'fetched' | 'organizer_supplied';
+  /** Why a `partial` capture is partial (empty for `captured`): the capture worker's own closed vocabulary. */
+  readonly partialReasons: readonly string[];
 }
 
 export interface PinnedSources {
@@ -89,6 +91,7 @@ export async function loadPinnedSources(
         snapshot.metadata?.['provenance'] === 'organizer_supplied'
           ? 'organizer_supplied'
           : 'fetched',
+      partialReasons: [...snapshot.partialReasons],
     });
   }
 

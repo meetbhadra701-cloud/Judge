@@ -18,14 +18,15 @@ describe('the shared pipeline configuration (API and worker)', () => {
   it('has the pinned canonical hash of the current configuration (the identity moves ONLY when a policy or prompt does)', () => {
     // P6A recorded eb9201ad.../e894fd68... at ed0259b. P6B-beta3 changed `policies.selection` from source-selection/v1 to v2 (a deliberate identity
     // change: a run frozen under v1 keeps v1 and its old hash; checkPipelineConfig still accepts it), which moves these two values and nothing else.
+    // P6B-beta3-R1 moved it again, to source-selection/v3 (role-sensitive duplicates, inventory-based coverage, per-category documentation pools).
     expect(
       hashOf(buildPipelineConfig({ provider: { id: 'replay', mode: 'replay' }, models: MODELS })),
-    ).toBe('e4710a40807392c60a10b755004149c48f81c9f882150c9865fc01291d536a1b');
+    ).toBe('8d69736837f6bd0e05a2a68e4b469917a1b41e86296b845c40be03d18d6987ca');
     expect(
       hashOf(
         buildPipelineConfig({ provider: { id: 'scripted', mode: 'scripted' }, models: MODELS }),
       ),
-    ).toBe('fcb8e3447e223575d2783b9f5cf975ae417f76af85b734478908004e4756a933');
+    ).toBe('31a256af605e5aebff51b529c042b090a70f38b41488c4a467049fb46badac4b');
   });
 
   it('still accepts a configuration frozen under source-selection/v1 (earlier runs stay reproducible) and refuses an unknown policy', () => {
@@ -43,9 +44,14 @@ describe('the shared pipeline configuration (API and worker)', () => {
       policies: { ...config.policies, selection: 'source-selection/v1' },
     };
     expect(checkPipelineConfig(frozenV1, runtime)).toMatchObject({ ok: true });
+    const frozenV2 = {
+      ...config,
+      policies: { ...config.policies, selection: 'source-selection/v2' },
+    };
+    expect(checkPipelineConfig(frozenV2, runtime)).toMatchObject({ ok: true });
     const unknown = {
       ...config,
-      policies: { ...config.policies, selection: 'source-selection/v3' },
+      policies: { ...config.policies, selection: 'source-selection/v4' },
     };
     expect(checkPipelineConfig(unknown, runtime)).toEqual({
       ok: false,

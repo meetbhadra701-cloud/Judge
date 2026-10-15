@@ -87,6 +87,23 @@ export async function bindExtraction(
   }
 }
 
+/** Stores the run's coverage record (what its source selection did) before any spend; see `AssessmentRunStore.recordCoverage`. */
+export async function recordCoverage(
+  context: WriteContext,
+  built: { readonly canonical: string; readonly sha256: string },
+  stage: string,
+): Promise<void> {
+  try {
+    await context.runs.recordCoverage(context.runId, context.leaseToken, built);
+  } catch (error) {
+    if (error instanceof AssessmentRunError) {
+      if (error.code === 'lease_mismatch' || error.code === 'wrong_state') return lostRun(stage);
+      return failRun('internal_error', `coverage_record_rejected:${error.code}`, stage);
+    }
+    throw error;
+  }
+}
+
 export interface SourceExtractionInput {
   readonly draft: ExtractionDraft;
   readonly configHash: string;

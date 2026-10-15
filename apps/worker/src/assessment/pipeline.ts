@@ -1,4 +1,5 @@
 import {
+  buildCoverageRecord,
   buildEventReferenceItems,
   collectLimitations,
   EXTRACTION_LIMITATION_CODES,
@@ -51,6 +52,7 @@ import { loadPinnedSources } from './sources.js';
 import { cancelRun, failRun, lostRun, RunStopped, safeCode, type Stop } from './stop.js';
 import {
   bindExtraction,
+  recordCoverage,
   writeContextExtraction,
   writeSourceExtraction,
   type WriteContext,
@@ -356,6 +358,22 @@ async function execute(
   // fewer than half of its components), the run stops BEFORE any spend: scoring an implementation the model never saw would be a confident
   // statement about unseen code. This is the strongest safe behaviour available without a later milestone (a reviewer-visible, resumable
   // "assess with partial coverage" flow); it is never converted into a low score, and nothing is inferred from what was not shown.
+  // The record is stored first, so a run that stops at the gate still leaves a durable account of what was (not) selected.
+  session.checkpoint('write_coverage_record');
+  const coverage = buildCoverageRecord({
+    windowing: plan.windowing,
+    budgets: plan.plan.budgets,
+    snapshots: sources.pins.map((pin) => ({
+      snapshotId: pin.snapshotId,
+      sourceType: pin.sourceType,
+      status: pin.status,
+      contentHash: pin.contentHash,
+      provenance: pin.provenance,
+      partialReasons: pin.partialReasons,
+    })),
+    notices: runNotices(plan.windowing, sources.pins),
+  });
+  await recordCoverage(write, coverage, 'write_coverage_record');
   if (plan.windowing.coverage.verdict === 'insufficient') {
     return failRun('source_unavailable', 'source_coverage_insufficient', 'select');
   }
@@ -448,7 +466,11 @@ async function execute(
   // properties of THIS run's inputs and are always recomputed; the two sets of codes are disjoint.
   const recorded = recordedExtractionLimitations(source);
   const limitations: Limitation[] = [
-    ...collectLimitations({ windowing: plan.windowing, locked }),
+    ...collectLimitations({
+      windowing: plan.windowing,
+      snapshots: sources.pins,
+      locked,
+    }),
     ...(recorded ??
       (draft === null
         ? []

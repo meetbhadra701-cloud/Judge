@@ -4,6 +4,7 @@ import {
   ASSESSMENT_RUN_OUTCOME_VALUES,
   ASSESSMENT_STAGE_VALUES,
   CALL_STATE_VALUES,
+  COVERAGE_VERDICT_VALUES,
   EXTRACTION_EVIDENCE_ROLE_VALUES,
   EXTRACTION_KIND_VALUES,
   GRAPH_RECORD_TYPE_VALUES,
@@ -382,6 +383,51 @@ export const assessmentRunOutcomes = pgTable(
     check(
       'assessment_run_outcomes_counts_valid',
       sql`attempts_started = settled_calls + unknown_calls + released_calls AND attempts_started >= 0 AND input_tokens >= 0 AND output_tokens >= 0 AND cost_nano_usd >= 0`,
+    ),
+  ],
+);
+
+// -- Coverage record (P6B-beta3-R1) -------------------------------------------------------------------------------------
+
+/**
+ * What a run's source selection actually did (artifact inventory, shown prefixes, omitted regions, frozen policy identity, the limitations
+ * that reached the assessors), written by the worker BEFORE any spend and so also for a run that stopped at the coverage gate. Content
+ * addressed and immutable; the canonical text is authoritative, the jsonb column is a queryable mirror. Runs from before this table have no
+ * row: their coverage is reported as `not_recorded`, never as complete.
+ */
+export const assessmentRunCoverage = pgTable(
+  'assessment_run_coverage',
+  {
+    runId: uuid('run_id')
+      .primaryKey()
+      .references(() => analysisRuns.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id').notNull(),
+    schemaId: text('schema_id').notNull(),
+    selectionPolicy: text('selection_policy').notNull(),
+    verdict: text('verdict', { enum: COVERAGE_VERDICT_VALUES }).notNull(),
+    recordCanonical: text('record_canonical').notNull(),
+    recordSha256: text('record_sha256').notNull(),
+    record: jsonb('record').$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'assessment_run_coverage_run_same_project_fk',
+      columns: [table.runId, table.projectId],
+      foreignColumns: [analysisRuns.id, analysisRuns.projectId],
+    }).onDelete('restrict'),
+    check('assessment_run_coverage_hash_hex', sql`record_sha256 ~ '^[0-9a-f]{64}$'`),
+    check(
+      'assessment_run_coverage_verdict_valid',
+      sql`verdict IN (${sqlLiteralList(COVERAGE_VERDICT_VALUES)})`,
+    ),
+    check(
+      'assessment_run_coverage_text_bounded',
+      sql`char_length(record_canonical) BETWEEN 2 AND 4000000`,
+    ),
+    check(
+      'assessment_run_coverage_hash_matches_text',
+      sql`record_sha256 = encode(sha256(convert_to(record_canonical, 'UTF8')), 'hex')`,
     ),
   ],
 );
@@ -876,6 +922,7 @@ export const ASSESSMENT_TABLE_NAMES = [
   'assessment_requests',
   'assessment_run_budget',
   'assessment_run_calls',
+  'assessment_run_coverage',
   'assessment_run_extractions',
   'assessment_run_input_snapshots',
   'assessment_run_inputs',

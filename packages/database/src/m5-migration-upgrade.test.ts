@@ -130,6 +130,7 @@ describe.each(emptyDatabaseTargets())(
         'assessment_requests',
         'assessment_run_budget',
         'assessment_run_calls',
+        'assessment_run_coverage',
         'assessment_run_extractions',
         'assessment_run_input_snapshots',
         'assessment_run_inputs',

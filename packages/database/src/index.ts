@@ -120,6 +120,7 @@ export {
   assessmentRequests,
   assessmentRunBudget,
   assessmentRunCalls,
+  assessmentRunCoverage,
   assessmentRunExtractions,
   assessmentRunInputSnapshots,
   assessmentRunInputs,

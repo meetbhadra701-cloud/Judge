@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { canonicalJson, sha256Hex } from '@judge-copilot/context';
 import {
   ASSESSMENT_RUN_TYPE,
+  CoverageRecord,
   type AssessmentRequestMode,
   type AssessmentRunFailureCategory,
   type AssessmentRunLimits,
+  type CoverageRecord as CoverageRecordType,
   type ExtractionKind,
   type ProviderMode,
 } from '@judge-copilot/schemas';
@@ -21,6 +23,7 @@ import {
   assessmentRequests,
   assessmentRunBudget,
   assessmentRunCalls,
+  assessmentRunCoverage,
   assessmentRunExtractions,
   assessmentRunInputs,
   assessmentRunInputSnapshots,
@@ -150,7 +153,8 @@ export class AssessmentRunError extends Error {
       | 'lease_mismatch'
       | 'inputs_missing'
       | 'extraction_kind_mismatch'
-      | 'extraction_rejected',
+      | 'extraction_rejected'
+      | 'coverage_rejected',
     message: string,
   ) {
     super(message);
@@ -656,6 +660,72 @@ export class AssessmentRunStore {
         .set({ leaseExpiresAt: new Date(this.now().getTime() + leaseMs) })
         .where(eq(analysisRuns.id, runId));
       return true;
+    });
+  }
+
+  /**
+   * Stores the coverage record of this run's source selection (P6B-beta3-R1), once, under the lease and before any spend. The store does not
+   * trust the caller: the text must parse as a `CoverageRecord`, be its own canonical form and hash to `sha256`, and name exactly the
+   * snapshots the run pinned. A retry of the same run with the same inputs writes the identical record (a no-op); a different record for the
+   * same run is refused, never replaced.
+   */
+  async recordCoverage(
+    runId: string,
+    leaseToken: string,
+    input: { readonly canonical: string; readonly sha256: string },
+  ): Promise<void> {
+    let parsed: CoverageRecordType;
+    try {
+      parsed = CoverageRecord.parse(JSON.parse(input.canonical));
+    } catch {
+      throw new AssessmentRunError('coverage_rejected', 'the coverage record is not valid');
+    }
+    if (canonicalJson(parsed) !== input.canonical || sha256Hex(input.canonical) !== input.sha256) {
+      throw new AssessmentRunError(
+        'coverage_rejected',
+        'the coverage record is not canonical or its hash differs',
+      );
+    }
+    await this.db.transaction(async (tx) => {
+      const run = await this.lockOwnRun(tx, runId, leaseToken);
+      const pins = await tx
+        .select({ id: assessmentRunInputSnapshots.snapshotId })
+        .from(assessmentRunInputSnapshots)
+        .where(eq(assessmentRunInputSnapshots.runId, runId));
+      const pinned = pins.map((pin) => pin.id).sort();
+      const recorded = parsed.snapshots.map((snapshot) => snapshot.snapshotId).sort();
+      if (pinned.length !== recorded.length || pinned.some((id, i) => id !== recorded[i])) {
+        throw new AssessmentRunError(
+          'coverage_rejected',
+          'the coverage record names other snapshots than the run pinned',
+        );
+      }
+      const inserted = await tx
+        .insert(assessmentRunCoverage)
+        .values({
+          runId,
+          projectId: run.projectId,
+          schemaId: parsed.schema,
+          selectionPolicy: parsed.policy.selection,
+          verdict: parsed.verdict,
+          recordCanonical: input.canonical,
+          recordSha256: input.sha256,
+          record: JSON.parse(input.canonical) as Record<string, unknown>,
+        })
+        .onConflictDoNothing()
+        .returning({ runId: assessmentRunCoverage.runId });
+      if (inserted.length === 0) {
+        const [existing] = await tx
+          .select({ sha: assessmentRunCoverage.recordSha256 })
+          .from(assessmentRunCoverage)
+          .where(eq(assessmentRunCoverage.runId, runId));
+        if (existing?.sha !== input.sha256) {
+          throw new AssessmentRunError(
+            'coverage_rejected',
+            'a different coverage record is already stored for this run',
+          );
+        }
+      }
     });
   }
 
