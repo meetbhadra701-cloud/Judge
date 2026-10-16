@@ -1,6 +1,7 @@
 import { EventContextError, type EventContextErrorCode } from '@judge-copilot/context';
 import type { ApiErrorBody } from '@judge-copilot/schemas';
 import { ASSESSMENT_API_STATUS, AssessmentApiError } from './assessments/errors.js';
+import { QUESTION_API_STATUS, QuestionApiError } from './questions/errors.js';
 import { AUTH_STATUS, AuthError } from './auth.js';
 import { EVIDENCE_GRAPH_API_STATUS, EvidenceGraphApiError } from './evidence-graph/errors.js';
 import { RequestValidationError, type ApiApp } from './http.js';
@@ -100,6 +101,17 @@ export function installErrorHandling(app: ApiApp): void {
     if (error instanceof AssessmentApiError) {
       return reply
         .code(ASSESSMENT_API_STATUS[error.code])
+        .send(
+          body(
+            error.code,
+            error.message,
+            Object.keys(error.details).length > 0 ? error.details : undefined,
+          ),
+        );
+    }
+    if (error instanceof QuestionApiError) {
+      return reply
+        .code(QUESTION_API_STATUS[error.code])
         .send(
           body(
             error.code,

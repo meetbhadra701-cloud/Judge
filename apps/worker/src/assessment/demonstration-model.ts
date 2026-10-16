@@ -163,5 +163,8 @@ export function demonstrationStep(request: StructuredRequest): LlmResult {
     case 'critic': {
       return ok({ unit: dimensionOf(records), findings: [] });
     }
+    case 'question_generation':
+      // the question stage has its own demonstrator (apps/api/src/questions); the assessment pipeline never issues this stage
+      return { ok: false, category: 'bad_request', sendState: 'not_sent' };
   }
 }

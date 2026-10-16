@@ -37,6 +37,9 @@ export const CAPTURE_RETRY_RECOVERY =
 export const ASSESSMENT_REQUEST_RECOVERY =
   'Reload this page to see whether a run was started. A project can have only one assessment run active at a time, and an assessment of unchanged material is never repeated, so requesting again is safe.';
 
+export const QUESTION_GENERATE_RECOVERY =
+  'Reload this page to see whether the questions were saved. A set of questions for the same assessment is never created twice, so generating again is safe.';
+
 // -- Retrying one source's capture ------------------------------------------------------------------------------------------------------
 
 type ApiAnswer = { ok: true } | ({ ok: false } & FailedRequest);

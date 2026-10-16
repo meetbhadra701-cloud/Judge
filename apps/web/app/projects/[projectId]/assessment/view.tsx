@@ -27,6 +27,8 @@ import {
   type RelativeEntry,
 } from '../../../../lib/assessment-view';
 import { ErrorBanner, formatDate } from '../../../components/ui';
+import { QuestionsSection } from './questions';
+import type { QuestionsPanelState } from '../../../../lib/questions-view';
 
 /*
  * The presentation of the assessment page, separate from fetching so that it can be rendered in a test with plain data. It never
@@ -52,6 +54,9 @@ export interface AssessmentPageViewProps {
   readonly requestKeys: { readonly assess: string; readonly reassess: string };
   /** The form action (a server action in the app, a stub in tests). */
   readonly requestAction: (formData: FormData) => void | Promise<void>;
+  /** The "Five Questions" section of the shown version (M6). Omitted: the section says the questions could not be loaded. */
+  readonly questions?: QuestionsPanelState;
+  readonly generateQuestionsAction?: (formData: FormData) => void | Promise<void>;
 }
 
 export function AssessmentPageView(props: AssessmentPageViewProps): ReactNode {
@@ -103,7 +108,23 @@ export function AssessmentPageView(props: AssessmentPageViewProps): ReactNode {
       ) : null}
       {state === 'unverified' ? <WithheldPanel code={detail?.verificationFailure ?? null} /> : null}
       {detail && state !== 'unverified' ? (
-        <AssessmentView detail={detail} unknowns={unknowns} />
+        <AssessmentView
+          detail={detail}
+          unknowns={unknowns}
+          questions={
+            <QuestionsSection
+              projectId={projectId}
+              assessmentId={detail.id}
+              state={
+                props.questions ?? {
+                  kind: 'unavailable',
+                  message: 'The suggested questions could not be loaded.',
+                }
+              }
+              generateAction={props.generateQuestionsAction ?? requestAction}
+            />
+          }
+        />
       ) : null}
 
       <Launch
@@ -268,9 +289,11 @@ function Launch({
 function AssessmentView({
   detail,
   unknowns,
+  questions,
 }: {
   detail: AssessmentDetail;
   unknowns: UnknownsView | null;
+  questions: ReactNode;
 }) {
   const report = detail.report;
   if (!report) return null;
@@ -437,6 +460,8 @@ function AssessmentView({
       </section>
 
       <UnknownsSection report={report} detail={detail} unknowns={unknowns} />
+
+      {questions}
 
       {detail.limitations.length > 0 ? (
         <section>
@@ -953,7 +978,8 @@ function UnknownsSection({
       )}
       <p>
         <small>
-          Ranking these gaps and turning them into questions is not part of this version.
+          The gaps that matter most are turned into suggested interview questions in the Five
+          Questions section below. Answers to them are not part of this version.
         </small>
       </p>
     </section>

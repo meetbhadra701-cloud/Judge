@@ -32,6 +32,16 @@ describe('authorization policy', () => {
       'assessment.read',
       'assessment.run',
     ]);
+    // M6: both roles read and generate interview questions; there is no permission to edit or delete a question set
+    for (const permission of ['question.read', 'question.generate'] as const) {
+      expect(hasPermission(['judge'], permission)).toBe(true);
+      expect(hasPermission(['organizer'], permission)).toBe(true);
+      expect(hasPermission([], permission)).toBe(false);
+    }
+    expect(PERMISSIONS.filter((permission) => permission.startsWith('question'))).toEqual([
+      'question.read',
+      'question.generate',
+    ]);
     expect(hasPermission(['judge'], 'event_context.write')).toBe(false);
     expect(hasPermission(['judge'], 'project.write')).toBe(false);
     expect(hasPermission([], 'project.read')).toBe(false);

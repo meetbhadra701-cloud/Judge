@@ -5,13 +5,16 @@ import type {
   AssessmentListResponse,
   AssessmentUnknownsResponse,
   ProjectDetail,
+  QuestionSetListResponse,
+  QuestionSetView,
 } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import { apiRequest, projectPath } from '../../../../lib/api';
 import { sourceIntegrityNotice } from '../../../../lib/capture-status';
 import { openMessage } from '../../../../lib/flash';
 import { ErrorBanner } from '../../../components/ui';
-import { requestAssessmentAction } from './actions';
+import { generateQuestionsAction, requestAssessmentAction } from './actions';
+import { questionsPanelState } from '../../../../lib/questions-view';
 import { AssessmentPageView } from './view';
 import { projectPageTitle } from '../../../../lib/titles';
 
@@ -84,6 +87,28 @@ export default async function AssessmentPage({
           `${base}/assessments/${encodeURIComponent(shown.id)}/unknowns`,
         )
       : null;
+  // the Five Questions of THIS assessment (M6): the list, then the newest set; both tolerant of failure, and only for a verified assessment
+  const verified = Boolean(shown && detailResult?.ok && detailResult.data.verified);
+  const questionList =
+    shown && verified
+      ? await apiRequest<QuestionSetListResponse>(
+          'GET',
+          `${base}/assessments/${encodeURIComponent(shown.id)}/question-sets`,
+        )
+      : null;
+  const newestSet = questionList?.ok ? questionList.data.sets[0] : undefined;
+  const questionSet = newestSet
+    ? await apiRequest<QuestionSetView>(
+        'GET',
+        `${base}/question-sets/${encodeURIComponent(newestSet.id)}`,
+      )
+    : null;
+  const failure =
+    questionList && !questionList.ok
+      ? questionList.message
+      : questionSet && !questionSet.ok
+        ? questionSet.message
+        : undefined;
   return (
     <AssessmentPageView
       projectId={projectId}
@@ -117,6 +142,15 @@ export default async function AssessmentPage({
       }
       requestKeys={{ assess: randomUUID(), reassess: randomUUID() }}
       requestAction={requestAssessmentAction}
+      questions={questionsPanelState({
+        verified,
+        list: questionList?.ok ? questionList.data : null,
+        set: questionSet?.ok ? questionSet.data : null,
+        error: failure,
+        // a voided project, or a version that is not the newest, is read-only history
+        canGenerate: project.data.voided === null && shown?.id === list.data.assessments[0]?.id,
+      })}
+      generateQuestionsAction={generateQuestionsAction}
     />
   );
 }

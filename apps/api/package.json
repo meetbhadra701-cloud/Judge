@@ -20,8 +20,10 @@
     "@judge-copilot/evidence": "workspace:*",
     "@judge-copilot/llm": "workspace:*",
     "@judge-copilot/prompts": "workspace:*",
+    "@judge-copilot/questions": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
     "@judge-copilot/shared": "workspace:*",
+    "@judge-copilot/uncertainty": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "fastify": "^5.12.5",
     "zod": "^4.6.5"

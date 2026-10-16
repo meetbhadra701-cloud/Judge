@@ -738,7 +738,8 @@ describe('P6B-alpha: unknowns and missing information', () => {
     expect(section).toContain('Gaps recorded for the material of version 3');
     expect(section).toContain('not a list of the project’s current gaps');
     expect(section).not.toContain('Newer captures exist');
-    expect(section).toContain('not part of this version');
+    expect(section).toContain('Five Questions section below');
+    expect(section).toContain('Answers to them are not part of this version');
   });
 
   it('P6C F-2 / F-8: attributes a partial number to the assessor’s own declaration and says a failed newer capture lowered nothing — and says neither for a plain report', () => {

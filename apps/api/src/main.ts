@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { createDevVerifier, createJwtVerifier } from '@judge-copilot/auth';
 import { createReplayExtractor } from '@judge-copilot/context';
 import { assertSchemaReady, createDatabase, EvidenceGraphStore } from '@judge-copilot/database';
@@ -5,6 +6,7 @@ import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { buildApp, SERVICE_NAME } from './app.js';
 import { loadApiEnv } from './env.js';
 import { AssessmentService } from './assessments/service.js';
+import { QuestionService } from './questions/service.js';
 import { openOfflineGate } from './assessments/runtime-gate.js';
 import { EventContextService } from './event-context/service.js';
 import { EvidenceGraphService } from './evidence-graph/service.js';
@@ -73,6 +75,19 @@ const app = buildApp({
   eventContext: database ? new EventContextService({ db: database.db, extractor }) : null,
   projects: database ? new ProjectService({ db: database.db }) : null,
   assessments: database ? new AssessmentService({ db: database.db, offline: gate.runtime }) : null,
+  questions: database
+    ? new QuestionService({
+        db: database.db,
+        offline: gate.runtime,
+        replayFixture:
+          gate.runtime?.provider.mode === 'replay' && env.ASSESSMENT_REPLAY_FIXTURE
+            ? (JSON.parse(await readFile(env.ASSESSMENT_REPLAY_FIXTURE, 'utf8')) as unknown)
+            : null,
+        secrets: [env.DATABASE_URL].filter(
+          (value): value is string => typeof value === 'string' && value.length >= 8,
+        ),
+      })
+    : null,
   evidenceGraph: database
     ? new EvidenceGraphService({ store: new EvidenceGraphStore({ db: database.db }) })
     : null,

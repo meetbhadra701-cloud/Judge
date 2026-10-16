@@ -71,12 +71,18 @@ importers:
       '@judge-copilot/prompts':
         specifier: workspace:*
         version: link:../../packages/prompts
+      '@judge-copilot/questions':
+        specifier: workspace:*
+        version: link:../../packages/questions
       '@judge-copilot/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
       '@judge-copilot/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@judge-copilot/uncertainty':
+        specifier: workspace:*
+        version: link:../../packages/uncertainty
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)

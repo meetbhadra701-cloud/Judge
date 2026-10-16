@@ -15,6 +15,8 @@ export const PERMISSIONS = [
   'evidence.read',
   'assessment.read',
   'assessment.run',
+  'question.read',
+  'question.generate',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -26,6 +28,10 @@ export type Permission = (typeof PERMISSIONS)[number];
  * `assessment.read` and `assessment.run` (M5, design D14) let both roles read a project's AI pre-interview assessments and request one.
  * `assessment.run` is separate from `source.capture` because it can spend money (it is refused unless a provider is configured, and a
  * run is bounded by the local spending guard); there is no permission to edit or delete an assessment.
+ *
+ * `question.read` and `question.generate` (M6) let both roles read the suggested interview questions of a verified assessment and generate them. Generating
+ * only ever adds an immutable question set (it changes no assessment, score or weight); it is a separate permission because it will call a model once a live
+ * provider is authorized.
  *
  * `evidence.read` (M3) lets both roles inspect a project's evidence graph. There is no evidence
  * write permission: M3 has no producer, and the graph is written only by trusted server code.
@@ -40,6 +46,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>
     'evidence.read',
     'assessment.read',
     'assessment.run',
+    'question.read',
+    'question.generate',
   ],
   judge: [
     'event_context.read',
@@ -48,6 +56,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>
     'evidence.read',
     'assessment.read',
     'assessment.run',
+    'question.read',
+    'question.generate',
   ],
 };
 
