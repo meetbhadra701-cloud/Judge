@@ -38,7 +38,9 @@ afterEach(() => {
 function copyFolder(): { root: string; journalPath: string } {
   const root = mkdtempSync(join(tmpdir(), 'judge-matrix-'));
   cpSync(migrationsFolder, root, { recursive: true });
-  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  cleanups.push(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
   return { root, journalPath: join(root, 'meta', '_journal.json') };
 }
 interface JournalFile {

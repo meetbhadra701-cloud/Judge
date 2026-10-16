@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrationsFolder, schema } from '../src/client.js';
@@ -15,7 +14,7 @@ if (!url) {
   process.stderr.write('DATABASE_URL is required (read-only checks are run against it)\n');
   process.exit(2);
 }
-const folder = migrationsFolder ?? fileURLToPath(new URL('../drizzle', import.meta.url));
+const folder = migrationsFolder;
 const client = postgres(url, { max: 1, onnotice: () => undefined });
 let failed = false;
 try {

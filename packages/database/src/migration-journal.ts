@@ -45,11 +45,11 @@ export function readJournal(folder: string): JournalReadResult {
   }
   const entries: JournalEntry[] = [];
   journal.entries.forEach((candidate: unknown, position) => {
-    const e = candidate as Partial<Record<keyof JournalEntry, unknown>>;
     const where = `entry #${String(position)}`;
+    const e = (typeof candidate === 'object' && candidate !== null ? candidate : {}) as Partial<
+      Record<keyof JournalEntry, unknown>
+    >;
     if (
-      typeof e !== 'object' ||
-      e === null ||
       !Number.isInteger(e.idx) ||
       typeof e.version !== 'string' ||
       typeof e.when !== 'number' ||

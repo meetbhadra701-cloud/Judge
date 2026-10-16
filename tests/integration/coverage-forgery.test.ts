@@ -338,7 +338,8 @@ describe.each(testDatabaseTargets())(
       const before = await reads.getDetail(b.world.project.id, await assessmentIdOf(b));
       const forged = asStored(
         reforge(CoverageRecord.parse(JSON.parse((await storedOf(a)).canonical)), (r) => {
-          r.snapshots[0] && (r.snapshots[0].status = 'partial');
+          const first = r.snapshots[0];
+          if (first) first.status = 'partial';
         }),
       );
       const original = await storedOf(a);

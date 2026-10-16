@@ -132,7 +132,7 @@ describe.each(testDatabaseTargets())(
     });
 
     it('upgrades with the real migrator; the schema objects exist and the constraints and triggers hold', async () => {
-      await migrateFolder(testDb as never, migrationsFolder);
+      await migrateFolder(testDb, migrationsFolder);
       expect((await verifySchemaObjects(db, migrationsFolder)).missing).toEqual([]);
       await expect(assertSchemaReady(db)).resolves.toBeUndefined();
       const triggers = await rows<{ tgname: string }>(
@@ -236,8 +236,8 @@ describe.each(testDatabaseTargets())(
       const snapshot = new Map<string, string>();
       for (const table of [...TABLES, 'assessment_run_coverage'])
         snapshot.set(table, await digestOf(table));
-      await migrateFolder(testDb as never, migrationsFolder);
-      await migrateFolder(testDb as never, migrationsFolder);
+      await migrateFolder(testDb, migrationsFolder);
+      await migrateFolder(testDb, migrationsFolder);
       expect(await countRows()).toBe(rowsBefore);
       for (const [table, digest] of snapshot) expect(await digestOf(table), table).toBe(digest);
       expect((await verifySchemaObjects(db, migrationsFolder)).missing).toEqual([]);

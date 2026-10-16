@@ -21,7 +21,9 @@ afterEach(() => {
 });
 function mutate(change: (journal: Journal, folder: string) => void): string[] {
   const folder = mkdtempSync(join(tmpdir(), 'judge-journal-'));
-  cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+  cleanups.push(() => {
+    rmSync(folder, { recursive: true, force: true });
+  });
   cpSync(migrationsFolder, folder, { recursive: true });
   const path = join(folder, 'meta', '_journal.json');
   const journal = JSON.parse(readFileSync(path, 'utf8')) as Journal;
@@ -118,7 +120,9 @@ describe('the migration journal check', () => {
       }).join('\n'),
     ).toContain('no entries array');
     const folder = mkdtempSync(join(tmpdir(), 'judge-journal-'));
-    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    cleanups.push(() => {
+      rmSync(folder, { recursive: true, force: true });
+    });
     expect(checkMigrationJournal(folder).join('\n')).toContain('_journal.json is missing');
     cpSync(migrationsFolder, folder, { recursive: true });
     writeFileSync(join(folder, 'meta', '_journal.json'), '{not json');
