@@ -220,3 +220,146 @@ describe('budgets cannot be chosen by the record', () => {
     expect(newVerdict(world, forged).problems).toContain('provenance_policy_mismatch');
   });
 });
+
+const at = <T>(items: T[]): T => {
+  const item = items[0];
+  if (item === undefined) throw new Error('empty list');
+  return item;
+};
+
+describe('stage 1 alone (no stored text) rejects each kind of identity disagreement on its own', () => {
+  const world = makeWorld(repo(), { ...TIGHT, partial: ['github'], suppliedDevpost: true });
+  const clone = (): CoverageRecord => JSON.parse(JSON.stringify(world.record)) as CoverageRecord;
+  const problemsOf = (change: (r: CoverageRecord) => void): CoverageProblem[] => {
+    const record = clone();
+    change(record);
+    return [...checkCoverageIdentity(record, world.evidence).problems];
+  };
+  it('accepts the genuine record', () => {
+    expect(checkCoverageIdentity(world.record, world.evidence).problems).toEqual([]);
+  });
+
+  it.each([
+    [
+      'a snapshot status',
+      (r: CoverageRecord) => {
+        at(r.snapshots).status = at(r.snapshots).status === 'partial' ? 'captured' : 'partial';
+      },
+    ],
+    [
+      'a snapshot provenance',
+      (r: CoverageRecord) => {
+        at(r.snapshots).provenance =
+          at(r.snapshots).provenance === 'fetched' ? 'organizer_supplied' : 'fetched';
+      },
+    ],
+    [
+      'a snapshot content hash',
+      (r: CoverageRecord) => {
+        at(r.snapshots).contentHash = 'e'.repeat(64);
+      },
+    ],
+    [
+      'a snapshot source type',
+      (r: CoverageRecord) => {
+        at(r.snapshots).sourceType = at(r.snapshots).sourceType === 'github' ? 'devpost' : 'github';
+      },
+    ],
+    [
+      'the partial-capture reasons',
+      (r: CoverageRecord) => {
+        at(r.snapshots).partialReasons = ['tree_truncated', 'file_count_limit'];
+      },
+    ],
+    [
+      'a snapshot id that was not pinned',
+      (r: CoverageRecord) => {
+        at(r.snapshots).snapshotId = uuidOf('not-pinned');
+      },
+    ],
+    [
+      'a missing snapshot',
+      (r: CoverageRecord) => {
+        r.snapshots.pop();
+      },
+    ],
+  ])('%s', (_name, change) => {
+    expect(problemsOf(change)).toContain('provenance_snapshot_mismatch');
+  });
+
+  it.each([
+    [
+      'the selection policy',
+      (r: CoverageRecord) => {
+        r.policy.selection = 'source-selection/v1';
+      },
+    ],
+    [
+      'the windowing policy',
+      (r: CoverageRecord) => {
+        r.policy.windowing = 'windowing/v0';
+      },
+    ],
+    [
+      'the routing policy',
+      (r: CoverageRecord) => {
+        r.policy.routing = 'source-routing/v0';
+      },
+    ],
+  ])('%s', (_name, change) => {
+    expect(problemsOf(change)).toContain('provenance_policy_mismatch');
+  });
+
+  it.each([
+    [
+      'an artifact id that does not exist',
+      (r: CoverageRecord) => {
+        at(r.artifacts).artifactId = uuidOf('ghost');
+      },
+    ],
+    [
+      'an artifact key',
+      (r: CoverageRecord) => {
+        at(r.artifacts).key = 'files/other.ts';
+      },
+    ],
+    [
+      'an artifact hash',
+      (r: CoverageRecord) => {
+        at(r.artifacts).textSha256 = 'd'.repeat(64);
+      },
+    ],
+    [
+      'an artifact length',
+      (r: CoverageRecord) => {
+        at(r.artifacts).totalCodePoints += 1;
+      },
+    ],
+    [
+      'an artifact that belongs to an unpinned snapshot',
+      (r: CoverageRecord) => {
+        at(r.artifacts).snapshotId = uuidOf('not-pinned');
+      },
+    ],
+    [
+      'the same artifact listed twice',
+      (r: CoverageRecord) => {
+        r.artifacts.push({ ...at(r.artifacts) });
+      },
+    ],
+  ])('%s', (_name, change) => {
+    expect(problemsOf(change)).toContain('provenance_artifact_mismatch');
+  });
+
+  it('a snapshot of another project among the pins is not accepted as this run’s evidence', () => {
+    const foreignPin = {
+      ...world.evidence,
+      pins: world.evidence.pins.map((p, i) =>
+        i === 0 ? { ...p, projectId: OTHER_PROJECT_ID } : p,
+      ),
+    };
+    expect(checkCoverageIdentity(world.record, foreignPin).problems).toContain(
+      'provenance_snapshot_mismatch',
+    );
+  });
+});
