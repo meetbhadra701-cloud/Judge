@@ -151,6 +151,47 @@ describe('selection: how many questions, and why', () => {
   });
 });
 
+describe('selection: exact ties', () => {
+  it('breaks exact ties by the total order (value, severity, cost, key), whatever order the candidates arrive in', () => {
+    const tied = (key: string, id: string) => ({
+      key,
+      mode: 'ask' as const,
+      text: `Question about ${key} on its own distinct subject number ${id}?`,
+      reason: 'r',
+      expectedInformation: ['explanation' as const],
+      opportunityIds: [`opp-${id.repeat(16)}`],
+      dimensionIds: [],
+      references: [],
+      distinguishes: 'moderate' as const,
+      effort: 'brief' as const,
+      outputIndex: 0,
+      factors: {
+        relevanceMilli: 500,
+        severityMilli: 750,
+        distinguishingMilli: 700,
+        observabilityMilli: 300,
+        costMilli: 100,
+      },
+      valueBp: 2000,
+      severity: 'high' as const,
+    });
+    const candidates = [
+      tied('cand-cccccccccccccccc', '3'),
+      tied('cand-aaaaaaaaaaaaaaaa', '1'),
+      tied('cand-bbbbbbbbbbbbbbbb', '2'),
+    ];
+    const context = { opportunities: 3, rejections: [] };
+    const forward = selectQuestions(candidates, context).selected.map((q) => q.key);
+    const backward = selectQuestions([...candidates].reverse(), context).selected.map((q) => q.key);
+    expect(forward).toEqual([
+      'cand-aaaaaaaaaaaaaaaa',
+      'cand-bbbbbbbbbbbbbbbb',
+      'cand-cccccccccccccccc',
+    ]);
+    expect(backward).toEqual(forward);
+  });
+});
+
 describe('selection: golden', () => {
   it('pins the order, values and marginal values of the reference world (a change here is a change of policy and needs a new policy version)', () => {
     const { result, closed } = pipeline(world().input);
