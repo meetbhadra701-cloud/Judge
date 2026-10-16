@@ -326,6 +326,26 @@ describe.each(testDatabaseTargets())('question engine HTTP API on %s', (_name, o
     const storedSets = async (projectId: string, assessmentId: string) =>
       listOf((await call('GET', SETS(projectId, assessmentId))).body).sets;
 
+    it('calls the provider exactly once per identity: a repeated request is answered from the stored set', async () => {
+      const { projectId, assessmentId } = await assessed();
+      let calls = 0;
+      const counting = using((request) => {
+        calls += 1;
+        return questionDemonstrationStep(request);
+      });
+      expect((await call('POST', SETS(projectId, assessmentId), { on: counting })).status).toBe(
+        201,
+      );
+      expect((await call('POST', SETS(projectId, assessmentId), { on: counting })).status).toBe(
+        200,
+      );
+      expect((await call('POST', SETS(projectId, assessmentId), { on: counting })).status).toBe(
+        200,
+      );
+      expect(calls).toBe(1);
+      await counting.close();
+    });
+
     it('stores nothing and answers 502 when the provider fails', async () => {
       const { projectId, assessmentId } = await assessed();
       const broken = using({ ok: false, category: 'refused', sendState: 'sent_unknown' });
