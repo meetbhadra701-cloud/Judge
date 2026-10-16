@@ -335,6 +335,8 @@ export interface CoverageNotice {
   readonly headline: string;
   /** What "complete" would NOT mean either: relevance and sufficiency are never established here. */
   readonly caveat: string;
+  /** How the record was checked (verified records only): by re-running the selection over the stored source, never by trusting the record. */
+  readonly checkedNote: string | null;
   /** Statement A, kept separate from B. */
   readonly dimensionsStatement: string;
   /** Plain-language account of the concerns, most important first. */
@@ -347,6 +349,29 @@ export interface CoverageNotice {
     readonly inspectedCodePoints: number;
   }[];
 }
+
+/** Plain words for why a stored coverage record was not trusted. Never says what the source contains. */
+const PROBLEM_TEXT: Readonly<Record<string, string>> = {
+  provenance_snapshot_mismatch:
+    'The record describes the pinned captures differently from how they are actually stored.',
+  provenance_artifact_mismatch:
+    'The record names files, hashes or sizes that are not those of the stored source.',
+  provenance_selection_mismatch:
+    'The record says a different part of the source was shown than a fresh run of the selection yields.',
+  provenance_measures_mismatch:
+    'The record’s totals and verdict differ from what the stored source gives.',
+  provenance_limitations_mismatch:
+    'The record lists different limitations than the stored source gives.',
+  provenance_budget_mismatch:
+    'The record’s source allowance is not the one this run was made under.',
+  provenance_policy_mismatch:
+    'The record names a different selection policy than the run was frozen with.',
+  provenance_run_mismatch: 'The record belongs to a different run than the one it is attached to.',
+  provenance_unavailable:
+    'The stored source could not be read, so the record could not be checked against it.',
+  limitations_missing_from_assessment:
+    'The assessment does not carry every limitation the record says reached the assessors.',
+};
 
 const CONCERN_TEXT: Readonly<Record<string, { detail: string; unsupported: string | null }>> = {
   no_implementation_shown: {
@@ -428,13 +453,16 @@ export function coverageNotice(detail: AssessmentDetail): CoverageNotice {
           ? 'Source coverage was not recorded for this assessment. Do not read it as based on all of the project’s evidence.'
           : 'The stored source-coverage record failed its integrity checks, so how much of the project was examined is unknown.',
       caveat,
+      checkedNote: null,
       dimensionsStatement,
       details:
         coverage.status === 'not_recorded'
           ? [
               'This assessment was made before coverage was recorded. What the assessors were shown cannot be reconstructed from the stored data.',
             ]
-          : coverage.problems.map((code) => `Integrity check failed: ${code}.`),
+          : coverage.problems.map(
+              (code) => `${PROBLEM_TEXT[code] ?? 'Integrity check failed.'} (${code})`,
+            ),
       unsupported: [
         'Any statement that all of the project’s evidence was examined.',
         'Any conclusion about a part of the project that cannot be shown to have been examined.',
@@ -485,6 +513,12 @@ export function coverageNotice(detail: AssessmentDetail): CoverageNotice {
           ? 'PARTIAL SOURCE COVERAGE — not all of the project’s evidence was examined.'
           : 'No source-coverage concern was found by the path-based checks.',
     caveat,
+    checkedNote:
+      coverage.provenance === null
+        ? null
+        : coverage.provenance.budgets === 'pinned_by_extraction'
+          ? 'This record was checked by running the selection again over the stored source text, under the run’s frozen settings; it matches exactly.'
+          : 'This record was checked by running the selection again over the stored source text; it matches exactly. The run stopped before any extraction existed, so its source allowance is only shown to be one the settings allow.',
     dimensionsStatement,
     details,
     unsupported,

@@ -33,6 +33,7 @@ const coverageView = (overrides: Partial<AssessmentCoverageView> = {}): Assessme
   verified: true,
   problems: [],
   recordSha256: 'a'.repeat(64),
+  provenance: { method: 'recomputed_from_snapshots', budgets: 'pinned_by_extraction' },
   policy: {
     windowing: 'windowing/v1',
     selection: 'source-selection/v3',
@@ -1053,6 +1054,22 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
     expect(html).toMatch(/data-testid="overall-coverage">PARTIAL source coverage/);
   });
 
+  it('says how a verified record was checked, and that a refused run’s allowance is less firmly tied', () => {
+    expect(renderWith(coverageView())).toContain(
+      'running the selection again over the stored source text',
+    );
+    const refused = renderWith(
+      coverageView({
+        provenance: { method: 'recomputed_from_snapshots', budgets: 'allowed_set_only' },
+      }),
+    );
+    expect(refused).toContain('only shown to be one the settings allow');
+    const unverified = renderWith(
+      coverageView({ verified: false, provenance: null, verdict: null }),
+    );
+    expect(unverified).not.toContain('data-testid="coverage-checked"');
+  });
+
   it('a clean record says only that no path-based concern was found, and still disclaims relevance and sufficiency', () => {
     const html = renderWith(coverageView());
     const notice = sectionOf(html);
@@ -1078,13 +1095,16 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
       coverageView({
         verified: false,
         verdict: null,
-        problems: ['record_text_hash_mismatch'],
+        problems: ['record_text_hash_mismatch', 'provenance_artifact_mismatch'],
         omittedComponents: [],
       }),
     );
     const notice = sectionOf(html);
     expect(notice).toContain('failed its integrity checks');
     expect(notice).toContain('record_text_hash_mismatch');
+    expect(notice).toContain(
+      'names files, hashes or sizes that are not those of the stored source',
+    );
     expect(notice).not.toContain('No source-coverage concern');
   });
 

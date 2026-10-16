@@ -500,6 +500,11 @@ function CoveragePanel({ notice }: { notice: CoverageNotice }) {
       <p>
         <small>{notice.caveat}</small>
       </p>
+      {notice.checkedNote ? (
+        <p data-testid="coverage-checked">
+          <small>{notice.checkedNote}</small>
+        </p>
+      ) : null}
     </section>
   );
 }
