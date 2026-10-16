@@ -158,6 +158,16 @@ export const FAILURE_EXPLANATIONS: Readonly<Record<string, string>> = {
  * Organizer-facing explanations for the specific failure CODES a run can end with, which are more precise than its category (a
  * `provider_error` that is a replay miss is not a provider outage). Codes not listed here fall back to the category explanation.
  */
+/** What a recorded limitation means in plain words (only the ones whose code alone would mislead; any other code is shown as recorded). */
+export const LIMITATION_EXPLANATIONS: Readonly<Record<string, string>> = {
+  partial_score_excludes_model_declared_insufficient:
+    'Part of the rubric weight was left out because the assessor itself declared those dimensions to lack evidence. That declaration was not independently reviewed, so the partial number may be higher than a full assessment would give. Treat it as a partial view, not as the project’s overall score.',
+  newer_capture_unusable:
+    'A newer attempt to capture this source failed or was rejected, so an older capture was assessed. This says nothing about the project and lowered no score.',
+  organizer_supplied_source:
+    'This text was typed or pasted by an organizer and was not fetched from, or compared with, the source.',
+};
+
 export const FAILURE_CODE_EXPLANATIONS: Readonly<Record<string, string>> = {
   replay_miss:
     'This offline demonstration has no recorded answer for this material, so it could not continue. Recorded answers exist only for the built-in synthetic demonstration project; no live model is used.',

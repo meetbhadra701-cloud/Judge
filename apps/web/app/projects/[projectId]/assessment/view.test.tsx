@@ -725,6 +725,31 @@ describe('P6B-alpha: unknowns and missing information', () => {
     expect(section).toContain('not part of this version');
   });
 
+  it('P6C F-2 / F-8: attributes a partial number to the assessor’s own declaration and says a failed newer capture lowered nothing — and says neither for a plain report', () => {
+    const withCodes = render(
+      list([summary({ overall: { state: 'scored_partial', score10: 9 } })]),
+      detail({
+        limitations: [
+          {
+            code: 'partial_score_excludes_model_declared_insufficient',
+            count: 1,
+            subjects: ['d.b'],
+          },
+          { code: 'newer_capture_unusable', count: 1, subjects: ['github'] },
+        ],
+      }),
+    );
+    expect(withCodes).toContain(
+      'data-testid="limitation-partial_score_excludes_model_declared_insufficient"',
+    );
+    expect(withCodes).toContain('declared those dimensions to lack evidence');
+    expect(withCodes).toContain('not independently reviewed');
+    expect(withCodes).toContain('lowered no score');
+    const plain = render(list([summary({})]), detail({ limitations: [] }));
+    expect(plain).not.toContain('declared those dimensions to lack evidence');
+    expect(plain).not.toContain('lowered no score');
+  });
+
   it('renders unknown text as inert text and does not create unknowns of its own', () => {
     const html = render(scoredList, detail({}), {
       items: [unknown('u1', '<script>alert(1)</script>')],

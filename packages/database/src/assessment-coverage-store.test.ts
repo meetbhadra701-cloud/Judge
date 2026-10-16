@@ -7,6 +7,9 @@ import { startRun } from './testing/assessment-pipeline.js';
 import { seedAssessmentWorld } from './testing/assessment-world.js';
 import { rows, sql, testDatabaseTargets, type TestDatabase } from './testing/databases.js';
 
+// P6C F-3: a context with nothing to refer to is refused at request time, so these fixtures state one explicit rule
+const EXPLICIT_RULE = { rules: [{ statement: 'Every project must be original work.', certainty: 'explicit' }] };
+
 /*
  * P6B-beta3-R1: the store writes the coverage record only for the run that holds the lease, only for the snapshots the run pinned, only
  * in canonical form, and never replaces a record. Each refusal is checked here at the store; the database's own guards are in the worker tests.
@@ -27,7 +30,7 @@ describe.each(testDatabaseTargets())('coverage record store on %s', (_name, open
     '\n',
   );
   async function prepared() {
-    const world = await seedAssessmentWorld(db, {});
+    const world = await seedAssessmentWorld(db, EXPLICIT_RULE);
     const run = await startRun(db, world);
     const pins = await rows<{ snapshot_id: string; snapshot_content_hash: string }>(
       db,

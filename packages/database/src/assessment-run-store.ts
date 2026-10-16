@@ -11,7 +11,7 @@ import {
   type ProviderMode,
 } from '@judge-copilot/schemas';
 import { and, asc, desc, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm';
-import type { EventReferenceMeta } from '@judge-copilot/assessment';
+import { buildEventReferenceItems, type EventReferenceMeta } from '@judge-copilot/assessment';
 import { inputsFingerprint, trackSelectionSetHash } from './assessment-hashes.js';
 import { assessmentIdentityOf, requestIdentityOf } from './assessment-identity.js';
 import type { JudgeDatabase } from './client.js';
@@ -120,6 +120,7 @@ export type RequestAssessmentResult =
   | { readonly kind: 'project_voided' }
   | { readonly kind: 'no_locked_context' }
   | { readonly kind: 'no_source_snapshots' }
+  | { readonly kind: 'no_context_reference_evidence' }
   | { readonly kind: 'track_not_in_context'; readonly trackKey: string };
 
 export interface RunRecord {
@@ -288,6 +289,21 @@ export class AssessmentRunStore {
         !pins.declaredTrackKeys.includes(input.target.trackKey)
       ) {
         return { kind: 'track_not_in_context', trackKey: input.target.trackKey };
+      }
+
+      // 2b. P6C F-3: a context with no explicit rule, requirement or declared track gives the assessment no reference evidence
+      // (the worker would fail the run late, after it was queued). Refuse here, before any run or spend; nothing is invented.
+      const pinned = await new LockedContextReader().read(
+        tx,
+        project.eventId,
+        pins.contextVersionId,
+      );
+      if (
+        pinned.ok &&
+        pinned.recomputedHash === pins.lockedContentHash &&
+        buildEventReferenceItems(pinned.snapshot, pins.declaredTrackKeys).items.length === 0
+      ) {
+        return { kind: 'no_context_reference_evidence' };
       }
 
       // 3. the intended assessment identity, frozen now: from the pins just read and the documented salt

@@ -505,10 +505,31 @@ async function execute(
     // the text was typed or pasted by an organizer: it is a team statement that nobody fetched from the source or compared with it
     note('organizer_supplied_source', supplied);
   }
+  if (sources.newerUnusable.length > 0) {
+    // F-8: a newer capture attempt of these sources failed or was rejected, so the older capture was assessed. This is a statement about
+    // what could be fetched, not about the project; no score is lowered for it.
+    note('newer_capture_unusable', sources.newerUnusable);
+  }
   if (draft === null) note('extraction_reused', [source.extractionKey]);
   if (draft === null && recorded === null) {
     // an extraction created before its notices were recorded: its fidelity and rejection notices cannot be reproduced, and the judge is told so
     note('extraction_limitations_not_recorded', [source.extractionKey]);
+  }
+  {
+    // F-2 (option B): the critic never reviews a dimension the assessor itself declared insufficient, and the engine renormalizes over what
+    // was assessed. When that makes the number partial, say that part of the exclusion is the assessor's own unreviewed claim. The number is
+    // exactly what the unchanged engine computed; code-detected insufficiency (pre-gates, critic) is not flagged this way.
+    const overall = assessed.report.overall;
+    const partial =
+      overall.state === 'scored_partial' ||
+      assessed.report.criteria.some((criterion) => criterion.state === 'partial');
+    const declared = assessed.finals
+      .filter((final) => final.disposition === 'assessor_reported_insufficient')
+      .map((final) => final.dimensionId)
+      .sort();
+    if (partial && declared.length > 0) {
+      note('partial_score_excludes_model_declared_insufficient', declared);
+    }
   }
   if (assessed.evaluation.mostlyUnassessable) note('mostly_unassessable', []);
   if (assessed.authorized.data.newerDeclarationsExist) note('newer_declarations_exist', []);

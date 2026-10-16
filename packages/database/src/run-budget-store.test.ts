@@ -16,6 +16,9 @@ import {
 import { sha256 } from './testing/graph-world.js';
 import { AssessmentRunLimits } from '@judge-copilot/schemas';
 
+// P6C F-3: a context with nothing to refer to is refused at request time, so these fixtures state one explicit rule
+const EXPLICIT_RULE = { rules: [{ statement: 'Every project must be original work.', certainty: 'explicit' }] };
+
 const { CHECK_VIOLATION, RESTRICT_VIOLATION } = SQLSTATE;
 
 describe.each(testDatabaseTargets())('M5 P4 call ledger: database guards on %s', (_name, open) => {
@@ -37,7 +40,7 @@ describe.each(testDatabaseTargets())('M5 P4 call ledger: database guards on %s',
   });
 
   async function startRun(limits: Record<string, number>) {
-    w = await seedAssessmentWorld(db);
+    w = await seedAssessmentWorld(db, EXPLICIT_RULE);
     const store = newRunStore(db);
     runId = createdRunId(
       await store.requestAssessment(requestInput(w, { limits: AssessmentRunLimits.parse(limits) })),
@@ -87,7 +90,7 @@ describe.each(testDatabaseTargets())('M5 P4 call ledger: database guards on %s',
   });
 
   it('the wall clock runs from the moment the run was CLAIMED (the queue wait is not charged), in the application and in the trigger', async () => {
-    w = await seedAssessmentWorld(db);
+    w = await seedAssessmentWorld(db, EXPLICIT_RULE);
     // a run claimed ten minutes ago, with a one-minute wall-clock limit
     const store = newRunStore(db, () => new Date(Date.now() - 10 * 60_000));
     const id = createdRunId(
@@ -110,7 +113,7 @@ describe.each(testDatabaseTargets())('M5 P4 call ledger: database guards on %s',
     // a freshly claimed run is not penalized for how long it waited
     const fresh = createdRunId(
       await newRunStore(db).requestAssessment(
-        requestInput(await seedAssessmentWorld(db), {
+        requestInput(await seedAssessmentWorld(db, EXPLICIT_RULE), {
           limits: AssessmentRunLimits.parse({ runWallClockMs: 60_000 }),
         }),
       ),

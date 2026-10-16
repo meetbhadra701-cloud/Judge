@@ -43,6 +43,11 @@ export interface PinnedSources {
   readonly snapshotFacts: readonly SnapshotFact[];
   /** One status per source type, for the code-authored `missing` unknowns. */
   readonly statuses: readonly SourceStatus[];
+  /**
+   * Source types whose pinned capture is NOT the newest attempt because a newer attempt failed or was rejected (P6C F-8). The older
+   * capture is still what is assessed; the judge is told that the newest attempt did not succeed. Never lowers a score.
+   */
+  readonly newerUnusable: readonly RoutedSourceType[];
 }
 
 const SEVERITY: Record<'failed' | 'rejected' | 'pending', number> = {
@@ -147,6 +152,30 @@ export async function loadPinnedSources(
       latest?.status === 'failed' || latest?.status === 'rejected' ? latest.status : 'pending',
     );
   }
+  const newerUnusable = new Set<RoutedSourceType>();
+  for (const pin of pins) {
+    const pinnedNumber = pinRows.find((row) => row.snapshotId === pin.snapshotId)?.snapshot
+      .captureNumber;
+    if (pinnedNumber === undefined) continue;
+    const newer = await db
+      .select({ status: sourceSnapshots.status, captureNumber: sourceSnapshots.captureNumber })
+      .from(sourceSnapshots)
+      .where(
+        and(
+          eq(sourceSnapshots.projectSourceId, pin.projectSourceId),
+          eq(sourceSnapshots.projectId, projectId),
+        ),
+      );
+    if (
+      newer.some(
+        (row) =>
+          row.captureNumber > pinnedNumber &&
+          (row.status === 'failed' || row.status === 'rejected'),
+      )
+    ) {
+      newerUnusable.add(pin.sourceType);
+    }
+  }
   const statuses: SourceStatus[] = SOURCE_TYPE_VALUES.map((sourceType) => {
     const mine = sources.filter((source) => source.sourceType === sourceType);
     if (mine.length === 0) return { sourceType, status: 'absent' as const };
@@ -169,5 +198,6 @@ export async function loadPinnedSources(
       status: pin.status,
     })),
     statuses,
+    newerUnusable: [...newerUnusable].sort(),
   };
 }

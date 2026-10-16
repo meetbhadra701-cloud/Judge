@@ -20,7 +20,7 @@ export interface ParsedRecord {
   readonly body: string | null;
 }
 
-const BEGIN = /^<<<ITEM (\S+) ([0-9a-f]{16})>>>$/;
+const ITEM_OPEN = /^<<<ITEM (\S+) ([0-9a-f]{16})>>>$/;
 
 /** Parses the records of a rendered request. A record ends only at the END line carrying ITS code, as the framing promises. */
 export function parseRecords(request: StructuredRequest): ParsedRecord[] {
@@ -28,7 +28,7 @@ export function parseRecords(request: StructuredRequest): ParsedRecord[] {
   for (const block of request.user) {
     const lines = block.split('\n');
     for (let index = 0; index < lines.length; index += 1) {
-      const begin = BEGIN.exec(lines[index] ?? '');
+      const begin = ITEM_OPEN.exec(lines[index] ?? '');
       if (!begin) continue;
       const handle = begin[1] ?? '';
       const code = begin[2] ?? '';

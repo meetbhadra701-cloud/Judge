@@ -192,6 +192,33 @@ describe.each(testDatabaseTargets())(
         expect(missing).toEqual({ kind: 'track_not_in_context', trackKey: 'robotics' });
       });
 
+      it('P6C F-3: a locked context with nothing to refer to is refused before any run is queued; any explicit reference lets it through', async () => {
+        const store = newRunStore(db);
+        const runsBefore = await countRows('analysis_runs');
+        // a rubric-only context: no rule, no requirement, no declared track
+        const rubricOnly = await seedAssessmentWorld(db);
+        const refused = await store.requestAssessment(requestInput(rubricOnly));
+        expect(refused).toEqual({ kind: 'no_context_reference_evidence' });
+        // an unclear/interpreted-only rule is not explicit reference evidence either
+        const unclearOnly = await seedAssessmentWorld(db, {
+          rules: [{ statement: 'Judges may consider fairness.', certainty: 'unclear' }],
+        });
+        expect((await store.requestAssessment(requestInput(unclearOnly))).kind).toBe(
+          'no_context_reference_evidence',
+        );
+        // nothing was queued, recorded or spent
+        expect(await countRows('analysis_runs')).toBe(runsBefore);
+        expect(await store.getRequest(rubricOnly.actor.id, freshKey())).toBeNull();
+        // an explicit rule (the world of every other test here) proceeds
+        expect((await store.requestAssessment(requestInput(w))).kind).toBe('run_created');
+        // so does a declared track alone
+        const trackOnly = await seedAssessmentWorld(db, {
+          trackKeys: ['health'],
+          declare: ['health'],
+        });
+        expect((await store.requestAssessment(requestInput(trackOnly))).kind).toBe('run_created');
+      });
+
       it('re-captures after pinning do not change what the run is about (invariant 17)', async () => {
         const store = newRunStore(db);
         const runId = createdRunId(await store.requestAssessment(requestInput(w)));

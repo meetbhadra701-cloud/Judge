@@ -82,6 +82,10 @@ describe.each(testDatabaseTargets())('F-2: model-declared insufficiency on %s', 
         };
       },
       limitations: (assessment?.limitations as { code: string }[]).map((l) => l.code),
+      limitationSubjects:
+        (assessment?.limitations as { code: string; subjects: string[] }[]).find(
+          (l) => l.code === 'partial_score_excludes_model_declared_insufficient',
+        )?.subjects ?? [],
       judgments,
     };
   }
@@ -104,19 +108,22 @@ describe.each(testDatabaseTargets())('F-2: model-declared insufficiency on %s', 
       criticReviewed: false,
       criticReviewRequired: false,
     });
-    expect(insufficientRun.limitations).not.toContain(
+    // P6C (F-2 option B): the exclusion is attributed to the assessor's own unreviewed claim; the number above is unchanged
+    expect(insufficientRun.limitations).toContain(
       'partial_score_excludes_model_declared_insufficient',
     );
+    expect(insufficientRun.limitationSubjects).toEqual([hard?.dimensionId]);
   });
 
   it('the same project with the third criterion scored 2 is 6.9: the partial number is not "the score of the whole rubric"', async () => {
     const scoredRun = await runThreeCriteria('scored-low');
     expect(scoredRun.report.overall).toMatchObject({ state: 'scored', score10: 6.9 });
+    // P6C: a fully scored run carries no model-declared-exclusion limitation
+    expect(scoredRun.limitations).not.toContain(
+      'partial_score_excludes_model_declared_insufficient',
+    );
   });
 
-  it.todo(
-    'APPROVED CHANGE (F-2 option B): a scored_partial whose missing weight is model-declared carries the limitation partial_score_excludes_model_declared_insufficient with the criteria and the excluded weight share',
-  );
   it.todo(
     'APPROVED CHANGE (F-2 option A, needs critic prompt v2): an assessor-reported insufficiency over a substantial project-derived candidate set is reviewed once; a contested insufficiency triggers the bounded re-run',
   );

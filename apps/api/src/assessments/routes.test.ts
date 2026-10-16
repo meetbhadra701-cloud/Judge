@@ -80,7 +80,7 @@ describe.each(testDatabaseTargets())('M5 P6A assessment HTTP API on %s', (_name,
   }
   const code = (body: unknown) => ApiErrorBody.parse(body).error.code;
 
-  async function createProject(name: string, captured: boolean) {
+  async function createProject(name: string, captured: boolean, trackKeys: string[] = ['health']) {
     const fixtures = await loadFixtures();
     const { eventId } = await lockedEventFromRecording(
       eventContext,
@@ -90,7 +90,7 @@ describe.each(testDatabaseTargets())('M5 P6A assessment HTTP API on %s', (_name,
       method: 'POST',
       url: `/events/${eventId}/projects`,
       headers: bearer(TEST_TOKENS.organizer),
-      payload: { name, trackKeys: [] },
+      payload: { name, trackKeys },
     });
     expect(created.statusCode).toBe(201);
     const id = ProjectRecord.parse(created.json()).id;
@@ -482,6 +482,20 @@ describe.each(testDatabaseTargets())('M5 P6A assessment HTTP API on %s', (_name,
       expect(missing.status).toBe(404);
       expect(code(missing.body)).toBe('PROJECT_NOT_FOUND');
       expect(code((await call('GET', LIST(MISSING))).body)).toBe('PROJECT_NOT_FOUND');
+    });
+
+    it('P6C F-3: refuses early (422 NO_CONTEXT_REFERENCE_EVIDENCE) when the locked context has nothing to refer to, and queues nothing', async () => {
+      const noReference = await createProject('Synthetic No Reference', true, []);
+      const refused = await call('POST', LIST(noReference), {
+        key: KEY(30),
+        payload: { mode: 'assess' },
+      });
+      expect(refused.status).toBe(422);
+      expect(code(refused.body)).toBe('NO_CONTEXT_REFERENCE_EVIDENCE');
+      expect((await call('GET', LIST(noReference))).body).toMatchObject({
+        activeRun: null,
+        latestRun: null,
+      });
     });
 
     it('answers a run or assessment of ANOTHER project exactly like a nonexistent one (404, identical bodies)', async () => {

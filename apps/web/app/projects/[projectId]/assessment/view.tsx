@@ -18,6 +18,7 @@ import {
   formatCostNanoUsd,
   formatRatio,
   formatScoreOnRubric,
+  LIMITATION_EXPLANATIONS,
   relativeDimensions,
   scaleExplanation,
   type RubricScale,
@@ -404,6 +405,12 @@ function AssessmentView({
               <li key={item.code}>
                 <code>{item.code}</code> ×{item.count}
                 {item.subjects.length > 0 ? ` — ${item.subjects.join(', ')}` : ''}
+                {LIMITATION_EXPLANATIONS[item.code] ? (
+                  <small data-testid={`limitation-${item.code}`}>
+                    {' '}
+                    {LIMITATION_EXPLANATIONS[item.code]}
+                  </small>
+                ) : null}
               </li>
             ))}
           </ul>

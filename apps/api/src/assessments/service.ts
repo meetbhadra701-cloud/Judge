@@ -183,6 +183,11 @@ export class AssessmentService {
           'NO_SOURCE_SNAPSHOTS',
           'The project has no captured source to assess',
         );
+      case 'no_context_reference_evidence':
+        throw new AssessmentApiError(
+          'NO_CONTEXT_REFERENCE_EVIDENCE',
+          'The locked Event Context has no explicit rule, no submission requirement and no declared track for an assessment to refer to. Nothing was queued or spent. Add an explicit rule or requirement (or declare a track) in a new Event Context version, lock it, and request the assessment again.',
+        );
       case 'track_not_in_context':
         throw new AssessmentApiError(
           'NO_LOCKED_CONTEXT',

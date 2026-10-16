@@ -119,14 +119,12 @@ describe.each(testDatabaseTargets())(
         await expectNoAssessment(run, db);
       });
 
-      it('stops before any spend when the locked context offers no reference evidence (the P4 contract gap)', async () => {
-        const run = await execute(db, { worldOptions: { rules: [] } });
-        expect(run.outcome).toMatchObject({
-          kind: 'failed',
-          category: 'domain_validation_failed',
-          code: 'no_context_reference_evidence',
-        });
-        expect(run.model.calls).toHaveLength(0);
+      it('P6C F-3: a locked context with no reference evidence is refused when the run is REQUESTED, so no run, no worker time and no spend exist', async () => {
+        // the request-time check (AssessmentRunStore) answers before any run is created; the worker-side failure
+        // `no_context_reference_evidence` stays as defence in depth for a context that changed after the request
+        await expect(execute(db, { worldOptions: { rules: [] } })).rejects.toThrow(
+          /no_context_reference_evidence/,
+        );
       });
 
       it('refuses a run whose frozen configuration is stale, for another provider mode, or unreadable', async () => {
