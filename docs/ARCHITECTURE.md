@@ -1029,6 +1029,44 @@ _shown_. **Coverage is a set of heuristics over file paths and sizes. It can sho
 **Still gated:** a reviewer-visible "assess with partial coverage" flow; deeper reading of unseen regions; per-dimension coverage requirements (which part of a repository a criterion needs); semantic judgment of
 relevance. A run whose verdict is `insufficient` still stops before spend.
 
+## Coverage verification against the immutable source (P6B-beta3-R2)
+
+**What the R1 check proved, and did not.** `verifyCoverageRecord` shows that a stored record agrees with _itself_: canonical text, hash, mirror, arithmetic, limitations, and the pinned snapshot ids. A record that
+was forged to be internally consistent passes all of that. A coverage claim is therefore verified only against evidence its author does not control.
+
+**Two checks, two names.**
+
+- _Internal integrity_ (`verifyCoverageRecord`): text, SHA-256, JSON mirror, schema, re-derivation of measures/verdict/limitations from the record's own entries, stored limitations of the assessment.
+- _External provenance_ (`checkCoverageIdentity`, `recomputeCoverage` in `packages/assessment/src/coverage-provenance.ts`; evidence read by `packages/database/src/coverage-evidence.ts`): the record must equal what
+  the deterministic selection yields from the immutable rows the run was pinned to. `verified` requires both.
+
+**What is trusted, and where it comes from.** The run's frozen pipeline configuration (`assessment_run_inputs`); the pinned snapshots (`assessment_run_input_snapshots` joined to `source_snapshots`: project, source
+type, status, content hash, partial-capture reasons, provenance); every artifact of those snapshots (id, key, kind, media type and text; the database enforces `content_hash = SHA-256(text)` and `byte_length`, and
+length and hash are recomputed from the text by the query); the config hash of the run's bound source extraction. Nothing is taken from the record except what is being compared.
+
+**Stage 1 (identity, no text).** Policies equal the frozen configuration; the snapshot set and each snapshot's facts equal the rows; every artifact the record names exists in a _pinned_ snapshot of the same project with
+the recorded key, SHA-256 and code-point length; the source budget is on the run's reduction ladder. **Stage 2 (recomputation).** The stored text is run through `buildPassages` under the frozen policy and the derived
+budgets and the record the run would have written is built with the same function the worker uses (`buildCoverageRecord`, notices from `runNotices`); the stored record must be **byte-equal** in canonical form. Shown and
+omitted ranges, passage counts, statuses, duplicates, measures, verdict, concerns, skipped artifacts and the limitations that reached the assessors therefore come from the recomputation. A mismatch names the kind
+(`provenance_snapshot_mismatch`, `_artifact_`, `_selection_`, `_measures_`, `_limitations_`, `_budget_`, `_policy_`), but the whole record is rejected either way.
+
+**Budgets.** The effective source budget is not in the frozen configuration (the preflight ladder may lower it). When the run has a source extraction, the plan is the unique ladder step whose extraction identity hash
+equals the persisted extraction's, so the budget is pinned by data the record's author cannot choose (`pinned_by_extraction`). A run refused at the gate has no extraction; its budget is then only shown to be one the frozen
+configuration allows (`allowed_set_only`), and the view says so. The ladder and the extraction identity function moved into the assessment package for this purpose (the worker re-exports them).
+
+**Cost.** Stage 2 re-reads and re-windows the stored text: about 0.4 s of CPU and a few MB of text for a worst-case 404-artifact repository, and far less for ordinary ones. Outcomes are memoized in the process under a key
+that names the record hash and a fingerprint of every trusted input (including the artifacts' hashes), so repeated reads of an unchanged assessment cost one comparison. Stage 1 alone is also exposed for callers that must not
+load text. There is no cheaper mode that is trusted: the default read recomputes.
+
+**On failure** the view is `verified: false` with the problem codes and **no derived field** (no verdict, measures, concerns, omitted components, snapshots or notices); the assessment's own verified report is returned unchanged
+with coverage marked invalid; a historical row is never rewritten or hidden. The coverage gate and every spending decision are computed from the live selection, never read from the stored record; a record planted for a run
+before the worker writes its own is rejected by the store (`coverage_rejected`) and the run ends before any model call or ledger entry.
+
+**Trust model.** Defended: an unauthorized or defective _application_ write of a coverage record, a record that was valid for other evidence (another project, other snapshots, other budgets), and later edits to a record or
+to the assessment's stored limitations. **Not defended:** a database administrator (or anyone who can disable triggers) who rewrites the snapshots, the artifacts, the extraction, the record and every hash together; such an
+actor can produce a self-consistent false history, and nothing here is a cryptographic signature. A change to a released selection policy's behaviour would make old records fail recomputation; a policy id is therefore
+frozen once released (a changed behaviour needs a new id), and golden fixtures per policy pin it.
+
 ## Organizer-supplied submission text (P6B-beta3)
 
 Fetching a Devpost page is blocked at this deployment's egress proxy (the CONNECT is refused before the request reaches Devpost; this is an environment policy, not a statement of Devpost's rules, and it is not worked

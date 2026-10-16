@@ -394,3 +394,11 @@ Reviewed explicitly rather than classified as low priority; what each item prote
 - A record that fails verification is never shown in part: the API returns `verified: false` with problem codes and no derived field. A tampered coverage record cannot make an assessment look more complete;
   at worst it makes coverage "unknown". The assessment's own report verification is independent.
 - Residual: a database superuser can still disable triggers (as for every table in this system); coverage records are checked on read, not signed.
+
+## Coverage provenance (P6B-beta3-R2)
+
+- A coverage record is **verified only if it equals what the selection yields from the immutable evidence of its run** (snapshots, artifacts, frozen configuration, bound extraction), not merely if it is internally
+  consistent. Internal consistency was the R1 check, and eleven forged records that satisfied it were accepted (reproduced in `tests/integration/coverage-forgery.test.ts`).
+- A record that fails is withheld in full (`verified: false`, problem codes, no derived field); the assessment's own report is unaffected; the gate and spending decisions never read the stored record.
+- Out of scope, stated: a database administrator who rewrites all rows and hashes consistently. Detecting that needs signatures or an external log, which this system does not have.
+- The services refuse to start against a schema whose migrations were skipped (`assertSchemaReady`), and `pnpm db:verify-schema` reports the same read-only for operators.

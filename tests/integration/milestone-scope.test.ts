@@ -194,7 +194,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     const laterTables: string[] = [];
     for (const file of readdirSync(migrations).filter((name) => name.endsWith('.sql'))) {
       const created = [
-        ...readFileSync(join(migrations, file), 'utf8').matchAll(/CREATE TABLE "([a-z_]+)"/g),
+        ...readFileSync(join(migrations, file), 'utf8').matchAll(/CREATE TABLE (?:IF NOT EXISTS )?"([a-z_]+)"/g),
       ].map((match) => match[1] ?? '');
       for (const table of created) {
         if (M5_P4_TABLES.includes(table)) {
@@ -556,12 +556,12 @@ describe('M5 milestone scope (phase P6A)', () => {
     // only the twelve tables of migration 0010: nothing about questions, answers, interviews, final scores or deltas
     const createdAssessmentTables = [
       ...sql.matchAll(
-        /CREATE TABLE "([a-z_]*(?:assessment|pre_interview|graph_extraction|budget)[a-z_]*)"/gi,
+        /CREATE TABLE (?:IF NOT EXISTS )?"([a-z_]*(?:assessment|pre_interview|graph_extraction|budget)[a-z_]*)"/gi,
       ),
     ].map((match) => match[1] ?? '');
     expect(createdAssessmentTables.sort()).toEqual(M5_P4_TABLES);
     expect(
-      /CREATE TABLE "[a-z_]*(post_interview|final_score|question|answer|delta)[a-z_]*"/i.test(sql),
+      /CREATE TABLE (?:IF NOT EXISTS )?"[a-z_]*(post_interview|final_score|question|answer|delta)[a-z_]*"/i.test(sql),
     ).toBe(false);
     expect(existsSync(join(ROOT, 'packages/prompts/package.json'))).toBe(true);
     // the API and the web UI know the assessment run type only inside their own assessment modules (P6A); the worker's loop executes it

@@ -128,3 +128,55 @@ SELECT tgname FROM pg_trigger WHERE tgrelid = 'assessment_run_coverage'::regclas
 
 There is no down migration; rollback is restoring the pre-upgrade backup. `registryProblems` (the read-only registry check) changed its _logic_, not its schema: it now also reports `shared_identity` and
 `claim_owned_by_voided_project`, and no longer reports the claims of a project holding several links of one type as stale.
+
+### 6.3 What went wrong with the first journal entry of 0020 (P6B-beta3-R2)
+
+The installed Drizzle migrator applies a migration only if its journal `when` is greater than the **newest `created_at` already recorded in the database**; it compares nothing else (not the tag, not the SHA-256 it
+stores). Migration 0019 carries a hand-set `when` of 1792081833511; `drizzle-kit generate` stamped 0020 with the clock of the machine that generated it (1792054780003), which is _earlier_. On every database that had
+applied 0019 the migrator therefore skipped 0020, committed, and reported success, and the coverage table was never created. A database built **fresh** applies all entries in order (it has no "newest" row yet), which
+is why the whole test suite passed.
+
+### 6.4 The repair, and what it assumes
+
+- The journal entry of 0020 now has `when` = 1792108000000 (greater than 0019's). Nothing else in the journal changed; no previously applied migration was edited.
+- `0020` was never accepted: it exists only on the R1 review branch and was not released or deployed. Its SQL is now **idempotent** (`CREATE TABLE IF NOT EXISTS`, guarded foreign keys, `DROP TRIGGER IF EXISTS` before each
+  `CREATE TRIGGER`, `CREATE OR REPLACE FUNCTION`), so it is safe on a database at 0019 (applies), on a database built fresh from the R1 branch (re-runs harmlessly, leaving the same objects; its bookkeeping then
+  shows two rows for 0020, the old timestamp and the new one, which is expected and harmless) and on a fresh database.
+- **Assumption to confirm before deploying:** no persistent installation has any state other than these two. If one does (for example a hand-edited `drizzle.__drizzle_migrations`), run the checks in §6.5 first.
+- **Guard against recurrence.** `pnpm db:check` (part of `pnpm check`) now runs `packages/database/scripts/check-migration-journal.ts` before `drizzle-kit check`. It fails the build on a non-increasing `when`, a duplicate or
+  non-contiguous `idx`, a tag that differs from its index, a malformed entry, a journal entry without its `.sql` file or snapshot, and an `.sql` file without an entry. When you generate a new migration, if the check
+  fails because the machine clock is behind the previous entry, raise the new entry's `when` by hand; do not edit the SQL.
+
+### 6.5 Preflight and verification (read-only)
+
+Against any database (these only SELECT):
+
+```
+DATABASE_URL=postgres://... pnpm db:verify-schema
+```
+
+It prints: journal problems; migrations **not applied**, and which of those were **skipped** (an older timestamp than one already applied: the migrator will never apply them by itself); migrations applied under different
+SQL text (informational); and every table, column, named constraint, trigger and function the schema and migration SQL define that is **missing**. Exit 0 only if everything is present. Run it before the upgrade (to
+see the starting state), after it (the exit code of the migrator is not evidence), and whenever a service refuses to start. The API and the worker call the same check at startup and **refuse to run** against an
+incomplete schema (`SchemaNotReadyError`, naming what is missing).
+
+### 6.6 Failure detection and recovery (operator actions)
+
+| What `db:verify-schema` shows                                                       | Meaning                                                      | Action                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0020` not applied, listed as skipped or not                                        | database at 0019 (or an R1 build that skipped it)            | back up, then run the migration with this version (`pnpm db:migrate`); re-run `db:verify-schema`                                                                                                                                                                                                                   |
+| `0020` applied twice (old and new timestamps), objects complete                     | database built fresh from the R1 branch                      | nothing; the second application changed no object                                                                                                                                                                                                                                                                  |
+| bookkeeping complete but objects missing (for example the table or a guard trigger) | someone dropped objects, or a partial manual restore         | **take a backup first.** Because 0020 is idempotent, apply its SQL once in a transaction: `psql -1 -v ON_ERROR_STOP=1 -f packages/database/drizzle/0020_p6b_beta3_r1_coverage_record.sql`, then re-run `db:verify-schema`. Do **not** edit `__drizzle_migrations` on a database that holds data you cannot rebuild |
+| a migration fails                                                                   | the whole upgrade ran in one transaction and was rolled back | fix the cause and re-run; nothing was partly applied (covered by the interrupted-upgrade test)                                                                                                                                                                                                                     |
+
+On a **disposable** database only, the other documented repair is to delete the single bookkeeping row (`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1792108000000`) and migrate again; the matrix test
+exercises it. There is no down migration; rollback is restoring the pre-upgrade backup.
+
+### 6.7 What the upgrade tests prove
+
+`packages/database/src/migration-matrix.test.ts` (PGlite and PostgreSQL): fresh install; upgrades from 0016, 0018 and 0019 (each ends **identical** to a fresh install, constraints, triggers and the guard function compared
+through the catalog); the R7E reproduction (the R1 folder leaves the table absent and the repaired folder creates it); a database that already holds the table; repeated runs; an interrupted upgrade (rolled back
+completely, retry succeeds); bookkeeping complete but the table gone (the schema check names it; the documented recovery repairs it); a missing guard trigger. `tests/integration/migration-from-0019.test.ts`
+fills a database with real assessments (clean, partial capture, a run refused at the gate, one per selection policy), returns it to the state of a 0019 installation, upgrades it with the real migrator and checks the
+objects, that every historical row is unchanged, that historical reads and verification give exactly what they gave before, that older runs report coverage "not recorded", that new runs write verifying records, and
+that re-running the migrator changes nothing.
