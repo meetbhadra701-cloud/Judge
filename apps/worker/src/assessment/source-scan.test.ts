@@ -37,6 +37,7 @@ describe('assessment pipeline structure', () => {
     expect(pipelineFiles.map((f) => relative(WORKER_SRC, f)).sort()).toEqual([
       'assessment/assess.ts',
       'assessment/config.ts',
+      'assessment/demonstration-model.ts',
       'assessment/extract.ts',
       'assessment/ledger.ts',
       'assessment/loop.ts',
