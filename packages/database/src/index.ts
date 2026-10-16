@@ -63,7 +63,11 @@ export {
 } from './assessment-store.js';
 export { AssessmentReadStore, groupUnknowns } from './assessment-read.js';
 export {
+  isVoidedProjectRefusal,
+  QuestionClaimLostError,
+  QuestionProjectVoidedError,
   QuestionSetStore,
+  type GenerationClaimOutcome,
   type PersistedOpportunity,
   type PersistedQuestion,
   type PersistQuestionSetInput,
@@ -158,6 +162,10 @@ export {
   projectVoids,
   projects,
   projectTrackSelections,
+  questionGenerationClaims,
+  questionSetOpportunities,
+  questionSetQuestions,
+  questionSets,
   rubricAnchors,
   rubricCriteria,
   rubrics,

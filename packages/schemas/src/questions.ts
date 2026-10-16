@@ -13,7 +13,18 @@ import { Uuid } from './primitives.js';
  */
 
 /** The policy of the deterministic engine: the analysis rules, the ranking formula and the selection algorithm. A change of any of them is a new version. */
-export const QUESTION_POLICY_VERSION = 'question-engine/v1' as const;
+export const QUESTION_POLICY_VERSION = 'question-engine/v2' as const;
+/**
+ * `question-engine/v1` (M6) stored sets whose shortfall explanation could not tell a repeat from a candidate whose value was below the minimum: it called every
+ * candidate left out of a pool of five or more a repeat. v2 (M6-R1) selects exactly as v1 did (same ranking, same overlap, same threshold) and names the real
+ * stopping cause. A stored v1 set is never rewritten: it keeps its policy version and its recorded wording, and the page says so.
+ */
+export const QUESTION_POLICY_VERSION_V1 = 'question-engine/v1' as const;
+export const QUESTION_POLICY_VERSION_VALUES = [
+  QUESTION_POLICY_VERSION_V1,
+  QUESTION_POLICY_VERSION,
+] as const;
+export type QuestionPolicyVersion = (typeof QUESTION_POLICY_VERSION_VALUES)[number];
 export const UNCERTAINTY_ENGINE_VERSION = 'uncertainty-engine/v1' as const;
 
 /** The one model-backed stage M6 adds. It is a separate vocabulary from the assessment pipeline's stages (and from the ledger's CHECK). */
@@ -90,6 +101,9 @@ export const QUESTION_SHORTFALL_VALUES = [
   'no_valid_candidates',
   'fewer_defensible_candidates',
   'redundant_candidates',
+  // question-engine/v2 (M6-R1)
+  'below_minimum_value',
+  'mixed_causes',
 ] as const;
 export const QuestionShortfall = z.enum(QUESTION_SHORTFALL_VALUES);
 export type QuestionShortfall = z.infer<typeof QuestionShortfall>;
@@ -205,7 +219,7 @@ export interface QuestionSetView {
   readonly assessmentVersionNumber: number;
   readonly contextVersionId: string;
   readonly createdAt: string;
-  readonly policyVersion: typeof QUESTION_POLICY_VERSION;
+  readonly policyVersion: QuestionPolicyVersion;
   readonly inputHash: string;
   readonly generation: QuestionSetGenerationView;
   /** Whether the assessment this set belongs to still verifies. When false the questions are withheld (fail closed). */
@@ -216,6 +230,13 @@ export interface QuestionSetView {
     readonly code: QuestionShortfall;
     readonly explanation: string;
     readonly candidateCount: number;
+    /**
+     * Valid candidates that were NOT selected and why (question-engine/v2): `redundant` largely repeated an already selected question; `belowMinimum` would not
+     * be worth interview time even as the first question. Null for a v1 set, which did not record the split.
+     */
+    readonly excluded: { readonly redundant: number; readonly belowMinimum: number } | null;
+    /** Set for a set recorded under an older policy whose wording could be misread; never a rewrite of the stored explanation. */
+    readonly policyNote: string | null;
   } | null;
   readonly opportunities: readonly UncertaintyOpportunityView[];
   readonly counts: {

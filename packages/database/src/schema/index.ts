@@ -40,4 +40,9 @@ export {
   graphExtractions,
   preInterviewAssessments,
 } from './assessment.js';
-export { questionSetOpportunities, questionSetQuestions, questionSets } from './questions.js';
+export {
+  questionGenerationClaims,
+  questionSetOpportunities,
+  questionSetQuestions,
+  questionSets,
+} from './questions.js';

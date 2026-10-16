@@ -50,6 +50,8 @@ const MODELS = {
 };
 const RUNTIME = { provider: { id: 'scripted', mode: 'scripted' }, models: MODELS } as const;
 const MISSING = '5b4d7c3e-2f1a-4c6b-9d8e-7f6a5b4c3d2e';
+/** These tests make several failing attempts on one identity in a row: the retry cool-down is tested in question-engine-r1.test.ts. */
+const NO_COOLDOWN = { failureCooldownMs: 0 } as const;
 const OK_USAGE = { inputTokens: 0, outputTokens: 0 };
 
 const setOf = (body: unknown): QuestionSetView => (body as CreateQuestionSetResponse).set;
@@ -321,6 +323,7 @@ describe.each(testDatabaseTargets())('question engine HTTP API on %s', (_name, o
           db,
           offline: RUNTIME,
           provider: new ScriptedProvider([step], { repeatLast: true }),
+          generation: NO_COOLDOWN,
         }),
       );
     const storedSets = async (projectId: string, assessmentId: string) =>
@@ -447,7 +450,9 @@ describe.each(testDatabaseTargets())('question engine HTTP API on %s', (_name, o
         },
       };
       const REPLAY = { provider: { id: 'replay', mode: 'replay' }, models: MODELS } as const;
-      const recording = buildWith(new QuestionService({ db, offline: REPLAY, provider: recorder }));
+      const recording = buildWith(
+        new QuestionService({ db, offline: REPLAY, provider: recorder, generation: NO_COOLDOWN }),
+      );
       expect((await call('POST', SETS(projectId, assessmentId), { on: recording })).status).toBe(
         502,
       );
@@ -470,7 +475,12 @@ describe.each(testDatabaseTargets())('question engine HTTP API on %s', (_name, o
         ],
       };
       const replaying = buildWith(
-        new QuestionService({ db, offline: REPLAY, replayFixture: fixture }),
+        new QuestionService({
+          db,
+          offline: REPLAY,
+          replayFixture: fixture,
+          generation: NO_COOLDOWN,
+        }),
       );
       const hit = await call('POST', SETS(projectId, assessmentId), { on: replaying });
       expect(hit.status).toBe(201);
@@ -487,6 +497,7 @@ describe.each(testDatabaseTargets())('question engine HTTP API on %s', (_name, o
           db,
           offline: REPLAY,
           replayFixture: { version: REPLAY_FIXTURE_VERSION, synthetic: true, entries: [] },
+          generation: NO_COOLDOWN,
         }),
       );
       const miss = await call('POST', SETS(other.projectId, other.assessmentId), { on: empty });

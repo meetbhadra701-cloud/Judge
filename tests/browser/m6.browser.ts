@@ -446,6 +446,29 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
         expect(cardText).not.toMatch(UUID);
         expect(cardText).not.toMatch(/opp-[0-9a-f]{16}|cand-[0-9a-f]{16}|O-\d{3}/);
       }
+      // the page tells the truth about WHY the list is short: its message is the stored explanation, and it claims repeats only when some were excluded as repeats
+      const setView = await api<{
+        set?: unknown;
+        questions: unknown[];
+        shortfall: {
+          code: string;
+          explanation: string;
+          excluded: { redundant: number; belowMinimum: number } | null;
+        } | null;
+      }>(
+        `/projects/${projectId}/question-sets/${(await api<{ sets: { id: string }[] }>(`/projects/${projectId}/assessments/${assessmentId}/question-sets`)).sets[0]?.id}`,
+      );
+      if (setView.shortfall) {
+        const shortText = await page.getByTestId('questions-shortfall').innerText();
+        expect(shortText).toContain(setView.shortfall.explanation);
+        const repeats = setView.shortfall.excluded?.redundant ?? 0;
+        expect(/repeated a question already selected/.test(shortText)).toBe(repeats > 0);
+        expect(/below the minimum worth asking/.test(shortText)).toBe(
+          (setView.shortfall.excluded?.belowMinimum ?? 0) > 0,
+        );
+        await page.getByTestId('questions-uncertainties').waitFor();
+        expect(await page.locator('[data-testid="uncertainty"]').count()).toBeGreaterThan(0);
+      }
       if (count < 5) {
         // fewer than five: the page says why, and gives the manual path; nothing is padded
         const shortfall = page.getByTestId('questions-shortfall');

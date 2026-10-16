@@ -88,7 +88,7 @@ describe('selection: how many questions, and why', () => {
     expect(result.selected).toHaveLength(3);
     expect(result.shortfall?.code).toBe('fewer_defensible_candidates');
     expect(result.shortfall?.explanation).toMatch(/not padded/);
-    expect(result.shortfall?.explanation).toMatch(/ask your own questions/);
+    expect(result.shortfall?.explanation).toMatch(/still open for your own questions/);
   });
 
   it('returns no questions and says why when nothing is uncertain', () => {

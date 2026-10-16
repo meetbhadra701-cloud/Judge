@@ -86,6 +86,10 @@ const ACCUSATORY = new RegExp(
     String.raw`\b(?:not|isn'?t|wasn'?t) (?:really )?(?:your|yours|your own|original)\b`,
     String.raw`\b(?:copied|ripped|lifted) (?:this |that |it |the \w+ )?(?:from|off)\b`,
     String.raw`\b(?:admit|confess|come clean)\b`,
+    // M6-R1: an accusation of rule-breaking or concealment aimed at the team
+    String.raw`\b(?:you|your team|the team) (?:violated|broke|bypassed|ignored|circumvented) (?:the |our |these |those )?(?:rules?|policy|policies|requirements?|terms)\b`,
+    String.raw`\bhow did (?:you|your team) (?:get around|sneak|slip|hide|conceal)\b`,
+    String.raw`\bwhy (?:did|do|would) (?:you|your team) (?:hide|conceal|cover up|lie)\b`,
   ].join('|'),
   'iu',
 );
@@ -153,6 +157,77 @@ function assertsStatement(question: string, statements: readonly string[]): bool
     const previous = index > 0 ? sentences[index - 1] : undefined;
     return !(previous !== undefined && ATTRIBUTION.test(previous));
   });
+}
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const WORD_GAP = String.raw`[^\p{L}\p{N}]+`;
+
+/**
+ * WORDS THAT ARE NOT AN ACCUSATION (M6-R1, R9A P2-3). The accusation filter is a conservative heuristic over text, and a legitimate topic can contain an accusatory
+ * WORD: a track called “Fraud Prevention”, a criterion “Fake News Detection”. Deleting the filter would be wrong; so before it runs, exactly two kinds of text are set
+ * aside, and only text that comes from the FROZEN, VERIFIED analysis, never from what a candidate says about itself:
+ *
+ *   1. an official TITLE: the exact name of a rubric criterion the cited uncertainties bear on, or of a declared track they cite (whole words, any case);
+ *   2. the team's OWN WORDS, in a sentence that attributes them to the team's materials ("Your README states that ..."): a run of at least three consecutive words
+ *      that also occurs, in the same order, in a cited team claim.
+ *
+ * Everything else keeps being checked, including the rest of the same sentence: "Why did your team fake the results?" is refused even beside “Fraud Prevention”.
+ * This reduces false refusals; it cannot prove a sentence harmless, and a refused neutral question costs a regeneration while an accepted accusation violates an invariant.
+ */
+export function withoutNeutralWords(
+  text: string,
+  officialTitles: readonly string[],
+  teamStatements: readonly string[],
+): string {
+  let masked = normalizeText(text);
+  for (const title of officialTitles) {
+    const trimmed = normalizeText(title);
+    if (trimmed.length < 3) continue;
+    const words = trimmed.split(' ').map(escapeRegExp).join(WORD_GAP);
+    masked = masked.replace(
+      new RegExp(`(?<![\\p{L}\\p{N}])${words}(?![\\p{L}\\p{N}])`, 'giu'),
+      ' OFFICIALTITLE ',
+    );
+  }
+  const sentences = masked.split(/(?<=[.?!:])\s+/);
+  return sentences
+    .map((sentence, index) => {
+      const previous = index > 0 ? sentences[index - 1] : undefined;
+      const attributed =
+        ATTRIBUTION.test(sentence) || (previous !== undefined && ATTRIBUTION.test(previous));
+      if (!attributed) return sentence;
+      let result = sentence;
+      for (const statement of teamStatements) {
+        const claimWords = matchForm(statement).split(' ').filter(Boolean);
+        const sentenceWords = matchForm(result).split(' ').filter(Boolean);
+        for (let start = 0; start + 3 <= sentenceWords.length; start += 1) {
+          let length = 0;
+          while (
+            start + length < sentenceWords.length &&
+            containsRun(claimWords, sentenceWords.slice(start, start + length + 1))
+          ) {
+            length += 1;
+          }
+          if (length >= 3) {
+            const run = sentenceWords
+              .slice(start, start + length)
+              .map(escapeRegExp)
+              .join(WORD_GAP);
+            result = result.replace(new RegExp(run, 'giu'), ' TEAMWORDS ');
+            break;
+          }
+        }
+      }
+      return result;
+    })
+    .join(' ');
+}
+
+function containsRun(haystack: readonly string[], run: readonly string[]): boolean {
+  for (let i = 0; i + run.length <= haystack.length; i += 1) {
+    if (run.every((word, offset) => haystack[i + offset] === word)) return true;
+  }
+  return false;
 }
 
 export function validateCandidates(raw: unknown, closed: ClosedSet): ValidationResult {
@@ -231,7 +306,6 @@ export function validateCandidates(raw: unknown, closed: ClosedSet): ValidationR
     // -- wording (heuristics; see the header)
     if (MARKUP_OR_LINK.test(text) || MARKUP_OR_LINK.test(reason))
       return refuse('contains_markup_or_link');
-    if (ACCUSATORY.test(text) || ACCUSATORY.test(reason)) return refuse('accusatory_wording');
     const statements = opportunities.flatMap((o) =>
       o.opportunity.trail.flatMap((entry) => {
         if (entry.type !== 'claim') return [];
@@ -239,6 +313,27 @@ export function validateCandidates(raw: unknown, closed: ClosedSet): ValidationR
         return claim ? [claim.label] : [];
       }),
     );
+    // official titles come from the closed set (the verified analysis): the criteria the cited uncertainties bear on, and the tracks they cite
+    const titles = [
+      ...dimensions.map((d) => d.name),
+      ...[...opportunityDimensions].flatMap((id) => {
+        const found = closed.dimensions.find((d) => d.id === id);
+        return found ? [found.name] : [];
+      }),
+      ...opportunities.flatMap((o) =>
+        o.opportunity.trail.flatMap((entry) => {
+          if (entry.type !== 'track') return [];
+          const track = referenceByKey.get(`track:${entry.id}`);
+          return track ? [track.label] : [];
+        }),
+      ),
+    ];
+    if (
+      ACCUSATORY.test(withoutNeutralWords(text, titles, statements)) ||
+      ACCUSATORY.test(withoutNeutralWords(reason, titles, statements))
+    ) {
+      return refuse('accusatory_wording');
+    }
     if (PRESUPPOSITION.test(text) || assertsStatement(text, statements))
       return refuse('presupposes_unverified_claim');
     if (looksLikeSeveralQuestions(text)) return refuse('not_a_single_question');

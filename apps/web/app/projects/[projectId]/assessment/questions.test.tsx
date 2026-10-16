@@ -1,4 +1,8 @@
-import type { QuestionSetListResponse, QuestionSetView } from '@judge-copilot/schemas';
+import type {
+  QuestionSetListResponse,
+  QuestionSetView,
+  QuestionShortfall,
+} from '@judge-copilot/schemas';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { questionsPanelState, type QuestionsPanelState } from '../../../../lib/questions-view';
@@ -55,7 +59,7 @@ function set(count: number, over: Partial<QuestionSetView> = {}): QuestionSetVie
     assessmentVersionNumber: 2,
     contextVersionId: 'v1',
     createdAt: '2026-10-16T00:00:00.000Z',
-    policyVersion: 'question-engine/v1',
+    policyVersion: 'question-engine/v2',
     inputHash: 'a'.repeat(64),
     generation: {
       providerMode: 'scripted',
@@ -76,6 +80,8 @@ function set(count: number, over: Partial<QuestionSetView> = {}): QuestionSetVie
             explanation:
               'Only a few defensible questions could be generated; the list is not padded.',
             candidateCount: count,
+            excluded: null,
+            policyNote: null,
           },
     opportunities: Array.from({ length: Math.max(count, 3) }, (_v, i) => opportunity(i + 1)),
     counts: { opportunities: Math.max(count, 3), candidates: count, rejected: 1, selected: count },
@@ -179,6 +185,8 @@ describe('the Five Questions section', () => {
         code: 'no_uncertainty',
         explanation: 'The analysis found nothing that could materially change what you understand.',
         candidateCount: 0,
+        excluded: null,
+        policyNote: null,
       },
     });
     const html = render({ kind: 'set', set: none });
@@ -243,6 +251,55 @@ describe('the Five Questions section', () => {
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('<img');
     expect(html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('the shortfall message is the stored, truthful one', () => {
+  const withShortfall = (code: QuestionShortfall, explanation: string, extra = {}) =>
+    set(2, {
+      shortfall: {
+        code,
+        explanation,
+        candidateCount: 6,
+        excluded: { redundant: 0, belowMinimum: 4 },
+        policyNote: null,
+        ...extra,
+      },
+    });
+
+  it('shows exactly the stored explanation and invents no cause of its own', () => {
+    const html = render({
+      kind: 'set',
+      set: withShortfall(
+        'below_minimum_value',
+        '6 valid candidates were generated and 2 were selected. The other 4 were left out because the value of asking each was below the minimum worth asking.',
+      ),
+    });
+    expect(html).toContain('data-code="below_minimum_value"');
+    expect(html).toContain('below the minimum worth asking');
+    expect(html).not.toMatch(/repeated|repeats/);
+  });
+
+  it('marks which uncertainties no question covers, as the manual path', () => {
+    const html = render({ kind: 'set', set: set(2) });
+    expect((html.match(/data-covered="yes"/g) ?? []).length).toBeGreaterThan(0);
+    expect(html).toContain('data-covered="no"');
+    expect(html).toContain('No question above covers this: available for your own follow-up.');
+    expect(html).toContain('Asked in question 1.');
+  });
+
+  it('says a v1 set was recorded under the older policy, without rewriting its wording', () => {
+    const html = render({
+      kind: 'set',
+      set: withShortfall('redundant_candidates', 'The recorded v1 wording.', {
+        excluded: null,
+        policyNote:
+          'Recorded under selection policy v1, which could not tell a repeated question from one below the minimum.',
+      }),
+    });
+    expect(html).toContain('data-testid="questions-policy-note"');
+    expect(html).toContain('The recorded v1 wording.');
+    expect(html).toContain('Recorded under selection policy v1');
   });
 });
 

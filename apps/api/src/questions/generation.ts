@@ -93,6 +93,9 @@ export function generationKeyOf(parts: {
   );
 }
 
+/** The canonical hash of the frozen input a set is derived from (also used to recheck, before publishing, that the input did not change). */
+export const inputHashOf = (input: UncertaintyInput): string => sha256Hex(canonicalJson(input));
+
 export function prepare(
   input: UncertaintyInput,
   runtime: {
@@ -103,7 +106,7 @@ export function prepare(
 ): Prepared {
   const report = analyzeUncertainty(input);
   const closed = buildClosedSet(report, input);
-  const inputHash = sha256Hex(canonicalJson(input));
+  const inputHash = inputHashOf(input);
   const generationKey = generationKeyOf({
     input,
     inputHash,
@@ -206,6 +209,7 @@ export async function generate(
     candidateOutputHash,
     counts: selection.counts,
     shortfall: selection.shortfall,
+    excluded: selection.excluded,
     rejections: selection.rejections,
     opportunities: report.opportunities.map((o) => ({
       ordinal: o.ordinal,

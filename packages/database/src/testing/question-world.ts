@@ -38,7 +38,7 @@ export function questionSetInput(
   return {
     ...base,
     actorId: null,
-    policyVersion: 'question-engine/v1',
+    policyVersion: 'question-engine/v2',
     uncertaintyEngineVersion: 'uncertainty-engine/v1',
     weightBasis: 'official',
     generationKey: hex('1'),
@@ -57,6 +57,7 @@ export function questionSetInput(
       code: 'fewer_defensible_candidates',
       explanation: 'Only 2 defensible questions could be generated; the list is not padded.',
     },
+    excluded: { redundant: 0, belowMinimum: 0 },
     rejections: [],
     opportunities: [
       {

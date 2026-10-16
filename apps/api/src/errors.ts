@@ -110,6 +110,10 @@ export function installErrorHandling(app: ApiApp): void {
         );
     }
     if (error instanceof QuestionApiError) {
+      const retryAfterMs = error.details['retryAfterMs'];
+      if (typeof retryAfterMs === 'number' && retryAfterMs >= 0) {
+        void reply.header('retry-after', String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
+      }
       return reply
         .code(QUESTION_API_STATUS[error.code])
         .send(

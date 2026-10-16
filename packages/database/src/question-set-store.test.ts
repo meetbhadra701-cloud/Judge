@@ -52,7 +52,7 @@ describe.each(testDatabaseTargets())('question set store on %s', (_name, open) =
       projectId: made.world.project.id,
       assessmentId: made.assessmentId,
       assessmentVerified: true,
-      policyVersion: 'question-engine/v1',
+      policyVersion: 'question-engine/v2',
       counts: { opportunities: 2, candidates: 2, rejected: 0, selected: 2 },
       shortfall: { code: 'fewer_defensible_candidates', candidateCount: 2 },
       generation: { providerMode: 'scripted', demonstration: true, models: null },

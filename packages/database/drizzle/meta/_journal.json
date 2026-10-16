@@ -169,6 +169,13 @@
       "when": 1792176384255,
       "tag": "0023_m6_question_set_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792192627893,
+      "tag": "0024_m6_r1_generation_claims",
+      "breakpoints": true
     }
   ]
 }

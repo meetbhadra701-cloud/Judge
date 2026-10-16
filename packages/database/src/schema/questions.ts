@@ -74,6 +74,12 @@ export const questionSets = pgTable(
     selectedCount: integer('selected_count').notNull(),
     shortfallCode: text('shortfall_code', { enum: QUESTION_SHORTFALL_VALUES }),
     shortfallExplanation: text('shortfall_explanation'),
+    /**
+     * question-engine/v2 (M6-R1): valid candidates left out as repeats / as below the minimum value. NULL for a v1 set, which did not record the split (never
+     * back-filled: an immutable set is not reinterpreted).
+     */
+    excludedRedundant: integer('excluded_redundant'),
+    excludedBelowMinimum: integer('excluded_below_minimum'),
     /** [{ code, count }] by stable code; a refused candidate's text is never stored. */
     rejections: jsonb('rejections').$type<{ code: string; count: number }[]>().notNull(),
     createdByActorId: uuid('created_by_actor_id').references(() => actors.id, {
@@ -127,6 +133,10 @@ export const questionSets = pgTable(
       sql.raw(
         `(selected_count = ${String(QUESTION_SET_SIZE)}) = (shortfall_code IS NULL) AND (shortfall_code IS NULL) = (shortfall_explanation IS NULL) AND (shortfall_code IS NULL OR shortfall_code IN (${QUESTION_SHORTFALL_VALUES.map((v) => `'${v}'`).join(', ')}))`,
       ),
+    ),
+    check(
+      'question_sets_excluded_shape',
+      sql`(excluded_redundant IS NULL) = (excluded_below_minimum IS NULL) AND (excluded_redundant IS NULL OR (excluded_redundant >= 0 AND excluded_below_minimum >= 0 AND excluded_redundant + excluded_below_minimum + selected_count <= candidate_count))`,
     ),
     check(
       'question_sets_text_bounded',
@@ -231,6 +241,48 @@ export const questionSetQuestions = pgTable(
     check(
       'question_set_questions_json_shapes',
       sql`jsonb_typeof(expected_information) = 'array' AND jsonb_typeof(dimensions) = 'array' AND jsonb_typeof(opportunity_keys) = 'array' AND jsonb_array_length(opportunity_keys) >= 1 AND jsonb_typeof(reference_views) = 'array' AND jsonb_typeof(factors) = 'object'`,
+    ),
+  ],
+);
+
+/**
+ * M6-R1 (R9A P2-1): the durable CLAIM of one generation identity. Exactly one request at a time holds a running claim for a `generation_key`; every other request
+ * (in this process or another sharing the database) waits for the set or gets a typed in-progress or failed answer. The claim is a lease on the DATABASE clock
+ * (`lease_expires_at`), renewed by a heartbeat while the holder lives; `claim_token` fences the holder: a publish succeeds only for the current token, so a holder
+ * whose claim was taken over cannot publish. Unlike the sets, claims are working state: they change and are deleted when the set is published.
+ *
+ * No ordinary transaction is held across a provider call: claim, renew, fail and publish are each one short statement or transaction.
+ */
+export const questionGenerationClaims = pgTable(
+  'question_generation_claims',
+  {
+    generationKey: text('generation_key').primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    assessmentId: uuid('assessment_id').notNull(),
+    claimToken: uuid('claim_token').notNull(),
+    /** Which process holds it (diagnostic only; authority is the token). */
+    holder: text('holder').notNull(),
+    state: text('state', { enum: ['running', 'failed'] }).notNull(),
+    attempt: integer('attempt').notNull(),
+    leaseExpiresAt: timestamptz('lease_expires_at').notNull(),
+    failureCategory: text('failure_category'),
+    failedAt: timestamptz('failed_at'),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'question_generation_claims_assessment_same_project_fk',
+      columns: [table.assessmentId, table.projectId],
+      foreignColumns: [preInterviewAssessments.id, preInterviewAssessments.projectId],
+    }).onDelete('restrict'),
+    index('question_generation_claims_assessment_idx').on(table.assessmentId),
+    check('question_generation_claims_key_hex', sql`generation_key ~ ${HEX64}`),
+    check('question_generation_claims_attempt_positive', sql`attempt >= 1`),
+    check('question_generation_claims_holder_bounded', sql`char_length(holder) BETWEEN 1 AND 200`),
+    check(
+      'question_generation_claims_state_shape',
+      sql`(state = 'running' AND failed_at IS NULL AND failure_category IS NULL) OR (state = 'failed' AND failed_at IS NOT NULL AND failure_category IS NOT NULL AND char_length(failure_category) BETWEEN 1 AND 100)`,
     ),
   ],
 );

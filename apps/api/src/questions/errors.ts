@@ -6,6 +6,8 @@ export type QuestionApiErrorCode =
   | 'ASSESSMENT_NOT_VERIFIED'
   | 'QUESTION_INPUT_INCONSISTENT'
   | 'QUESTION_GENERATION_FAILED'
+  | 'QUESTION_GENERATION_IN_PROGRESS'
+  | 'QUESTION_GENERATION_SUPERSEDED'
   | 'QUESTION_OUTPUT_INVALID'
   | 'QUESTION_SET_READ_ONLY'
   | 'PROJECT_VOIDED';
@@ -18,6 +20,10 @@ export const QUESTION_API_STATUS: Record<QuestionApiErrorCode, number> = {
   ASSESSMENT_NOT_VERIFIED: 409,
   QUESTION_INPUT_INCONSISTENT: 422,
   QUESTION_GENERATION_FAILED: 502,
+  /** Another request holds the generation of this identity and did not finish within the wait bound: retry (details.retryAfterMs). */
+  QUESTION_GENERATION_IN_PROGRESS: 409,
+  /** This request's generation claim was taken over (its lease expired) and nothing was published by it. */
+  QUESTION_GENERATION_SUPERSEDED: 409,
   QUESTION_OUTPUT_INVALID: 502,
   QUESTION_SET_READ_ONLY: 405,
   PROJECT_VOIDED: 409,

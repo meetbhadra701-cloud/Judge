@@ -39,6 +39,11 @@ export interface SelectionResult {
     readonly selected: number;
   };
   readonly rejections: readonly { readonly code: CandidateRejection; readonly count: number }[];
+  /**
+   * Valid candidates that were not selected, by the cause that actually left each out (question-engine/v2). `redundant`: it would have been worth asking on its
+   * own but largely repeats a selected question. `belowMinimum`: even as the first question it is worth less than MIN_MARGINAL_BP. Both are 0 when five were selected.
+   */
+  readonly excluded: { readonly redundant: number; readonly belowMinimum: number };
 }
 
 const jaccard = <T>(a: readonly T[], b: readonly T[]): number => {
@@ -130,8 +135,24 @@ export function selectQuestions(
     .map(([code, count]) => ({ code, count }))
     .sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
 
+  // WHY each unselected valid candidate was left out, from its own numbers (never inferred from the size of the pool):
+  // a value below the minimum is low whatever was selected; a value at or above it that fell below the minimum was pushed down by overlap with a selected question
+  const unselected = selected.length < size ? remaining : [];
+  const excluded = {
+    belowMinimum: unselected.filter((c) => c.valueBp < MIN_MARGINAL_BP).length,
+    redundant: unselected.filter((c) => c.valueBp >= MIN_MARGINAL_BP).length,
+  };
+
+  const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`;
+  const OPEN =
+    'The list is not padded: the uncertainties listed below are what is still open for your own questions.';
   let shortfall: SelectionResult['shortfall'] = null;
   if (selected.length < size) {
+    const generated = `${plural(pool.length, 'valid candidate was', 'valid candidates were')} generated and ${String(selected.length)} ${selected.length === 1 ? 'was' : 'were'} selected.`;
+    const repeats = (n: number) =>
+      `${plural(n, 'was', 'were')} left out because ${n === 1 ? 'it' : 'each'} largely repeated a question already selected`;
+    const lowValue = (n: number) =>
+      `${plural(n, 'was', 'were')} left out because the value of asking ${n === 1 ? 'it' : 'each'}, by fixed rules (how much of the rubric it touches, how large the uncertainty is, how well an answer would settle it, how easy it is to see for yourself and how much interview time it takes), was below the minimum worth asking`;
     if (context.opportunities === 0) {
       shortfall = {
         code: 'no_uncertainty',
@@ -144,15 +165,25 @@ export function selectQuestions(
         explanation:
           'Uncertainties were found, but no candidate question passed validation (each failed the checks on references, wording or shape). No question is shown rather than one that was not checked. Use the uncertainties listed below to prepare your own questions.',
       };
-    } else if (pool.length < size) {
+    } else if (excluded.redundant === 0 && excluded.belowMinimum === 0) {
       shortfall = {
         code: 'fewer_defensible_candidates',
-        explanation: `Only ${String(selected.length)} defensible question${selected.length === 1 ? '' : 's'} could be generated: there ${pool.length === 1 ? 'was' : 'were'} ${String(pool.length)} valid candidate${pool.length === 1 ? '' : 's'}, and the list is not padded with filler. The uncertainties listed below are what is still open; ask your own questions about them.`,
+        explanation: `Only ${plural(pool.length, 'defensible question', 'defensible questions')} could be generated, and ${pool.length === 1 ? 'it was' : 'all were'} selected. ${OPEN}`,
+      };
+    } else if (excluded.belowMinimum === 0) {
+      shortfall = {
+        code: 'redundant_candidates',
+        explanation: `${generated} The other ${repeats(excluded.redundant)}. ${OPEN}`,
+      };
+    } else if (excluded.redundant === 0) {
+      shortfall = {
+        code: 'below_minimum_value',
+        explanation: `${generated} The other ${lowValue(excluded.belowMinimum)}. ${OPEN}`,
       };
     } else {
       shortfall = {
-        code: 'redundant_candidates',
-        explanation: `${String(pool.length)} valid candidates were generated, but after the first ${String(selected.length)} each remaining one largely repeated a question already selected, so they were not added. The list is not padded; the uncertainties below are what is still open.`,
+        code: 'mixed_causes',
+        explanation: `${generated} Of the others, ${repeats(excluded.redundant)}, and ${lowValue(excluded.belowMinimum)}. ${OPEN}`,
       };
     }
   }
@@ -166,5 +197,6 @@ export function selectQuestions(
       selected: selected.length,
     },
     rejections,
+    excluded,
   };
 }

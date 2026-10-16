@@ -129,9 +129,14 @@ function SetView({ set }: { set: QuestionSetView }) {
           <p>
             <strong>Why fewer than five.</strong> {set.shortfall.explanation}
           </p>
+          {set.shortfall.policyNote ? (
+            <p data-testid="questions-policy-note">
+              <small>{set.shortfall.policyNote}</small>
+            </p>
+          ) : null}
           <p>
-            Nothing was added to fill the list. To prepare your own questions, start from the open
-            uncertainties listed below.
+            Nothing was added to fill the list. To prepare your own questions, start from the
+            uncertainties below that no question above covers.
           </p>
         </div>
       ) : null}
@@ -282,11 +287,21 @@ function Uncertainties({ set }: { set: QuestionSetView }) {
         </small>
       </p>
       <ol>
-        {set.opportunities.map((o) => (
-          <li key={o.id}>
-            <span className="tag">{KIND_LABELS[o.kind]}</span> {o.observation}
-          </li>
-        ))}
+        {set.opportunities.map((o) => {
+          const asked = set.questions
+            .filter((q) => q.opportunityIds.includes(o.id))
+            .map((q) => q.rank);
+          return (
+            <li key={o.id} data-testid="uncertainty" data-covered={asked.length > 0 ? 'yes' : 'no'}>
+              <span className="tag">{KIND_LABELS[o.kind]}</span> {o.observation}{' '}
+              <small>
+                {asked.length > 0
+                  ? `Asked in question ${asked.join(', ')}.`
+                  : 'No question above covers this: available for your own follow-up.'}
+              </small>
+            </li>
+          );
+        })}
       </ol>
     </details>
   );
