@@ -351,6 +351,29 @@ describe('stage 1 alone (no stored text) rejects each kind of identity disagreem
     expect(problemsOf(change)).toContain('provenance_artifact_mismatch');
   });
 
+  it('an artifact that exists but belongs to a snapshot the run did not pin is rejected even when the record names it consistently', () => {
+    const decoy = {
+      snapshotId: uuidOf('snapshot:not-pinned'),
+      artifactId: uuidOf('artifact:decoy'),
+      key: 'files/decoy.ts',
+      kind: 'file',
+      mediaType: 'text/plain',
+      contentHash: sha256Hex('decoy'),
+      codePoints: 5,
+    };
+    const evidence = { ...world.evidence, artifacts: [...world.evidence.artifacts, decoy] };
+    const record = clone();
+    const entry = at(record.artifacts);
+    entry.artifactId = decoy.artifactId;
+    entry.snapshotId = decoy.snapshotId;
+    entry.key = decoy.key;
+    entry.textSha256 = decoy.contentHash;
+    entry.totalCodePoints = decoy.codePoints;
+    expect(checkCoverageIdentity(record, evidence).problems).toContain(
+      'provenance_artifact_mismatch',
+    );
+  });
+
   it('a snapshot of another project among the pins is not accepted as this run’s evidence', () => {
     const foreignPin = {
       ...world.evidence,
