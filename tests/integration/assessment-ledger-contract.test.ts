@@ -86,7 +86,10 @@ describe.each(targets)('database-backed ledger contract on %s', (_name, open) =>
   beforeAll(async () => {
     testDb = await open();
     db = testDb.db;
-    world = await seedAssessmentWorld(db);
+    world = await seedAssessmentWorld(db, {
+      // P6C F-3: a context with nothing to refer to is refused at request time, so this fixture states one explicit rule
+      rules: [{ statement: 'Every project must be original work.', certainty: 'explicit' }],
+    });
   });
   afterAll(async () => {
     await testDb.close();

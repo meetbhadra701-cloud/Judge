@@ -182,7 +182,6 @@ describe('P6C pilot journey: event -> context lock -> GitHub + Devpost -> script
     page = await browser.newPage();
     // keep the recording honest: the fixture must be the one this test says it is
     expect(readFileSync(RECORDING, 'utf8')).toContain(REAL_REVISION);
-    void requireValue;
   });
 
   afterAll(async () => {

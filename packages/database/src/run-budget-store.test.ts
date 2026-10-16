@@ -5,7 +5,11 @@ import { assessmentRunCalls, assessmentRunOutcomes, type JudgeDatabase } from '.
 import { callBindingOf } from './assessment-identity.js';
 import { backstopReason, DatabaseRunBudget } from './run-budget-store.js';
 import { createdRunId, newRunStore, requestInput } from './testing/assessment-fixtures.js';
-import { seedAssessmentWorld, type AssessmentWorld } from './testing/assessment-world.js';
+import {
+  seedAssessmentWorld,
+  type AssessmentWorld,
+  type AssessmentWorldOptions,
+} from './testing/assessment-world.js';
 import {
   expectPgError,
   rows,
@@ -17,7 +21,9 @@ import { sha256 } from './testing/graph-world.js';
 import { AssessmentRunLimits } from '@judge-copilot/schemas';
 
 // P6C F-3: a context with nothing to refer to is refused at request time, so these fixtures state one explicit rule
-const EXPLICIT_RULE = { rules: [{ statement: 'Every project must be original work.', certainty: 'explicit' }] };
+const EXPLICIT_RULE: AssessmentWorldOptions = {
+  rules: [{ statement: 'Every project must be original work.', certainty: 'explicit' }],
+};
 
 const { CHECK_VIOLATION, RESTRICT_VIOLATION } = SQLSTATE;
 

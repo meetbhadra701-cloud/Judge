@@ -68,7 +68,7 @@ describe.each(testDatabaseTargets())('scripted demonstration provider on %s', (_
     const items = (await db.select().from(evidenceItems)).filter(
       (row) => row.projectId === run.world.project.id,
     );
-    expect(items.some((row) => (row.text ?? '').includes('orbit component number'))).toBe(true);
+    expect(items.some((row) => row.text.includes('orbit component number'))).toBe(true);
     expect(
       items.every(
         (row) =>

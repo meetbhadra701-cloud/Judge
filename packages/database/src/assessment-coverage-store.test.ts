@@ -4,11 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AssessmentRunError } from './assessment-run-store.js';
 import type { JudgeDatabase } from './index.js';
 import { startRun } from './testing/assessment-pipeline.js';
-import { seedAssessmentWorld } from './testing/assessment-world.js';
+import { seedAssessmentWorld, type AssessmentWorldOptions } from './testing/assessment-world.js';
 import { rows, sql, testDatabaseTargets, type TestDatabase } from './testing/databases.js';
 
 // P6C F-3: a context with nothing to refer to is refused at request time, so these fixtures state one explicit rule
-const EXPLICIT_RULE = { rules: [{ statement: 'Every project must be original work.', certainty: 'explicit' }] };
+const EXPLICIT_RULE: AssessmentWorldOptions = {
+  rules: [{ statement: 'Every project must be original work.', certainty: 'explicit' }],
+};
 
 /*
  * P6B-beta3-R1: the store writes the coverage record only for the run that holds the lease, only for the snapshots the run pinned, only

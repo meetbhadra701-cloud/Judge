@@ -587,9 +587,11 @@ describe('M5 milestone scope (phase P6A)', () => {
       /pre_interview_assessment|assessment_run/i.test(readFileSync(file, 'utf8')),
     );
     expect(worker.every((file) => relative(ROOT, file).startsWith('apps/worker/src/'))).toBe(true);
-    // no live provider: the only selectable assessment providers are `none` and the offline `replay`
+    // no live provider: the only selectable assessment providers are `none` and the two OFFLINE ones (`replay`, and P6C's `scripted`
+    // demonstrator), and the scripted one is refused in production by the environment validation itself
     const env = readFileSync(join(ROOT, 'apps/worker/src/env.ts'), 'utf8');
-    expect(env).toContain("ASSESSMENT_PROVIDER: z.enum(['none', 'replay'])");
+    expect(env).toContain("ASSESSMENT_PROVIDER: z.enum(['none', 'replay', 'scripted'])");
+    expect(env).toContain('The scripted demonstration provider is for development and tests only');
   });
 
   it('exposes no score, analysis, assessment, question, ranking or winner HTTP routes', () => {
