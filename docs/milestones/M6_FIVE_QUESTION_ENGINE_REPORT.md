@@ -14,7 +14,7 @@ visible, and without ever pretending that a missing document is a weak project.
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Starting head (accepted P6D) | `b64564040faac6e30e02cdfc6816518751c517be`                                                                   |
 | Branch                       | `claude/m6-five-question-engine`                                                                             |
-| Implementation head          | `__IMPLEMENTATION_SHA__` (this report is committed on top of it; see §10 for the exact verification run)     |
+| Implementation head          | `ff1d09747ac30d5483c43504dc9e29f25a862303` (this report is committed on top of it; see §10)                  |
 | Phase 0 commit               | `a9c502f` (R8B P3 repairs)                                                                                   |
 | Migrations added             | `0021_m6_outcome_accounting` (phase 0), `0022_m6_question_sets`, `0023_m6_question_set_integrity`            |
 | New packages                 | `@judge-copilot/uncertainty`, `@judge-copilot/questions` (layer 2, pure)                                     |
