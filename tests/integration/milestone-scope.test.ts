@@ -101,7 +101,13 @@ const M5_P4_TABLES = [
 ];
 
 /** The only tables M6 adds (migration 0022): the immutable question set of one verified assessment. No answer, interview, final-score or delta table. */
-const M6_TABLES = ['question_set_opportunities', 'question_set_questions', 'question_sets'];
+const M6_TABLES = [
+  // M6-R1: the working table of generation claims (one row per identity being generated; deleted when its set is published)
+  'question_generation_claims',
+  'question_set_opportunities',
+  'question_set_questions',
+  'question_sets',
+];
 
 /** The only tables M3 may add. */
 const M3_TABLES = ['claims', 'contradictions', 'evidence_items', 'evidence_relations', 'unknowns'];
@@ -233,7 +239,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     expect(graphTables.sort()).toEqual(M3_TABLES);
     // P4 adds exactly the assessment-persistence tables, and no question, answer, interview, final-score or delta table
     expect(laterTables.sort()).toEqual(M5_P4_TABLES);
-    // M6 adds exactly the three question-set tables, and no answer, interview, final-score or delta table
+    // M6 adds exactly the question-set tables and the generation-claim table, and no answer, interview, final-score or delta table
     expect(m6Tables.sort()).toEqual(M6_TABLES);
   });
 
@@ -353,6 +359,8 @@ describe('M5 milestone scope (phase P6A)', () => {
       // M6: the three immutable question-set tables, then their triggers (append-only, ownership, completeness). No answer, interview or final-score table.
       '0022_m6_question_sets.sql',
       '0023_m6_question_set_integrity.sql',
+      // M6-R1: the generation-claim working table, two nullable counters and the widened shortfall-code CHECK. No answer, interview or final-score table.
+      '0024_m6_r1_generation_claims.sql',
     ]);
   });
 

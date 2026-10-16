@@ -86,6 +86,7 @@ describe.each(targets)('M0 database migrations on %s', (_name, open) => {
       'project_track_selections',
       'project_voids',
       'projects',
+      'question_generation_claims',
       'question_set_opportunities',
       'question_set_questions',
       'question_sets',

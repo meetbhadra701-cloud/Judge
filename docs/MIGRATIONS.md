@@ -194,3 +194,13 @@ Additive: no row is deleted, rewritten or re-pointed.
   set, so a row added to a committed set later fails.
 - Re-running them is harmless (`CREATE TABLE IF NOT EXISTS`, guarded foreign keys, `DROP TRIGGER IF EXISTS` before each `CREATE TRIGGER`, `CREATE OR REPLACE FUNCTION`), as the §6.4 recovery requires.
 - There is no down migration; rollback is restoring the pre-upgrade backup. An older application against the new schema works (it ignores the new tables); the new application against an older schema refuses to start (`SchemaNotReadyError`).
+
+## 8. M6-R1: `0024_m6_r1_generation_claims`
+
+Additive and idempotent (re-run safe, as §6.4 requires); no existing row is rewritten.
+
+- **New table `question_generation_claims`** (one row per question-set identity being generated): the durable claim of the work, a lease on the **database clock**, a fencing `claim_token`, `attempt`, and a `failed` state with its cool-down. It is
+  working state, not history: rows change and are deleted when the set is published (in the same transaction as the set). It carries a composite foreign key to the assessment of the same project. See `docs/milestones/M6_R1_R9A_REMEDIATION_REPORT.md`.
+- **Two nullable columns on `question_sets`:** `excluded_redundant`, `excluded_below_minimum` (the selection policy v2 split of valid candidates that were left out). Sets written under policy v1 keep `NULL` ("not recorded"): they are never back-filled.
+- **`question_sets_shortfall_shape` is widened** (dropped and re-added) to admit the two new codes `below_minimum_value` and `mixed_causes`; every existing row still satisfies it. A new CHECK `question_sets_excluded_shape` bounds the two counters.
+- Compatibility: an application from before 0024 keeps working against the new schema for reading; a 0024 application refuses to start against an older schema (`SchemaNotReadyError`). Recovery after later migrations exist is unchanged (§6.4: delete the rows of 0020 and every later one, then migrate).
