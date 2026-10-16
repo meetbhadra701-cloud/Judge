@@ -3,11 +3,13 @@
 import Link from 'next/link';
 import { useActionState, useEffect, useRef } from 'react';
 import { useFormStatus } from 'react-dom';
+import { TrackSelector } from '../../../components/track-selector';
+import type { TrackContext } from '../../../../lib/tracks';
 import { submitProjectAction, type SubmitState } from './actions';
 
 const INITIAL: SubmitState = {
   attempt: 0,
-  values: { github: '', devpost: '', name: '' },
+  values: { github: '', devpost: '', name: '', trackKeys: [] },
   errors: {},
   formError: null,
   projectId: null,
@@ -36,10 +38,13 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
 export function SubmitForm({
   eventId,
   submissionKey,
+  trackContext,
 }: {
   eventId: string;
   /** The request identity of THIS form: stable across retries, new for every page load. */
   submissionKey: string;
+  /** The locked context's tracks (P6D); null or empty: the form has no track section. */
+  trackContext: TrackContext | null;
 }) {
   const [state, action] = useActionState(submitProjectAction, INITIAL);
   const form = useRef<HTMLFormElement>(null);
@@ -108,6 +113,12 @@ export function SubmitForm({
         />
       </label>
       <FieldError id="name-error" message={state.errors.name} />
+      <TrackSelector
+        key={`t-${String(state.attempt)}`}
+        context={trackContext}
+        selected={state.values.trackKeys}
+        error={state.errors.tracks}
+      />
       <SubmitButton />
     </form>
   );

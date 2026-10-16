@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { apiRequest } from '../../../../lib/api';
 import { runCorrection, type CorrectionField } from '../../../../lib/submission';
+import { postedTrackKeys } from '../../../../lib/tracks';
 
 export interface CorrectState {
   readonly attempt: number;
@@ -12,6 +13,8 @@ export interface CorrectState {
     readonly github: string;
     readonly devpost: string;
     readonly name: string;
+    /** `null` until the form has been submitted once (the form then starts from the voided project's tracks). */
+    readonly trackKeys: readonly string[] | null;
     readonly cancelPending: boolean;
   };
   readonly errors: Readonly<Partial<Record<CorrectionField, string>>>;
@@ -40,12 +43,15 @@ export async function correctProjectAction(
     github: text(formData, 'github'),
     devpost: text(formData, 'devpost'),
     name: text(formData, 'name'),
+    trackKeys: postedTrackKeys(formData.getAll('trackKeys')),
     cancelPending: text(formData, 'cancelPending') === 'yes',
   };
+  const contextVersionId = text(formData, 'contextVersionId');
   const outcome = await runCorrection(
     apiRequest,
     projectId,
-    values,
+    // the track section exists only when the page offered tracks (its token travels with it)
+    contextVersionId === '' ? { ...values, trackKeys: undefined } : { ...values, contextVersionId },
     text(formData, 'correctionKey'),
   );
   if (outcome.kind === 'done') {

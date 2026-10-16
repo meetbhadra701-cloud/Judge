@@ -6,6 +6,7 @@ import { apiRequest, eventPath } from '../../../../lib/api';
 import { ErrorBanner } from '../../../components/ui';
 import { SubmitView } from './view';
 import { eventPageTitle } from '../../../../lib/titles';
+import { trackContextOf } from '../../../../lib/tracks';
 
 export async function generateMetadata({
   params,
@@ -52,6 +53,7 @@ export default async function SubmitPage({ params }: { params: Promise<{ eventId
       event={event}
       locked={locked ?? null}
       rubric={rubric ? { name: rubric.name, criteriaCount: rubric.criteria.length } : null}
+      trackContext={context?.ok ? trackContextOf(context.data) : null}
       submissionKey={randomUUID()}
     />
   );

@@ -198,7 +198,11 @@ describe.each(testDatabaseTargets())(
         // a rubric-only context: no rule, no requirement, no declared track
         const rubricOnly = await seedAssessmentWorld(db);
         const refused = await store.requestAssessment(requestInput(rubricOnly));
-        expect(refused).toEqual({ kind: 'no_context_reference_evidence' });
+        expect(refused).toEqual({
+          kind: 'no_context_reference_evidence',
+          contextDefinesTracks: false,
+          declaredTrackKeys: [],
+        });
         // an unclear/interpreted-only rule is not explicit reference evidence either
         const unclearOnly = await seedAssessmentWorld(db, {
           rules: [{ statement: 'Judges may consider fairness.', certainty: 'unclear' }],
@@ -217,6 +221,24 @@ describe.each(testDatabaseTargets())(
           declare: ['health'],
         });
         expect((await store.requestAssessment(requestInput(trackOnly))).kind).toBe('run_created');
+      });
+
+      it('P6D: the refusal for a context whose reference material is track-specific says whether the context defines tracks and which the project declared', async () => {
+        const store = newRunStore(db);
+        const runsBefore = await countRows('analysis_runs');
+        const noTrackDeclared = await seedAssessmentWorld(db, { rules: [], trackKeys: ['health'] });
+        expect(await store.requestAssessment(requestInput(noTrackDeclared))).toEqual({
+          kind: 'no_context_reference_evidence',
+          contextDefinesTracks: true,
+          declaredTrackKeys: [],
+        });
+        expect(await countRows('analysis_runs')).toBe(runsBefore);
+        const declared = await seedAssessmentWorld(db, {
+          rules: [],
+          trackKeys: ['health'],
+          declare: ['health'],
+        });
+        expect((await store.requestAssessment(requestInput(declared))).kind).toBe('run_created');
       });
 
       it('re-captures after pinning do not change what the run is about (invariant 17)', async () => {

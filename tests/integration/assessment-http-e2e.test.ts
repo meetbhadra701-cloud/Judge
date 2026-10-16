@@ -160,7 +160,18 @@ describe.each(testDatabaseTargets())(
         providerMode: 'replay',
         failureCode: null,
       });
-      expect((run.body['usage'] as { attemptsStarted: number }).attemptsStarted).toBe(11);
+      // P6D: a replay run is a simulation. The 11 ledger rows are STAGE EXECUTIONS, not provider calls, and no tokens or money are reported as spent
+      const usage = run.body['usage'] as Record<string, unknown>;
+      expect(usage).toMatchObject({
+        basis: 'simulated',
+        providerCalls: 0,
+        attemptsStarted: 0,
+        settledCalls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        costNanoUsd: 0,
+      });
+      expect((usage['simulated'] as { stageExecutions: number }).stageExecutions).toBe(11);
       const assessmentId = run.body['assessmentId'] as string;
 
       const list = await call('GET', `${base}/assessments`);

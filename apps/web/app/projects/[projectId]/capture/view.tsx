@@ -37,9 +37,18 @@ export function CaptureView({
   supplyAction,
 }: CaptureViewProps): ReactNode {
   const overview = overviewOf(project.sources);
-  const contentCount = project.sources.filter(
-    (source) => describeCapture(source.latestSnapshot).hasContent,
+  // P6D: a source has CONTENT when its latest attempt holds some, or an earlier capture does (a failed retry never deletes it, and a report
+  // uses the earlier one). "Supplied" counts organizer-typed text separately from text read from the source.
+  const contentOf = (source: ProjectDetail['sources'][number]) =>
+    describeCapture(source.latestSnapshot).hasContent
+      ? source.latestSnapshot
+      : (source.latestUsableSnapshot ?? null);
+  const withContent = project.sources.filter((source) => contentOf(source) !== null);
+  const contentCount = withContent.length;
+  const suppliedCount = withContent.filter(
+    (source) => contentOf(source)?.provenance === 'organizer_supplied',
   ).length;
+  const withoutContentCount = project.sources.length - contentCount;
   const locked = event?.lockedVersionId
     ? event.versions.find((version) => version.id === event.lockedVersionId)
     : undefined;
@@ -136,6 +145,33 @@ export function CaptureView({
                           <small>Incomplete: {view.gaps.join('; ')}.</small>
                         </>
                       ) : null}
+                      {(() => {
+                        const earlier = describeCapture(source.latestSnapshot).hasContent
+                          ? null
+                          : (source.latestUsableSnapshot ?? null);
+                        return earlier === null ? null : (
+                          <>
+                            <br />
+                            <small data-testid={`earlier-capture-${source.sourceType}`}>
+                              The latest attempt did not succeed, but{' '}
+                              <strong>capture #{earlier.captureNumber}</strong> (
+                              {earlier.status === 'partial' ? 'partial' : 'complete'}
+                              {earlier.provenance === 'organizer_supplied'
+                                ? ', text supplied by an organizer'
+                                : ''}
+                              ) is still stored and is the content a report uses. A failed retry
+                              never removes it.
+                              {earlier.revision ? (
+                                <>
+                                  {' '}
+                                  Exact commit{' '}
+                                  <code title={earlier.revision}>{earlier.revision}</code>.
+                                </>
+                              ) : null}
+                            </small>
+                          </>
+                        );
+                      })()}
                       {source.latestSnapshot?.revision ? (
                         <>
                           <br />
@@ -206,10 +242,16 @@ export function CaptureView({
           </table>
         )}
         {overview.anyWaiting ? <p role="status">Waiting for the capture worker.</p> : null}
-        {overview.anyFailed ? (
+        {overview.anyFailed && withoutContentCount > 0 ? (
           <p role="alert" className="error">
-            At least one source could not be captured. You can retry it, or continue: a missing
+            At least one source has no stored content. You can retry it, or continue: a missing
             source is missing evidence, never a negative judgment about the project.
+          </p>
+        ) : null}
+        {overview.anyFailed && withoutContentCount === 0 ? (
+          <p role="status" className="notice" data-testid="failed-retry-notice">
+            The latest capture attempt of at least one source did not succeed, but earlier content
+            of every source is still stored. You can retry again at any time.
           </p>
         ) : null}
       </section>
@@ -226,7 +268,7 @@ export function CaptureView({
         </p>
         {contentCount === 0 ? (
           <p data-testid="next-blocked">
-            The report needs at least one captured source.{' '}
+            The report needs at least one source with stored content.{' '}
             {overview.anyWaiting ? 'Waiting for the capture first.' : 'Retry a capture above.'}
           </p>
         ) : (
@@ -235,8 +277,12 @@ export function CaptureView({
               Open the preliminary report page →
             </Link>{' '}
             <small>
-              ({String(contentCount)} of {String(project.sources.length)} sources captured
-              {overview.allContent ? '' : '; the report will be based only on those'})
+              ({String(contentCount)} of {String(project.sources.length)} sources have stored
+              content: {String(contentCount - suppliedCount)} captured from the source
+              {suppliedCount > 0
+                ? `, ${String(suppliedCount)} typed or pasted by an organizer`
+                : ''}
+              {withoutContentCount === 0 ? '' : '; the report will be based only on those'})
             </small>
           </p>
         )}

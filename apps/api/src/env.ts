@@ -1,4 +1,9 @@
-import { BaseEnv, parseEnv } from '@judge-copilot/shared';
+import {
+  assertExplicitDevelopmentEnvironment,
+  BaseEnv,
+  isDemonstrationProvider,
+  parseEnv,
+} from '@judge-copilot/shared';
 import { z } from 'zod';
 
 /**
@@ -134,6 +139,14 @@ export const ApiEnv = BaseEnv.extend({
 });
 export type ApiEnv = z.infer<typeof ApiEnv>;
 
-export function loadApiEnv(source?: Readonly<Record<string, string | undefined>>): ApiEnv {
+export function loadApiEnv(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): ApiEnv {
+  if (isDemonstrationProvider(source['ASSESSMENT_PROVIDER'])) {
+    assertExplicitDevelopmentEnvironment(
+      source,
+      `ASSESSMENT_PROVIDER=${source['ASSESSMENT_PROVIDER'] ?? ''}`,
+    );
+  }
   return parseEnv(ApiEnv, source);
 }

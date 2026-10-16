@@ -1,4 +1,9 @@
-import { BaseEnv, parseEnv } from '@judge-copilot/shared';
+import {
+  assertExplicitDevelopmentEnvironment,
+  BaseEnv,
+  isDemonstrationProvider,
+  parseEnv,
+} from '@judge-copilot/shared';
 import { z } from 'zod';
 
 export const WorkerEnv = BaseEnv.extend({
@@ -79,6 +84,14 @@ export const WorkerEnv = BaseEnv.extend({
 });
 export type WorkerEnv = z.infer<typeof WorkerEnv>;
 
-export function loadWorkerEnv(source?: Readonly<Record<string, string | undefined>>): WorkerEnv {
+export function loadWorkerEnv(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): WorkerEnv {
+  if (isDemonstrationProvider(source['ASSESSMENT_PROVIDER'])) {
+    assertExplicitDevelopmentEnvironment(
+      source,
+      `ASSESSMENT_PROVIDER=${source['ASSESSMENT_PROVIDER'] ?? ''}`,
+    );
+  }
   return parseEnv(WorkerEnv, source);
 }

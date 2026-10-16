@@ -8,6 +8,8 @@ import {
 import { canonicalJson, sha256Hex } from '@judge-copilot/context';
 import {
   ASSESSMENT_API_NOTICE,
+  ASSESSMENT_DEMONSTRATION_NOTICE,
+  missingExpectedSources,
   ASSESSMENT_RUN_TYPE,
   ASSESSMENT_UNKNOWNS_NOTICE,
   ScoreReport,
@@ -217,41 +219,63 @@ export class AssessmentReadStore {
       verdict: view.verdict,
       concerns: view.concerns,
       partialCapture: view.snapshots.some((snapshot) => snapshot.status === 'partial'),
+      missingSources: view.verified ? missingExpectedSources(view.snapshots) : [],
     };
   }
 
   // -- Runs ---------------------------------------------------------------------------------------------------------------
 
+  /**
+   * P6D: the ledger is split by each call's PROVIDER MODE. Only `live` calls are provider calls with actual tokens and cost; every other row
+   * (`replay`, `scripted`, or a row from before the mode was recorded) is a local stage execution, whose reported numbers are diagnostics. The
+   * stored rows are never touched: records written before P6D, which priced a fixed placeholder, are reinterpreted here, not rewritten.
+   */
   private async usageOf(runId: string): Promise<AssessmentUsageView> {
+    const live = sql`${assessmentRunCalls.providerMode} = 'live'`;
+    const count = (condition: ReturnType<typeof sql>) =>
+      sql<number>`count(*) filter (where ${condition})`.mapWith(Number);
+    const sum = (
+      column: typeof assessmentRunCalls.inputTokens,
+      condition: ReturnType<typeof sql>,
+    ) => sql<number>`coalesce(sum(${column}) filter (where ${condition}), 0)`.mapWith(Number);
+    const notLive = sql`${assessmentRunCalls.providerMode} is distinct from 'live'`;
     const [row] = await this.db
       .select({
-        attempts: sql<number>`count(*)`.mapWith(Number),
-        settled:
-          sql<number>`count(*) filter (where ${assessmentRunCalls.state} = 'settled')`.mapWith(
-            Number,
-          ),
-        unknown:
-          sql<number>`count(*) filter (where ${assessmentRunCalls.state} = 'unknown')`.mapWith(
-            Number,
-          ),
-        released:
-          sql<number>`count(*) filter (where ${assessmentRunCalls.state} = 'released')`.mapWith(
-            Number,
-          ),
-        input: sql<number>`coalesce(sum(${assessmentRunCalls.inputTokens}), 0)`.mapWith(Number),
-        output: sql<number>`coalesce(sum(${assessmentRunCalls.outputTokens}), 0)`.mapWith(Number),
-        cost: sql<number>`coalesce(sum(${assessmentRunCalls.costNanoUsd}), 0)`.mapWith(Number),
+        total: sql<number>`count(*)`.mapWith(Number),
+        liveAttempts: count(live),
+        liveSettled: count(sql`${live} and ${assessmentRunCalls.state} = 'settled'`),
+        liveUnknown: count(sql`${live} and ${assessmentRunCalls.state} = 'unknown'`),
+        liveReleased: count(sql`${live} and ${assessmentRunCalls.state} = 'released'`),
+        liveInput: sum(assessmentRunCalls.inputTokens, live),
+        liveOutput: sum(assessmentRunCalls.outputTokens, live),
+        liveCost: sum(assessmentRunCalls.costNanoUsd, live),
+        simulated: count(notLive),
+        simInput: sum(assessmentRunCalls.inputTokens, notLive),
+        simOutput: sum(assessmentRunCalls.outputTokens, notLive),
+        simCost: sum(assessmentRunCalls.costNanoUsd, notLive),
       })
       .from(assessmentRunCalls)
       .where(eq(assessmentRunCalls.runId, runId));
+    const simulated = (row?.simulated ?? 0) > 0;
     return {
-      attemptsStarted: row?.attempts ?? 0,
-      settledCalls: row?.settled ?? 0,
-      unknownCalls: row?.unknown ?? 0,
-      releasedCalls: row?.released ?? 0,
-      inputTokens: row?.input ?? 0,
-      outputTokens: row?.output ?? 0,
-      costNanoUsd: row?.cost ?? 0,
+      basis: simulated ? 'simulated' : 'provider_calls',
+      stageExecutions: row?.total ?? 0,
+      providerCalls: (row?.liveAttempts ?? 0) - (row?.liveReleased ?? 0),
+      attemptsStarted: row?.liveAttempts ?? 0,
+      settledCalls: row?.liveSettled ?? 0,
+      unknownCalls: row?.liveUnknown ?? 0,
+      releasedCalls: row?.liveReleased ?? 0,
+      inputTokens: row?.liveInput ?? 0,
+      outputTokens: row?.liveOutput ?? 0,
+      costNanoUsd: row?.liveCost ?? 0,
+      simulated: simulated
+        ? {
+            stageExecutions: row?.simulated ?? 0,
+            reportedInputTokens: row?.simInput ?? 0,
+            reportedOutputTokens: row?.simOutput ?? 0,
+            notionalCostNanoUsd: row?.simCost ?? 0,
+          }
+        : null,
     };
   }
 
@@ -571,7 +595,7 @@ export class AssessmentReadStore {
           : null,
       usage: await this.usageOf(row.runId),
       notices: {
-        advisory: ASSESSMENT_API_NOTICE,
+        advisory: replay ? ASSESSMENT_DEMONSTRATION_NOTICE : ASSESSMENT_API_NOTICE,
         semanticRelevance: 'not_verified' as const,
         storedText: 'not_hash_covered' as const,
         target: 'overall_rubric_only' as const,

@@ -99,7 +99,11 @@ export interface WorldOptions {
   criteria?: number;
   /** Replaces the default criteria entirely. */
   criterionList?: CriterionOption[];
+  /** P6D: the description every official criterion is published with (default: a sentence per criterion). `''` = published without one. */
+  criterionDescription?: string;
   trackKeys?: string[];
+  /** P6D: official TRACK-scoped rubrics (one per listed track key, which must also be in `trackKeys`); never assessed in this milestone. */
+  trackRubricKeys?: string[];
   rules?: { statement: string; certainty: 'explicit' | 'interpreted' | 'unclear' }[];
   /** No official overall rubric: the fallback rubric would apply (and is disabled). */
   noRubric?: boolean;
@@ -176,12 +180,34 @@ export function contextDocument(options: WorldOptions = {}): EventContextDocumen
       origin: 'human' as const,
       humanModified: false,
     })),
-    rubrics:
-      options.noRubric === true
+    rubrics: [
+      ...(options.trackRubricKeys ?? []).map((trackKey) => ({
+        scope: 'track' as const,
+        trackKey,
+        name: `Track ${trackKey} rubric`,
+        scaleMin: 0,
+        scaleMax: 10,
+        sourceIds: [],
+        origin: 'human' as const,
+        humanModified: false,
+        criteria: [
+          {
+            key: `${trackKey}_impact`,
+            name: `${trackKey} impact`,
+            description: `Published description of the ${trackKey} impact criterion.`,
+            weight: null,
+            anchors: [],
+            sourceIds: [],
+            origin: 'human' as const,
+            humanModified: false,
+          },
+        ],
+      })),
+      ...(options.noRubric === true
         ? []
         : [
             {
-              scope: 'overall',
+              scope: 'overall' as const,
               trackKey: null,
               name: 'Official rubric',
               scaleMin: 0,
@@ -192,7 +218,8 @@ export function contextDocument(options: WorldOptions = {}): EventContextDocumen
               criteria: criteriaOf(options).map((criterion) => ({
                 key: criterion.key,
                 name: criterion.key.replaceAll('_', ' '),
-                description: `Published description of ${criterion.key}.`,
+                description:
+                  options.criterionDescription ?? `Published description of ${criterion.key}.`,
                 weight: criterion.weight,
                 anchors: criterion.anchors ?? [],
                 sourceIds: [],
@@ -200,7 +227,8 @@ export function contextDocument(options: WorldOptions = {}): EventContextDocumen
                 humanModified: false,
               })),
             },
-          ],
+          ]),
+    ] as EventContextDocument['rubrics'],
   };
 }
 

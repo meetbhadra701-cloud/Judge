@@ -7,6 +7,7 @@ import type {
   AssessmentSummary,
   ScoreReport,
 } from '@judge-copilot/schemas';
+import { coverageQualifier } from '../../../../lib/assessment-view';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AssessmentPageView, type UnknownsView } from './view';
@@ -27,6 +28,7 @@ const NO_CONCERN: AssessmentCoverageSummary = {
   verdict: 'complete',
   concerns: [],
   partialCapture: false,
+  missingSources: [],
 };
 const coverageView = (overrides: Partial<AssessmentCoverageView> = {}): AssessmentCoverageView => ({
   status: 'recorded',
@@ -46,7 +48,15 @@ const coverageView = (overrides: Partial<AssessmentCoverageView> = {}): Assessme
   measures: null,
   omittedComponents: [],
   documentation: [],
-  snapshots: [],
+  // a clean baseline has both expected sources captured (a missing one is a P6D concern of its own)
+  snapshots: ['github', 'devpost'].map((sourceType) => ({
+    snapshotId: `s-${sourceType}`,
+    sourceType: sourceType as 'github' | 'devpost',
+    status: 'captured' as const,
+    contentHash: 'b'.repeat(64),
+    provenance: 'fetched' as const,
+    partialReasons: [],
+  })),
   assessorNotices: [],
   artifactCount: 3,
   skippedCount: 0,
@@ -219,6 +229,9 @@ const detail = (overrides: Partial<AssessmentDetail>): AssessmentDetail => ({
   coverage: coverageView(),
   pipeline: null,
   usage: {
+    basis: 'provider_calls',
+    stageExecutions: 1,
+    providerCalls: 1,
     attemptsStarted: 1,
     settledCalls: 1,
     unknownCalls: 0,
@@ -226,6 +239,7 @@ const detail = (overrides: Partial<AssessmentDetail>): AssessmentDetail => ({
     inputTokens: 10,
     outputTokens: 5,
     costNanoUsd: 1000,
+    simulated: null,
   },
   notices: {
     advisory:
@@ -1111,8 +1125,67 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
     const notice = sectionOf(html);
     expect(notice).toContain('Source coverage was not recorded for this assessment');
     expect(notice).toContain('role="alert"');
-    expect(html).toMatch(/data-testid="overall-coverage">source coverage UNKNOWN/);
-    expect(html).toContain('data-testid="dimension-partial-coverage"');
+    expect(html).toMatch(/data-testid="overall-coverage">source coverage could not be verified/);
+    // P6D: with unknown coverage the page claims neither that the evidence was examined nor that it was not
+    expect(notice).toContain(
+      'could not be verified, so this page does not say that it was, and does not say that it was not',
+    );
+    expect(notice).not.toContain('was examined; it was not.');
+    expect(html).toContain('scored from evidence whose coverage could not be verified');
+    expect(html).not.toContain('scored from partly examined evidence');
+  });
+
+  it('P6D: a record that could not be CHECKED, one that failed its checks and one never recorded are three different statements, none of which claims what was examined', () => {
+    const heads = [
+      coverageView({ status: 'not_recorded', verified: false, verdict: null, recordSha256: null }),
+      coverageView({ verified: false, verdict: null, problems: ['record_text_hash_mismatch'] }),
+      coverageView({ verified: false, verdict: null, problems: ['provenance_unavailable'] }),
+    ].map((view) => sectionOf(renderWith(view)));
+    expect(heads[0]).toContain('was not recorded');
+    expect(heads[1]).toContain('failed its integrity checks');
+    expect(heads[2]).toContain('could not be checked against the stored source');
+    for (const notice of heads) {
+      expect(notice).not.toContain('was examined; it was not.');
+      expect(notice).toContain('could not be verified');
+    }
+  });
+
+  it('P6D: when the GitHub repository was never captured, the headline says an expected source is missing, not that coverage is complete', () => {
+    const html = renderWith(
+      coverageView({
+        snapshots: [
+          {
+            snapshotId: 's-d',
+            sourceType: 'devpost',
+            status: 'captured',
+            contentHash: 'b'.repeat(64),
+            provenance: 'organizer_supplied',
+            partialReasons: [],
+          },
+        ],
+      }),
+    );
+    const notice = sectionOf(html);
+    expect(notice).toContain('EXPECTED SOURCE MISSING');
+    expect(notice).toContain('GitHub repository');
+    expect(notice).not.toContain('No source-coverage concern was found');
+    expect(notice).toContain('Missing sources are missing evidence, never a low score');
+    expect(notice).toContain('data-level="partial"');
+    // the four statements stay apart: what was available, what is missing, (separately) how many criteria had enough evidence
+    expect(notice).toContain('data-testid="coverage-missing-sources"');
+    expect(notice).toContain('data-testid="coverage-a"');
+    expect(html).toMatch(
+      /data-testid="overall-coverage">PARTIAL source coverage: no usable github capture/,
+    );
+  });
+
+  it('P6D: the list qualifier says "expected source missing", and only for a verified record', () => {
+    expect(coverageQualifier({ ...NO_CONCERN, missingSources: ['github'] })).toBe(
+      'expected source missing',
+    );
+    expect(coverageQualifier({ ...NO_CONCERN, verified: false, missingSources: [] })).toBe(
+      'source coverage unverified',
+    );
   });
 
   it('a record that failed its checks shows its failure codes and nothing derived from it', () => {
@@ -1169,6 +1242,7 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
             verdict: null,
             concerns: [],
             partialCapture: false,
+            missingSources: [],
           },
         }),
       ]),
@@ -1211,6 +1285,9 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
         finishedAt: '2026-01-02T03:04:06.000Z',
         assessmentId: null,
         usage: {
+          basis: 'simulated',
+          stageExecutions: 0,
+          providerCalls: 0,
           attemptsStarted: 0,
           settledCalls: 0,
           unknownCalls: 0,
@@ -1218,6 +1295,12 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
           inputTokens: 0,
           outputTokens: 0,
           costNanoUsd: 0,
+          simulated: {
+            stageExecutions: 0,
+            reportedInputTokens: 0,
+            reportedOutputTokens: 0,
+            notionalCostNanoUsd: 0,
+          },
         },
         guard: {
           maxCalls: 1,
@@ -1235,6 +1318,7 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
           verdict: 'insufficient',
           concerns: ['no_implementation_shown'],
           partialCapture: false,
+          missingSources: [],
         },
       },
     } as AssessmentListResponse;

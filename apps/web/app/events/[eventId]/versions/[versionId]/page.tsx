@@ -11,6 +11,11 @@ import Link from 'next/link';
 import { apiRequest, versionPath } from '../../../../../lib/api';
 import { openMessage } from '../../../../../lib/flash';
 import {
+  describeField,
+  explainLockIssue,
+  fieldOfServerPath,
+} from '../../../../../lib/context-editor';
+import {
   addSourceAction,
   buildContextAction,
   createVersionAction,
@@ -185,7 +190,13 @@ export default async function VersionPage({
                 <button type="submit">Build context from sources</button>
               </form>
             )}
-            <Link href={`/events/${eventId}/versions/${versionId}/edit`}>Edit draft</Link>
+            <Link
+              href={`/events/${eventId}/versions/${versionId}/edit`}
+              className="button-link"
+              data-testid="edit-context-link"
+            >
+              Edit Event Context
+            </Link>
             <form action={lockContextAction}>
               {hidden}
               <button type="submit" disabled={!version.lockReadiness?.ready}>
@@ -193,13 +204,21 @@ export default async function VersionPage({
               </button>
             </form>
           </div>
+          <p>
+            <small>
+              <strong>Edit Event Context</strong> is the normal way to enter the event’s criteria,
+              rules and tracks. “Build context from sources” needs an automatic extractor that the
+              operator must configure; without one it explains that and changes nothing. Review the
+              result below, then lock: a locked version cannot be edited.
+            </small>
+          </p>
           {version.lockReadiness && !version.lockReadiness.ready ? (
             <div className="error">
               <strong>Cannot lock yet:</strong>
               <ul>
                 {version.lockReadiness.issues.map((issue) => (
                   <li key={`${issue.code}:${issue.path}`}>
-                    <code>{issue.code}</code> {issue.path}: {issue.message}
+                    {describeField(fieldOfServerPath(issue.path))}: {explainLockIssue(issue)}
                   </li>
                 ))}
               </ul>
@@ -307,6 +326,14 @@ export default async function VersionPage({
           </section>
           <section>
             <h2>Rubrics ({document.rubrics.length})</h2>
+            {document.rubrics.some((rubric) => rubric.scope === 'overall') ? null : (
+              <p className="notice" role="note" data-testid="no-overall-rubric">
+                This version has no overall judging rubric. Projects can still be submitted and
+                captured, but a preliminary report is made against the event’s{' '}
+                <strong>overall</strong> rubric only (track rubrics are not assessed in this
+                version), so no report can be requested until a locked version has one.
+              </p>
+            )}
             {document.rubrics.map((rubric) => (
               <div key={`${rubric.scope}:${rubric.trackKey ?? ''}`}>
                 <h3>

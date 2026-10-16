@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
-import { saveDraftAction, type SaveDraftState } from '../../../../../actions';
+import { saveDraftAction, type SaveDraftState } from '../../../../../../actions';
 
 export function EditDraftForm({
   eventId,

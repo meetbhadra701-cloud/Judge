@@ -32,6 +32,16 @@ import type { ScoreReport } from './scoring.js';
 export const ASSESSMENT_API_NOTICE =
   'AI estimate from the submitted material only. The human judge’s final score is separate and authoritative.' as const;
 
+/**
+ * P6D: the advisory line of anything produced by an OFFLINE demonstration (`replay`, `scripted`). It must not lead with "AI estimate": no model
+ * estimated anything. Used wherever the run's provider mode is not `live`.
+ */
+export const ASSESSMENT_DEMONSTRATION_NOTICE =
+  'Offline demonstration, not an AI estimate: no model was used. The human judge’s final score is separate and authoritative.' as const;
+
+export type AssessmentAdvisoryNotice =
+  typeof ASSESSMENT_API_NOTICE | typeof ASSESSMENT_DEMONSTRATION_NOTICE;
+
 /** Body of `POST /projects/:projectId/assessments`. */
 export const CreateAssessmentRequest = z.strictObject({ mode: AssessmentRequestMode });
 export type CreateAssessmentRequest = z.infer<typeof CreateAssessmentRequest>;
@@ -62,15 +72,42 @@ export const DISPOSITION_ATTRIBUTION_VALUES = [
 ] as const;
 export type DispositionAttribution = (typeof DISPOSITION_ATTRIBUTION_VALUES)[number];
 
+/**
+ * What a run consumed, with the four things that must never be confused kept apart (docs/ACCOUNTING.md):
+ *
+ *  - STAGE EXECUTION: one pass of a pipeline stage through the local ledger. A live run executes each stage by calling a provider; an offline
+ *    demonstration (`replay`, `scripted`) executes it by local code. Stage executions are bookkeeping, never a model invocation.
+ *  - PROVIDER CALL: an actual invocation of an external model. Only a live provider makes them: `providerCalls` is 0 for every simulated run.
+ *  - RESERVED BUDGET: a LOCAL software limit held while a stage runs (see `AssessmentGuardView`); it is not money and not a provider quota.
+ *  - ACTUAL COST: money incurred. `inputTokens`, `outputTokens` and `costNanoUsd` are ACTUAL values and are 0 for every simulated run,
+ *    whatever the offline stage reported. What it reported survives, labelled, under `simulated`.
+ */
 export interface AssessmentUsageView {
+  /** `simulated` for any run whose provider mode is not `live` (an offline demonstration); `provider_calls` otherwise. */
+  readonly basis: 'provider_calls' | 'simulated';
+  /** Ledger rows of the run (local stage executions). For a live run each corresponds to one provider attempt. */
+  readonly stageExecutions: number;
+  /** External provider invocations actually made. Always 0 when `basis` is `simulated`. */
+  readonly providerCalls: number;
+  /** Provider-call counters of the local ledger; 0 when `basis` is `simulated`. */
   readonly attemptsStarted: number;
   readonly settledCalls: number;
   readonly unknownCalls: number;
   readonly releasedCalls: number;
-  /** Counted tokens and cost (a settled call at its measured usage, an ambiguous call at its worst case; a released call at zero). */
+  /** ACTUAL tokens and cost (a settled call at its measured usage, an ambiguous call at its worst case; a released call at zero). 0 when simulated. */
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly costNanoUsd: number;
+  /**
+   * Diagnostics of an offline run: what its stages reported to the ledger. NOT usage and NOT cost (nothing was consumed or spent); kept so that
+   * records written before P6D (which priced a fixed placeholder) stay visible without being presented as money. `null` for a live run.
+   */
+  readonly simulated: {
+    readonly stageExecutions: number;
+    readonly reportedInputTokens: number;
+    readonly reportedOutputTokens: number;
+    readonly notionalCostNanoUsd: number;
+  } | null;
 }
 
 /** The configured LOCAL spending guard of a run: a software limit of this application, not a provider billing limit. */
@@ -144,7 +181,7 @@ export interface AssessmentListResponse {
   /** The most recent assessment run of any state (so a failed or cancelled run is visible when there is no assessment). */
   readonly latestRun: AssessmentRunView | null;
   readonly launch: AssessmentLaunchView;
-  readonly notice: typeof ASSESSMENT_API_NOTICE;
+  readonly notice: AssessmentAdvisoryNotice;
 }
 
 export interface CitedEvidenceView {
@@ -226,7 +263,7 @@ export interface AssessmentDetail {
   } | null;
   readonly usage: AssessmentUsageView;
   readonly notices: {
-    readonly advisory: typeof ASSESSMENT_API_NOTICE;
+    readonly advisory: AssessmentAdvisoryNotice;
     readonly semanticRelevance: 'not_verified';
     /**
      * `rationale`, citation `note`s, per-judgment `limitations`, attempt counts, critic flags, the `disposition` and its attribution, and the

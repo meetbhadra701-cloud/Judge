@@ -2,17 +2,24 @@ import type { ProjectDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { voidedNotice } from '../../../../lib/submission';
+import type { TrackContext } from '../../../../lib/tracks';
 import { CorrectForm } from './correct-form';
 
 /* Presentation of the correction page (P6B-beta2), separate from fetching so it can be rendered in a test with plain data. */
 
 export interface CorrectViewProps {
+  /** The current locked context's tracks (P6D), offered for the replacement submission. */
+  readonly trackContext?: TrackContext | null;
   readonly project: ProjectDetail;
   /** Request identity of this rendering of the form (a UUID, generated per page load). */
   readonly correctionKey: string;
 }
 
-export function CorrectView({ project, correctionKey }: CorrectViewProps): ReactNode {
+export function CorrectView({
+  project,
+  correctionKey,
+  trackContext = null,
+}: CorrectViewProps): ReactNode {
   const notice = voidedNotice(project);
   return (
     <main>
@@ -50,7 +57,12 @@ export function CorrectView({ project, correctionKey }: CorrectViewProps): React
             If a capture is still in progress, wait for it to finish first: the correction is
             refused, and nothing changes, while work on the project is pending.
           </p>
-          <CorrectForm projectId={project.id} correctionKey={correctionKey} />
+          <CorrectForm
+            projectId={project.id}
+            correctionKey={correctionKey}
+            trackContext={trackContext}
+            declaredTrackKeys={project.tracks.map((track) => track.trackKey)}
+          />
         </section>
       )}
     </main>

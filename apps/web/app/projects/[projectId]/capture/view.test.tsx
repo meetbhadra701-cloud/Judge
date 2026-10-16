@@ -132,7 +132,58 @@ describe('capture progress page', () => {
     expect(html.match(/Retry capture/g)).toHaveLength(1);
     expect(html).toContain('missing evidence, never a negative judgment');
     // the report remains reachable from the source that did capture, and says it will use only that
-    expect(html).toContain('1 of 2 sources captured; the report will be based only on those');
+    expect(html).toContain('1 of 2 sources have stored content');
+    expect(html).toContain('the report will be based only on those');
+  });
+
+  it('P6D: a source with an earlier usable capture and a newer FAILED attempt says both: the attempt failed, the earlier content remains and is what a report uses', () => {
+    const earlier = snapshot({ captureNumber: 1, revision: 'c'.repeat(40) });
+    const failed = snapshot({
+      id: 's2',
+      captureNumber: 2,
+      status: 'failed',
+      failureCategory: 'timeout',
+    });
+    const html = render(
+      project([
+        { ...source('github', failed), latestUsableSnapshot: earlier },
+        source('devpost', snapshot({ sourceType: 'devpost' })),
+      ]),
+    );
+    expect(html).toContain('CAPTURE FAILED');
+    expect(html).toContain('data-testid="earlier-capture-github"');
+    expect(html).toContain('capture #1');
+    expect(html).toContain('is the content a report uses');
+    expect(html).toContain('c'.repeat(40));
+    // the report is reachable, counts the earlier content, and does not claim a source is missing
+    expect(html).toContain('2 of 2 sources have stored content');
+    expect(html).not.toContain('The report needs at least one source with stored content');
+    expect(html).toContain('data-testid="failed-retry-notice"');
+    expect(html).not.toContain('At least one source has no stored content');
+    expect(html.match(/Retry capture/g)).toHaveLength(1);
+  });
+
+  it('P6D: text supplied by an organizer is counted as supplied, never as captured from the source', () => {
+    const supplied = snapshot({ sourceType: 'devpost', provenance: 'organizer_supplied' });
+    const html = render(project([source('github', snapshot({})), source('devpost', supplied)]));
+    expect(html).toContain(
+      '2 of 2 sources have stored content: 1 captured from the source, 1 typed or pasted by an organizer',
+    );
+    expect(html).not.toContain('2 of 2 sources captured');
+  });
+
+  it('P6D: a failed source with NO earlier capture is still reported as having no content', () => {
+    const html = render(
+      project([
+        source('github', snapshot({ status: 'failed', failureCategory: 'timeout' })),
+        source(
+          'devpost',
+          snapshot({ sourceType: 'devpost', status: 'failed', failureCategory: 'timeout' }),
+        ),
+      ]),
+    );
+    expect(html).toContain('The report needs at least one source with stored content');
+    expect(html).toContain('At least one source has no stored content');
   });
 
   it('partial: lists what is missing and offers to capture again', () => {

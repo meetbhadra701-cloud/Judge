@@ -119,6 +119,11 @@ export const ProjectSourceRecord = z.object({
   createdByActorId: Uuid.nullable(),
   createdAt: IsoDateTime,
   latestSnapshot: SnapshotSummary.nullable(),
+  /**
+   * P6D: the newest snapshot of this source that holds CONTENT (`captured` or `partial`), which may be older than `latestSnapshot` (a retry that
+   * failed does not delete an earlier capture, and an assessment uses the earlier one). Absent on responses from before P6D.
+   */
+  latestUsableSnapshot: SnapshotSummary.nullable().optional(),
 });
 export type ProjectSourceRecord = z.infer<typeof ProjectSourceRecord>;
 
@@ -186,6 +191,20 @@ export const SubmitProjectRequest = z.strictObject({
   devpostUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
   /** Optional label. Derived from the GitHub repository (`owner/repo`) when absent. */
   name: LabelText(SOURCE_INGESTION_LIMITS.projectNameMaxChars).nullable().optional(),
+  /**
+   * P6D: the tracks the project competes in, as keys of the event's CURRENTLY LOCKED Event Context (validated, never invented; the same rule as
+   * `CreateProjectRequest.trackKeys`). Absent = the client expressed no opinion; an empty list = "no track" (explicit).
+   */
+  trackKeys: z
+    .array(Identifier)
+    .max(SOURCE_INGESTION_LIMITS.tracksPerProject)
+    .refine((keys) => new Set(keys).size === keys.length, 'Track keys must be unique')
+    .optional(),
+  /**
+   * P6D: the locked Event Context version the submitter was looking at when choosing tracks (the form carries it). When the event's locked
+   * version has changed since, the submission is refused with CONTEXT_VERSION_CHANGED instead of silently applying a stale selection.
+   */
+  contextVersionId: Uuid.optional(),
 });
 export type SubmitProjectRequest = z.input<typeof SubmitProjectRequest>;
 
@@ -221,14 +240,8 @@ export const VoidProjectRequest = z.strictObject({
    * cancelled is recorded (counts in the audit event, `cancelled_by_void` on each run); a cancelled capture is a failed snapshot with that reason.
    */
   cancelPendingWork: z.boolean().optional(),
-  replacement: z
-    .strictObject({
-      githubUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
-      devpostUrl: z.string().trim().min(1).max(SOURCE_INGESTION_LIMITS.urlMaxChars),
-      name: LabelText(SOURCE_INGESTION_LIMITS.projectNameMaxChars).nullable().optional(),
-    })
-    .nullable()
-    .optional(),
+  /** The corrected submission: exactly the shape of `POST /events/:eventId/submissions` (links, optional label, and since P6D its tracks). */
+  replacement: SubmitProjectRequest.nullable().optional(),
 });
 export type VoidProjectRequest = z.input<typeof VoidProjectRequest>;
 

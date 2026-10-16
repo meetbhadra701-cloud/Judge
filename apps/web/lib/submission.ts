@@ -21,13 +21,17 @@ import {
  * the capture layer's SSRF policy (`safe-http`), at capture time. The web tier never fetches a submitted URL.
  */
 
-export type SubmissionField = 'github' | 'devpost' | 'name';
+export type SubmissionField = 'github' | 'devpost' | 'name' | 'tracks';
 
 export interface SubmissionInput {
   readonly github: string;
   readonly devpost: string;
   /** Optional override of the derived project name. */
   readonly name: string;
+  /** P6D: the tracks ticked on the form (keys of the locked Event Context the form showed). Omitted when the page offered none. */
+  readonly trackKeys?: readonly string[] | undefined;
+  /** P6D: the locked Event Context version the tracks were chosen against, sent back so a stale choice is refused. */
+  readonly contextVersionId?: string | undefined;
 }
 
 export type SubmissionValidation =
@@ -191,6 +195,18 @@ export type SubmissionOutcome =
       readonly result: SubmissionResult;
     };
 
+/** The track part of a submission body: sent only when the page offered tracks (an empty list then means "no track", stated explicitly). */
+function trackFields(input: {
+  readonly trackKeys?: readonly string[] | undefined;
+  readonly contextVersionId?: string | undefined;
+}): { trackKeys?: string[]; contextVersionId?: string } {
+  if (input.trackKeys === undefined) return {};
+  return {
+    trackKeys: [...input.trackKeys],
+    ...(input.contextVersionId ? { contextVersionId: input.contextVersionId } : {}),
+  };
+}
+
 const base = (eventId: string) => `/events/${encodeURIComponent(eventId)}`;
 
 /** A key is a UUID, exactly as the API requires; anything else is not forwarded (the API would answer 400). */
@@ -244,6 +260,7 @@ export async function runSubmission(
       devpostUrl: checked.devpost.canonicalUrl,
       // only a name the organizer typed is sent: a derived one is the server's decision
       ...(checked.nameDerived ? {} : { name: checked.projectName }),
+      ...trackFields(input),
     },
     { 'idempotency-key': idempotencyKey },
   );
@@ -269,7 +286,30 @@ function projectOf(refusal: Refusal): string | undefined {
 
 function explainRefusal(refusal: Refusal): SubmissionOutcome {
   switch (refusal.code) {
+    case 'UNKNOWN_TRACK':
+      return {
+        kind: 'failed',
+        field: 'tracks',
+        message:
+          'One of the selected tracks is not part of this hackathon’s locked Event Context. Nothing was saved. Reload the page and choose the tracks again.',
+      };
+    case 'CONTEXT_VERSION_CHANGED':
+      return {
+        kind: 'failed',
+        field: 'tracks',
+        message:
+          'An organizer locked a new Event Context version after this page was opened, so the tracks you saw may have changed. Nothing was saved. Reload the page, check the tracks and submit again.',
+      };
     case 'SUBMISSION_CONFLICT':
+      if (refusal.details?.['reason'] === 'tracks_differ') {
+        return {
+          kind: 'failed',
+          field: 'tracks',
+          message:
+            'This project (the same GitHub and Devpost links) was already submitted with different tracks. Tracks are fixed when a project is submitted, so nothing was changed. Open the existing project, or ask an organizer to void it and submit the corrected tracks.',
+          projectId: projectOf(refusal),
+        };
+      }
       return {
         kind: 'failed',
         message:
@@ -338,6 +378,9 @@ export interface CorrectionInput {
   readonly github: string;
   readonly devpost: string;
   readonly name: string;
+  /** P6D: the corrected submission's tracks (the replacement is a new submission and declares its own). */
+  readonly trackKeys?: readonly string[] | undefined;
+  readonly contextVersionId?: string | undefined;
   /** Also cancel this project's capture and assessment requests that no worker has started (recovery when no worker is running). */
   readonly cancelPending?: boolean;
 }
@@ -434,6 +477,20 @@ function explainCorrection(refusal: CorrectionRefusal): CorrectionOutcome {
         message:
           'The server did not accept one of the corrected links. Check them. Nothing was changed.',
       };
+    case 'UNKNOWN_TRACK':
+      return {
+        kind: 'failed',
+        field: 'tracks',
+        message:
+          'One of the selected tracks is not part of the locked Event Context. Nothing was changed. Reload the page and choose the tracks again.',
+      };
+    case 'CONTEXT_VERSION_CHANGED':
+      return {
+        kind: 'failed',
+        field: 'tracks',
+        message:
+          'An organizer locked a new Event Context version after this page was opened. Nothing was changed: the project is not voided. Reload the page, check the tracks and send the correction again.',
+      };
     case 'PROJECT_NOT_FOUND':
       return { kind: 'failed', message: 'This project does not exist.' };
     case 'API_UNREACHABLE':
@@ -491,6 +548,7 @@ export async function runCorrection(
               devpostUrl: submission.devpost.canonicalUrl,
               // only a name the organizer typed is sent: a derived one is the server's decision
               ...(submission.nameDerived ? {} : { name: submission.projectName }),
+              ...trackFields(input),
             },
           }
         : {}),

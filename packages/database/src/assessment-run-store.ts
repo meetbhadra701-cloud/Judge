@@ -120,7 +120,14 @@ export type RequestAssessmentResult =
   | { readonly kind: 'project_voided' }
   | { readonly kind: 'no_locked_context' }
   | { readonly kind: 'no_source_snapshots' }
-  | { readonly kind: 'no_context_reference_evidence' }
+  | {
+      readonly kind: 'no_context_reference_evidence';
+      /** P6D: what the refusal can honestly tell the judge. Whether the locked context defines tracks, and which the project declared. */
+      readonly contextDefinesTracks: boolean;
+      readonly declaredTrackKeys: readonly string[];
+    }
+  /** P6D: the locked context has no official OVERALL rubric (track rubrics are not assessed); the run could only have failed late. */
+  | { readonly kind: 'no_overall_rubric'; readonly trackRubrics: number }
   | { readonly kind: 'track_not_in_context'; readonly trackKey: string };
 
 export interface RunRecord {
@@ -298,12 +305,23 @@ export class AssessmentRunStore {
         project.eventId,
         pins.contextVersionId,
       );
-      if (
-        pinned.ok &&
-        pinned.recomputedHash === pins.lockedContentHash &&
-        buildEventReferenceItems(pinned.snapshot, pins.declaredTrackKeys).items.length === 0
-      ) {
-        return { kind: 'no_context_reference_evidence' };
+      if (pinned.ok && pinned.recomputedHash === pins.lockedContentHash) {
+        // P6D: with no official OVERALL rubric the fallback rubric would apply and its anchors are not approved, so the run could only fail late
+        // (`fallback_anchors_not_approved`). Track rubrics are never assessed in this milestone and nothing substitutes for the missing one.
+        const { rubrics: contextRubrics, tracks: contextTracks } = pinned.snapshot.document;
+        if (!contextRubrics.some((rubric) => rubric.scope === 'overall')) {
+          return {
+            kind: 'no_overall_rubric',
+            trackRubrics: contextRubrics.filter((rubric) => rubric.scope === 'track').length,
+          };
+        }
+        if (buildEventReferenceItems(pinned.snapshot, pins.declaredTrackKeys).items.length === 0) {
+          return {
+            kind: 'no_context_reference_evidence',
+            contextDefinesTracks: contextTracks.length > 0,
+            declaredTrackKeys: [...pins.declaredTrackKeys],
+          };
+        }
       }
 
       // 3. the intended assessment identity, frozen now: from the pins just read and the documented salt

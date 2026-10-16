@@ -70,6 +70,12 @@ export function officialUnitFromLockedSnapshot(
   if (!rubric || !criterion) return fail('criterion_not_found');
 
   const anchors = [...criterion.anchors].sort((a, b) => a.score - b.score);
+  // P6D: an official criterion may be published with no description (the Event Context allows it, and the editor calls it optional), but a prompt
+  // input must carry some text. The model is told exactly that: nothing is invented, and the criterion's own name is all there is.
+  const description =
+    criterion.description.trim() === ''
+      ? `The official rubric publishes no description of this criterion beyond its name (“${criterion.name}”).`
+      : criterion.description;
   const base = {
     dimensionId: `official.${criterion.key}`,
     name: criterion.name,
@@ -80,11 +86,11 @@ export function officialUnitFromLockedSnapshot(
     anchors.length > 0
       ? {
           ...base,
-          standard: { basis: 'official', criterionDescription: criterion.description, anchors },
+          standard: { basis: 'official', criterionDescription: description, anchors },
         }
       : {
           ...base,
-          standard: { basis: 'official_no_anchors', criterionDescription: criterion.description },
+          standard: { basis: 'official_no_anchors', criterionDescription: description },
         };
   return {
     unit,

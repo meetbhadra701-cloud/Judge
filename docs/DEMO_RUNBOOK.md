@@ -49,19 +49,19 @@ both. It refuses `NODE_ENV=production`, uses no network and writes nothing outsi
 ### 1.1 API (loopback, development actors, offline replay assessments)
 
 ```sh
-AUTH_MODE=dev API_HOST=127.0.0.1 API_PORT=3001 \
+NODE_ENV=development AUTH_MODE=dev API_HOST=127.0.0.1 API_PORT=3001 \
 EVENT_CONTEXT_EXTRACTOR=replay EVENT_CONTEXT_REPLAY_DIR=$PWD/tests/fixtures/event-context \
 ASSESSMENT_PROVIDER=replay ASSESSMENT_REPLAY_FIXTURE=$PWD/demo-data/replay-fixture.json \
 pnpm --filter @judge-copilot/api dev
 ```
 
 `ASSESSMENT_PROVIDER` defaults to `none`: then `POST /projects/:id/assessments` answers `503 ASSESSMENT_PROVIDER_NOT_CONFIGURED` and the page says assessments cannot be run.
-`replay` is refused in production. The fixture is for the models the API freezes by default (`ASSESSMENT_MODEL_EXTRACTION` / `_ASSESSMENT` / `_CRITIC`); leave those at their defaults.
+`replay` (and `scripted`) are refused in production, and since P6D also when `NODE_ENV` is unset or empty: **set `NODE_ENV=development` (or `test`) explicitly** in both the API and the worker, as the commands here do. The fixture is for the models the API freezes by default (`ASSESSMENT_MODEL_EXTRACTION` / `_ASSESSMENT` / `_CRITIC`); leave those at their defaults.
 
 ### 1.2 Worker (capture on the synthetic fixture network; assessments on replay)
 
 ```sh
-CAPTURE_NETWORK=fixture CAPTURE_FIXTURE_DIR=$PWD/tests/fixtures/source-capture \
+NODE_ENV=development CAPTURE_NETWORK=fixture CAPTURE_FIXTURE_DIR=$PWD/tests/fixtures/source-capture \
 ASSESSMENT_PROVIDER=replay ASSESSMENT_REPLAY_FIXTURE=$PWD/demo-data/replay-fixture.json \
 pnpm --filter @judge-copilot/worker dev
 ```
@@ -156,20 +156,38 @@ A submission queues two captures. If no capture worker is running they stay queu
 not been compared with the page; anything derived from it stays a team claim, and the report lists `organizer_supplied_source`. Pasting the same text twice stores nothing new; changed text becomes a new numbered
 snapshot and the old one stays.
 
-### 1.10 The pilot journey on a real project (P6C)
+### 1.10 The offline journey for a real event (P6C, revised in P6D)
 
-Operator preparation is in [PILOT_OPERATOR_SETUP.md](./PILOT_OPERATOR_SETUP.md). As the judge, with the web app open:
+Operator preparation is in [PILOT_OPERATOR_SETUP.md](./PILOT_OPERATOR_SETUP.md). As the organizer or judge, with the web app open. **You never type JSON or an identifier.**
 
-1. **Events → Create event**, then **Create draft version**. Add the hackathon's official sources one by one (title, authority, pasted text). Official rules, rubric and track rules carry their own authority;
-   organizer notes use `organizer_guidance`. **Build context from sources** (when an extractor is configured) or **Edit draft**, review, then **Lock context**. A locked version is frozen.
-2. **Submit a project** (`/events/<id>/submit`): paste the GitHub repository URL and the Devpost URL. Capture starts.
-3. On the capture page, GitHub shows `CAPTURED` or `CAPTURED (PARTIAL)` with the **exact commit**; what was not read is listed and is not negative evidence. If Devpost cannot be fetched it says `CAPTURE FAILED`
-   with the reason; open **Provide the submission text yourself** and paste the authorized text. It is labelled `TEXT SUPPLIED BY AN ORGANIZER`.
-4. **Open the preliminary report page → Run assessment.** If the locked context gives the assessment nothing to refer to (no explicit rule, requirement or declared track) it is refused immediately with the
-   remedy; nothing is queued. Otherwise the scripted demonstrator runs offline.
-5. The report page opens with a red **NOT AN AI ASSESSMENT** banner. Read the structure (coverage, dimensions, citations, unknowns, limitations); **ignore every number** — each is the same fixed placeholder.
-   Limitations explain in words when a partial number leaves out dimensions the assessor itself declared insufficient (`partial_score_excludes_model_declared_insufficient`) and when a newer capture attempt
-   failed so that an older capture was assessed (`newer_capture_unusable`).
+1. **Events → Create event**, then **Create draft version**. Add the hackathon's official texts as sources, one by one: a title, an **Authority** (official rules, official judging rubric,
+   official track rules, organizer guidance), and the pasted text. The authority matters: only a statement tied to an _official_ source can be marked official.
+2. Click **Edit Event Context**. This is a form, not a data file. Work through it from the top (you can save at any time and come back):
+   - **Dates and how judging works** — leave a date empty if the sources do not state it. A date you fill in is marked official or an interpretation, and tied to its source.
+   - **Official judging criteria** — _Add the overall judging rubric_; give its name, the lowest and highest score (for example 1 and 5), tick the official rubric source, then add each criterion with its
+     weight **in percent** (they must total 100 %; leave every weight empty if the rubric publishes none: nothing is invented for you) and, optionally, a scoring guide.
+   - **Event rules**, **Participation and submission requirements** — each statement is marked **Official** (it needs an official source ticked; the form refuses it otherwise), **Organizer’s
+     interpretation** (your reading) or **Unverified note**. Only _Official_ statements are reference material for a report.
+   - **Tracks and sponsor challenges** — add each track (name, and the source that defines it). A sponsor challenge is a track with its own requirement and, if published, its own rubric.
+     A requirement can apply to every project or to one track.
+   - **Organizer guidance** is advice to judges, never an official rule.
+     Press **Save draft**. Problems are shown next to the field and listed at the top, in words. Weights that do not total 100 % can be saved but not locked.
+3. On the review page check what is **Official**, what is an **Organizer’s interpretation** and what is an **Unverified note**, fix anything under **Cannot lock yet**, then **Lock context**.
+   A locked version is frozen; later changes go into a new version (**Create new version**), which supersedes it.
+4. **Submit a project** (`/events/<id>/submit`): paste the GitHub repository URL and the Devpost URL. **If the event has tracks, tick the project’s tracks on this same page.** The page tells you when a
+   track is required (the event has no event-wide rule, so a report can only refer to a track). Tracks are recorded with the submission and are not edited afterwards; to change them, **Wrong links? Void and
+   replace this submission** offers the same track choice. Capture starts.
+5. On the capture page, GitHub shows `CAPTURED` or `CAPTURED (PARTIAL)` with the **exact commit**; what was not read is listed and is not negative evidence. If Devpost cannot be fetched it says
+   `CAPTURE FAILED` with the reason; open **Provide the submission text yourself** and paste the authorized text. It is labelled `TEXT SUPPLIED BY AN ORGANIZER`. If a later retry fails, the earlier capture is
+   still stored and is what a report uses; the page says so.
+6. **Open the preliminary report page → Run assessment.** A request is refused at once, with the real reason and nothing queued, when the locked context has nothing to refer to for this project (no official
+   event-wide rule or requirement, and no declared track) or no overall rubric. Otherwise the scripted demonstrator runs offline.
+7. The report opens with **Offline demonstration, not an AI estimate** and a red **NOT AN AI ASSESSMENT** banner. Read the structure (coverage, dimensions, citations, unknowns, limitations); **ignore every
+   number** — each is the same fixed placeholder. No model was called and nothing was spent: the page says "0 provider calls, no tokens, no cost". Limitations explain in words when a partial number leaves out
+   dimensions the assessor itself declared insufficient (`partial_score_excludes_model_declared_insufficient`), when a newer capture attempt failed so that an older capture was assessed
+   (`newer_capture_unusable`), and the coverage panel says when an expected source (GitHub or Devpost) had no usable capture.
+
+(The raw JSON editor still exists at `…/edit/advanced` for developers and recovery. Organizers do not need it.)
 
 What a person judging the _usefulness_ of this pilot should check is in [PILOT_USEFULNESS_CHECKLIST.md](./PILOT_USEFULNESS_CHECKLIST.md).
 

@@ -3,11 +3,17 @@
 import { redirect } from 'next/navigation';
 import { apiRequest } from '../../../../lib/api';
 import { runSubmission, type SubmissionField } from '../../../../lib/submission';
+import { postedTrackKeys } from '../../../../lib/tracks';
 
 export interface SubmitState {
   /** Incremented per submission so the form re-renders its messages. */
   readonly attempt: number;
-  readonly values: { readonly github: string; readonly devpost: string; readonly name: string };
+  readonly values: {
+    readonly github: string;
+    readonly devpost: string;
+    readonly name: string;
+    readonly trackKeys: readonly string[];
+  };
   readonly errors: Readonly<Partial<Record<SubmissionField, string>>>;
   readonly formError: string | null;
   /** The project that already exists after a partial failure, so nothing is lost by retrying. */
@@ -30,13 +36,26 @@ export async function submitProjectAction(
   formData: FormData,
 ): Promise<SubmitState> {
   const eventId = text(formData, 'eventId');
+  // P6D: the track section exists only when the page offered tracks; its token travels with the form so a stale choice is refused
+  const contextVersionId = text(formData, 'contextVersionId');
+  const offered = contextVersionId !== '';
+  const trackKeys = postedTrackKeys(formData.getAll('trackKeys'));
   const values = {
     github: text(formData, 'github'),
     devpost: text(formData, 'devpost'),
     name: text(formData, 'name'),
+    trackKeys,
   };
   // the key was generated when the form was rendered: a retry of THIS form can only converge on the project it created
-  const outcome = await runSubmission(apiRequest, eventId, values, text(formData, 'submissionKey'));
+  const outcome = await runSubmission(
+    apiRequest,
+    eventId,
+    {
+      ...values,
+      ...(offered ? { contextVersionId } : { trackKeys: undefined }),
+    },
+    text(formData, 'submissionKey'),
+  );
   if (outcome.kind === 'started') {
     redirect(`/projects/${encodeURIComponent(outcome.projectId)}/capture`);
   }

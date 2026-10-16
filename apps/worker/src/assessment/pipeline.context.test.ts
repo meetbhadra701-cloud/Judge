@@ -107,16 +107,37 @@ describe.each(testDatabaseTargets())(
     });
 
     describe('fail closed before any spend', () => {
-      it('disables the fallback rubric: no official overall rubric means no run (anchors are unapproved)', async () => {
-        const run = await execute(db, { worldOptions: { noRubric: true } });
-        expect(run.outcome).toMatchObject({
-          kind: 'failed',
-          category: 'domain_validation_failed',
-          code: 'fallback_anchors_not_approved',
-        });
-        expect(run.model.calls).toHaveLength(0);
-        expect(await run.calls()).toHaveLength(0);
-        await expectNoAssessment(run, db);
+      it('P6D: no official overall rubric means no run (the fallback anchors are unapproved), refused when the run is REQUESTED: no run, no worker time, no spend', async () => {
+        // the worker-side failure `fallback_anchors_not_approved` stays as defence in depth for a run that somehow reaches it
+        await expect(execute(db, { worldOptions: { noRubric: true } })).rejects.toThrow(
+          /no_overall_rubric/,
+        );
+      });
+
+      it('P6D: a context that has ONLY a track-scoped rubric is refused at request time too: a track rubric never stands in for the overall one', async () => {
+        await expect(
+          execute(db, {
+            worldOptions: {
+              noRubric: true,
+              trackKeys: ['health'],
+              trackRubricKeys: ['health'],
+              declare: ['health'],
+            },
+          }),
+        ).rejects.toThrow(/no_overall_rubric/);
+      });
+
+      it('P6D: an official criterion published WITHOUT a description (valid in the Event Context, optional in the editor) is assessed, and the model is told there is none', async () => {
+        const run = await execute(db, { worldOptions: { criterionDescription: '' } });
+        expect(run.outcome.kind).toBe('succeeded');
+        const prompts = run.model.calls.map((call) => JSON.stringify(call.request.user));
+        expect(
+          prompts.some((text) =>
+            text.includes('publishes no description of this criterion beyond its name'),
+          ),
+        ).toBe(true);
+        // nothing was made up in its place
+        expect(prompts.every((text) => !text.includes('Published description of'))).toBe(true);
       });
 
       it('P6C F-3: a locked context with no reference evidence is refused when the run is REQUESTED, so no run, no worker time and no spend exist', async () => {

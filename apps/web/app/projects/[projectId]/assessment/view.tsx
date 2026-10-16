@@ -390,6 +390,14 @@ function AssessmentView({
             judgment={judgmentByDimension.get(dimension.id) ?? null}
             scale={report.rubric.scale}
             partiallyExamined={notice.notAllExamined}
+            coverageKnown={notice.knowledge === 'known'}
+            demonstration={
+              detail.providerMode === 'scripted'
+                ? 'scripted'
+                : detail.replayDemonstration
+                  ? 'replay'
+                  : null
+            }
           />
         ))}
       </section>
@@ -441,7 +449,7 @@ function AssessmentView({
         <p>
           <small>
             {detail.replayDemonstration
-              ? 'No model was called and nothing was spent. The call and token counters recorded for this offline run are placeholders of the demonstration, not usage or cost.'
+              ? `No model was called and nothing was spent: 0 provider calls, no tokens, no cost. This offline run executed ${String(detail.usage.simulated?.stageExecutions ?? detail.usage.stageExecutions)} local demonstration stage(s); stage executions are bookkeeping, not model usage.`
               : `Model usage (local counters): ${String(detail.usage.settledCalls)} settled call(s), ${String(detail.usage.unknownCalls)} unknown, ${String(detail.usage.inputTokens)} input / ${String(detail.usage.outputTokens)} output tokens, ${formatCostNanoUsd(detail.usage.costNanoUsd)}.`}
           </small>
         </p>
@@ -455,11 +463,13 @@ function overallQualifier(notice: CoverageNotice): string {
     case 'no_concern':
       return 'no source-coverage concern (path-based)';
     case 'partial':
-      return 'PARTIAL source coverage: not all project evidence was examined';
+      return notice.missingSources.length > 0
+        ? `PARTIAL source coverage: no usable ${notice.missingSources.join(' or ')} capture`
+        : 'PARTIAL source coverage: not all project evidence was examined';
     case 'insufficient':
       return 'INSUFFICIENT source coverage';
     case 'unknown':
-      return 'source coverage UNKNOWN: do not read as all evidence examined';
+      return 'source coverage could not be verified';
   }
 }
 
@@ -474,11 +484,24 @@ function CoveragePanel({ notice }: { notice: CoverageNotice }) {
       >
         <strong>{notice.headline}</strong>
       </p>
+      {notice.missingSources.length > 0 ? (
+        <p data-testid="coverage-missing-sources">
+          Expected sources with no usable capture:{' '}
+          <strong>
+            {notice.missingSources
+              .map((type) => (type === 'github' ? 'GitHub repository' : 'Devpost submission'))
+              .join(', ')}
+          </strong>
+          . Missing sources are missing evidence, never a low score.
+        </p>
+      ) : null}
       <p data-testid="coverage-a">{notice.dimensionsStatement}</p>
       <p data-testid="coverage-b">
-        {notice.notAllExamined
-          ? 'That is not a statement that all of the project’s evidence was examined; it was not.'
-          : 'That is not a statement that the project was understood: relevance and sufficiency of the examined text are not established.'}
+        {notice.knowledge === 'unknown'
+          ? 'Whether all of the project’s evidence was examined could not be verified, so this page does not say that it was, and does not say that it was not.'
+          : notice.notAllExamined
+            ? 'That is not a statement that all of the project’s evidence was examined; it was not.'
+            : 'That is not a statement that the project was understood: relevance and sufficiency of the examined text are not established.'}
       </p>
       {notice.details.length > 0 ? (
         <ul data-testid="coverage-details">
@@ -533,12 +556,18 @@ function DimensionCard({
   judgment,
   scale,
   partiallyExamined,
+  coverageKnown,
+  demonstration,
 }: {
   dimension: DimensionReport;
   judgment: AssessmentJudgmentView | null;
   scale: RubricScale;
   /** Coverage is not "no concern": a number here was derived from evidence that was not all examined. */
   partiallyExamined: boolean;
+  /** False when the coverage record could not be verified: the tag then says so instead of claiming the evidence was partly examined. */
+  coverageKnown: boolean;
+  /** P6D: set for an offline run, whose values are not an assessor's judgment: the labels then say what they really are. */
+  demonstration: 'scripted' | 'replay' | null;
 }) {
   return (
     <div className="fact">
@@ -568,7 +597,13 @@ function DimensionCard({
                 <span className="tag">{judgment.disposition}</span>
               ) : null
             }
-            <span className="tag">{ATTRIBUTION_LABELS[judgment.dispositionAttribution]}</span>
+            <span className="tag" data-testid="dimension-attribution">
+              {demonstration !== null && judgment.dispositionAttribution === 'scored'
+                ? demonstration === 'scripted'
+                  ? 'fixed placeholder value (no assessor, no model)'
+                  : 'replayed recorded value (no live assessor)'
+                : ATTRIBUTION_LABELS[judgment.dispositionAttribution]}
+            </span>
             {judgment.criticReviewRequired ? (
               <span className="tag">
                 {judgment.criticReviewed ? 'critic reviewed' : 'critic pending'}
@@ -576,7 +611,9 @@ function DimensionCard({
             ) : null}
             {partiallyExamined && dimension.state === 'assessed' ? (
               <span className="tag tag-warn" data-testid="dimension-partial-coverage">
-                scored from partly examined evidence
+                {coverageKnown
+                  ? 'scored from partly examined evidence'
+                  : 'scored from evidence whose coverage could not be verified'}
               </span>
             ) : null}
             <span className="tag tag-warn">relevance not verified</span>
@@ -601,7 +638,9 @@ function DimensionCard({
                     {citation.evidence
                       ? ` [${citation.evidence.kind} · ${citation.evidence.verificationLevel}]`
                       : ''}{' '}
-                    — {citation.directness}, {citation.specificity}
+                    {demonstration === 'scripted'
+                      ? ' — placeholder citation: the first passages of the captured material, not chosen for this criterion'
+                      : ` — ${citation.directness}, ${citation.specificity}`}
                     {citation.note ? `: ${citation.note}` : ''}
                   </small>
                 </li>

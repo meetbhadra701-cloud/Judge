@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
-import { blankDocumentInput } from '@judge-copilot/context';
-import type { ContextVersionDetail } from '@judge-copilot/schemas';
+import type { ContextVersionDetail, EventRecord, EventSourceRecord } from '@judge-copilot/schemas';
 import Link from 'next/link';
-import { apiRequest, versionPath } from '../../../../../../lib/api';
-import { toEditableInput } from '../../../../../../lib/editable';
+import { apiRequest, eventPath, versionPath } from '../../../../../../lib/api';
+import { inputFromDocument, modelFromInput } from '../../../../../../lib/context-editor';
 import { ErrorBanner } from '../../../../../components/ui';
-import { EditDraftForm } from './edit-form';
 import { eventPageTitle } from '../../../../../../lib/titles';
+import { ContextEditor } from './context-editor';
 
 export async function generateMetadata({
   params,
@@ -19,27 +18,35 @@ export async function generateMetadata({
 
 export const dynamic = 'force-dynamic';
 
-export default async function EditDraftPage({
+/** The structured Event Context editor (P6D): forms for every field, no JSON and no identifiers. The raw editor lives at `./advanced`. */
+export default async function EditContextPage({
   params,
 }: {
   params: Promise<{ eventId: string; versionId: string }>;
 }) {
   const { eventId, versionId } = await params;
-  const result = await apiRequest<ContextVersionDetail>('GET', versionPath(eventId, versionId));
+  const [versionResult, sourcesResult, eventResult] = await Promise.all([
+    apiRequest<ContextVersionDetail>('GET', versionPath(eventId, versionId)),
+    apiRequest<{ sources: EventSourceRecord[] }>(
+      'GET',
+      `${versionPath(eventId, versionId)}/sources`,
+    ),
+    apiRequest<{ event: EventRecord }>('GET', eventPath(eventId)),
+  ]);
   const back = (
     <p>
       <Link href={`/events/${eventId}/versions/${versionId}`}>← Back to version</Link>
     </p>
   );
-  if (!result.ok) {
+  if (!versionResult.ok) {
     return (
       <main>
         {back}
-        <ErrorBanner message={result.message} />
+        <ErrorBanner message={versionResult.message} />
       </main>
     );
   }
-  const version = result.data;
+  const version = versionResult.data;
   if (version.status !== 'draft') {
     return (
       <main>
@@ -50,33 +57,46 @@ export default async function EditDraftPage({
       </main>
     );
   }
-  const input = version.document ? toEditableInput(version.document) : blankDocumentInput();
+  const sourceTexts = sourcesResult.ok ? sourcesResult.data.sources : [];
+  const initial = modelFromInput(
+    version.document ? inputFromDocument(version.document) : null,
+    version.summary ?? '',
+  );
 
   return (
     <main>
       {back}
-      <h1>Edit draft v{version.version}</h1>
-      <p className="notice">
-        Edit the structured context as JSON. Keep each item&apos;s <code>id</code> and{' '}
-        <code>sourceIds</code>: the server keeps source provenance, marks changed source-derived
-        items as human-edited, and records new items (without an <code>id</code>) as human notes.
-        Removing a source a source-derived item cites is rejected. Mark anything the official
-        sources do not settle as <code>&quot;certainty&quot;: &quot;unclear&quot;</code>.
-      </p>
+      <h1>Edit Event Context · draft v{version.version}</h1>
       <p>
-        Sources:{' '}
-        {version.sources.map((source) => (
-          <span key={source.id}>
-            <code>{source.id}</code> = {source.title} ({source.authority}){' · '}
-          </span>
-        ))}
+        Fill in what the event’s official sources say. You can save at any time and come back; when
+        you are done, review the result on the version page and lock it. A locked version cannot be
+        changed.
       </p>
-      <EditDraftForm
+      <ContextEditor
         eventId={eventId}
         versionId={versionId}
-        initialJson={JSON.stringify(input, null, 2)}
-        initialSummary={version.summary ?? ''}
+        eventName={eventResult.ok ? eventResult.data.event.name : 'this event'}
+        sources={version.sources.map((source) => ({
+          id: source.id,
+          title: source.title,
+          authority: source.authority,
+        }))}
+        initial={initial}
+        sourceTexts={sourceTexts.map((source) => ({
+          id: source.id,
+          title: source.title,
+          text: source.normalizedText,
+        }))}
       />
+      <p>
+        <small>
+          Developers and recovery only: the{' '}
+          <Link href={`/events/${eventId}/versions/${versionId}/edit/advanced`}>
+            advanced editor
+          </Link>{' '}
+          edits the stored document directly.
+        </small>
+      </p>
     </main>
   );
 }

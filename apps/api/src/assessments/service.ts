@@ -7,6 +7,7 @@ import {
 } from '@judge-copilot/database';
 import {
   ASSESSMENT_API_NOTICE,
+  ASSESSMENT_DEMONSTRATION_NOTICE,
   type AssessmentDetail,
   type AssessmentCoverageRecordResponse,
   type AssessmentUnknownsResponse,
@@ -186,7 +187,19 @@ export class AssessmentService {
       case 'no_context_reference_evidence':
         throw new AssessmentApiError(
           'NO_CONTEXT_REFERENCE_EVIDENCE',
-          'The locked Event Context has no explicit rule, no submission requirement and no declared track for an assessment to refer to. Nothing was queued or spent. Add an explicit rule or requirement (or declare a track) in a new Event Context version, lock it, and request the assessment again.',
+          result.contextDefinesTracks && result.declaredTrackKeys.length === 0
+            ? 'The locked Event Context offers an assessment nothing to refer to for this project: it has no explicit event-wide rule or submission requirement, and its only reference material is track-specific, but this project declared no track. Nothing was queued or spent. A project’s tracks are chosen when it is submitted and are never edited afterwards: ask an organizer to void this submission and submit it again with its track selected, or add an explicit event rule or requirement in a new Event Context version, lock it, and request the assessment again.'
+            : 'The locked Event Context has no explicit rule, no explicit submission requirement and no declared track for an assessment to refer to. Nothing was queued or spent. Add an explicit rule or requirement (marked as stated in an official source) in a new Event Context version, lock it, and request the assessment again.',
+          {
+            contextDefinesTracks: result.contextDefinesTracks,
+            declaredTrackKeys: [...result.declaredTrackKeys],
+          },
+        );
+      case 'no_overall_rubric':
+        throw new AssessmentApiError(
+          'NO_OVERALL_RUBRIC',
+          `The locked Event Context has no official overall rubric${result.trackRubrics > 0 ? ` (it has ${String(result.trackRubrics)} track rubric(s), and track rubrics are not assessed in this version)` : ''}. An assessment is made against the event’s overall rubric only, and no substitute rubric is invented. Nothing was queued or spent. Add the event’s overall judging rubric in a new Event Context version, lock it, and request the assessment again.`,
+          { trackRubrics: result.trackRubrics },
         );
       case 'track_not_in_context':
         throw new AssessmentApiError(
@@ -198,12 +211,17 @@ export class AssessmentService {
 
   async list(projectId: string): Promise<AssessmentListResponse> {
     await this.requireProject(projectId);
+    const assessments = await this.reads.list(projectId);
     return {
-      assessments: await this.reads.list(projectId),
+      assessments,
       activeRun: await this.reads.activeRun(projectId),
       latestRun: await this.reads.latestRun(projectId),
       launch: this.launchView(),
-      notice: ASSESSMENT_API_NOTICE,
+      // the project-level line says "AI estimate" only when a real (live) assessment is listed; no live provider exists yet, and an offline
+      // demonstration must never lead with a claim that a model estimated anything (P6D)
+      notice: assessments.some((assessment) => !assessment.replayDemonstration)
+        ? ASSESSMENT_API_NOTICE
+        : ASSESSMENT_DEMONSTRATION_NOTICE,
     };
   }
 

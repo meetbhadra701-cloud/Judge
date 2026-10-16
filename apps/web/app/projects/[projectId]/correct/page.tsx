@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import { randomUUID } from 'node:crypto';
 import type { ProjectDetail } from '@judge-copilot/schemas';
 import Link from 'next/link';
-import { apiRequest, projectPath } from '../../../../lib/api';
+import { apiRequest, eventPath, projectPath } from '../../../../lib/api';
 import { ErrorBanner } from '../../../components/ui';
 import { projectPageTitle } from '../../../../lib/titles';
 import { CorrectView } from './view';
+import { trackContextOf } from '../../../../lib/tracks';
+import type { EventContextLockedSnapshot } from '@judge-copilot/schemas';
 
 export async function generateMetadata({
   params,
@@ -32,5 +34,16 @@ export default async function CorrectPage({ params }: { params: Promise<{ projec
       </main>
     );
   }
-  return <CorrectView project={project.data} correctionKey={randomUUID()} />;
+  // P6D: the replacement is a new submission and declares its own tracks, chosen against the CURRENT locked context
+  const context = await apiRequest<EventContextLockedSnapshot>(
+    'GET',
+    `${eventPath(project.data.eventId)}/context`,
+  );
+  return (
+    <CorrectView
+      project={project.data}
+      correctionKey={randomUUID()}
+      trackContext={context.ok ? trackContextOf(context.data) : null}
+    />
+  );
 }

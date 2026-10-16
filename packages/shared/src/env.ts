@@ -42,3 +42,27 @@ export function parseEnv<TSchema extends z.ZodType>(
   }
   return result.data;
 }
+
+/**
+ * P6D: a DEMONSTRATION provider (`replay`, `scripted`) may be switched on only when NODE_ENV was SET to `development` or `test`. For every other
+ * purpose an unset or empty NODE_ENV means `development` (the default `BaseEnv` applies and local tooling relies on), but a production process that
+ * merely forgot the variable must not be one environment variable away from running demonstration answers. Called by the entry points' loaders
+ * with the raw source, because the parsed value has already had its default applied. A value that is set but wrong (`Production`, `staging`) is
+ * refused by the schema itself.
+ */
+export function assertExplicitDevelopmentEnvironment(
+  source: Readonly<Record<string, string | undefined>>,
+  subject: string,
+): void {
+  const nodeEnv = source['NODE_ENV'];
+  if (nodeEnv === undefined || nodeEnv.trim() === '') {
+    throw new ConfigError([
+      `NODE_ENV: ${subject} is for development and tests only and requires NODE_ENV to be set explicitly to development or test (it is unset, which defaults to development and is not accepted here)`,
+    ]);
+  }
+}
+
+/** The providers that are demonstrations, not models. */
+export function isDemonstrationProvider(value: string | undefined): boolean {
+  return value === 'replay' || value === 'scripted';
+}

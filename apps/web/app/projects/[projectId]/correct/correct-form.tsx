@@ -3,11 +3,21 @@
 import Link from 'next/link';
 import { useActionState, useEffect, useRef } from 'react';
 import { useFormStatus } from 'react-dom';
+import { TrackSelector } from '../../../components/track-selector';
+import type { TrackContext } from '../../../../lib/tracks';
 import { correctProjectAction, type CorrectState } from './actions';
 
 const INITIAL: CorrectState = {
   attempt: 0,
-  values: { reason: '', replace: true, github: '', devpost: '', name: '', cancelPending: false },
+  values: {
+    reason: '',
+    replace: true,
+    github: '',
+    devpost: '',
+    name: '',
+    trackKeys: null,
+    cancelPending: false,
+  },
   errors: {},
   formError: null,
   projectId: null,
@@ -35,10 +45,15 @@ function FieldError({ id, message }: { id: string; message: string | undefined }
 export function CorrectForm({
   projectId,
   correctionKey,
+  trackContext,
+  declaredTrackKeys,
 }: {
   projectId: string;
   /** The request identity of THIS form: stable across retries, new for every page load. */
   correctionKey: string;
+  trackContext: TrackContext | null;
+  /** The tracks of the project being voided: the starting point for the replacement's tracks. */
+  declaredTrackKeys: readonly string[];
 }) {
   const [state, action] = useActionState(correctProjectAction, INITIAL);
   const form = useRef<HTMLFormElement>(null);
@@ -139,6 +154,12 @@ export function CorrectForm({
         />
       </label>
       <FieldError id="name-error" message={state.errors.name} />
+      <TrackSelector
+        key={`t-${String(state.attempt)}`}
+        context={trackContext}
+        selected={state.values.trackKeys ?? declaredTrackKeys}
+        error={state.errors.tracks}
+      />
       <SubmitButton />
     </form>
   );

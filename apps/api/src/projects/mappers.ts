@@ -88,6 +88,7 @@ export function toSnapshotSummary(
 export function toSourceRecord(
   row: SourceRow,
   latest: SnapshotSummary | null,
+  usable: SnapshotSummary | null = latest !== null && isUsable(latest) ? latest : null,
 ): ProjectSourceRecord {
   return {
     id: row.id,
@@ -98,8 +99,13 @@ export function toSourceRecord(
     createdByActorId: row.createdByActorId,
     createdAt: iso(row.createdAt),
     latestSnapshot: latest,
+    latestUsableSnapshot: usable,
   };
 }
+
+/** A snapshot holds content to assess when it was captured completely or partially (a failed, rejected or pending one holds none). */
+export const isUsable = (snapshot: SnapshotSummary): boolean =>
+  snapshot.status === 'captured' || snapshot.status === 'partial';
 
 export function toArtifactSummary(row: Omit<ArtifactRow, 'textContent'>): ArtifactSummary {
   return {

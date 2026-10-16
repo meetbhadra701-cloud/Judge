@@ -11,7 +11,9 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
  * no message, which is the safe direction. Set JUDGE_FLASH_KEY to make links survive restarts or to run several instances.
  */
 
-const MAX_MESSAGE_CHARS = 400;
+/** A message longer than this is cut and says so (P6D: the refusal that tells an organizer what to do is about 500 characters; 400 cut it mid-sentence). */
+const MAX_MESSAGE_CHARS = 1_200;
+const CUT_MARK = ' […]';
 const KEY_SLOT = Symbol.for('judge-copilot.web.flash-key');
 
 function key(): Buffer {
@@ -29,7 +31,11 @@ function sign(encoded: string): string {
 
 /** The value of the `error` query parameter for a message produced by this server. */
 export function sealMessage(message: string): string {
-  const encoded = Buffer.from(message.slice(0, MAX_MESSAGE_CHARS), 'utf8').toString('base64url');
+  const shown =
+    message.length <= MAX_MESSAGE_CHARS
+      ? message
+      : `${message.slice(0, MAX_MESSAGE_CHARS - CUT_MARK.length)}${CUT_MARK}`;
+  const encoded = Buffer.from(shown, 'utf8').toString('base64url');
   return `${sign(encoded)}.${encoded}`;
 }
 

@@ -6,6 +6,7 @@ import type {
   AssessmentRunView,
   ScoreReport,
 } from '@judge-copilot/schemas';
+import { missingExpectedSources } from '@judge-copilot/schemas';
 
 /**
  * The single place that decides which of the assessment page's states applies. It is pure and
@@ -342,6 +343,13 @@ export interface CoverageNotice {
   readonly level: CoverageLevel;
   /** True when nothing may be read as "all project evidence was examined". */
   readonly notAllExamined: boolean;
+  /**
+   * `known`: a verified record says what was examined (including that part was not). `unknown`: the record is missing, failed its checks or could
+   * not be checked, so the page must say neither that the material was examined nor that it was not (P6D).
+   */
+  readonly knowledge: 'known' | 'unknown';
+  /** Expected source types (GitHub, Devpost) that had no usable capture: missing evidence, never a low score. Empty when coverage is unknown. */
+  readonly missingSources: readonly string[];
   readonly headline: string;
   /** What "complete" would NOT mean either: relevance and sufficiency are never established here. */
   readonly caveat: string;
@@ -438,6 +446,12 @@ const CONCERN_TEXT: Readonly<Record<string, { detail: string; unsupported: strin
   },
 };
 
+/** How an expected source type is named on the page. */
+const SOURCE_TYPE_LABEL: Readonly<Record<string, string>> = {
+  github: 'GitHub repository',
+  devpost: 'Devpost submission',
+};
+
 const DIMENSIONS_SENTENCE = (assessed: number, total: number): string =>
   total === 0
     ? 'No rubric dimension received an advisory score.'
@@ -458,6 +472,8 @@ export function coverageNotice(detail: AssessmentDetail): CoverageNotice {
     return {
       level: 'unknown',
       notAllExamined: true,
+      knowledge: 'unknown',
+      missingSources: [],
       headline:
         coverage.status === 'not_recorded'
           ? 'Source coverage was not recorded for this assessment. Do not read it as based on all of the project’s evidence.'
@@ -485,13 +501,22 @@ export function coverageNotice(detail: AssessmentDetail): CoverageNotice {
   }
   const concerns = coverage.concerns;
   const captured = coverage.snapshots.filter((s) => s.status === 'partial');
+  const missing = missingExpectedSources(coverage.snapshots);
+  const missingLabels = missing.map((type) => SOURCE_TYPE_LABEL[type]);
   const level: CoverageLevel =
     coverage.verdict === 'insufficient'
       ? 'insufficient'
-      : concerns.length > 0 || coverage.verdict === 'partial' || captured.length > 0
+      : concerns.length > 0 ||
+          coverage.verdict === 'partial' ||
+          captured.length > 0 ||
+          missing.length > 0
         ? 'partial'
         : 'no_concern';
   const details = [
+    ...missing.map(
+      (type) =>
+        `No usable capture of the project’s ${SOURCE_TYPE_LABEL[type]} was available to this assessment (it was never captured, or its capture failed). Nothing about it was examined. This is missing evidence, not a finding against the project, and no score was lowered for it.`,
+    ),
     ...concerns.map((code) => CONCERN_TEXT[code]?.detail ?? `Coverage concern: ${code}.`),
     ...captured.map(
       (s) =>
@@ -515,16 +540,27 @@ export function coverageNotice(detail: AssessmentDetail): CoverageNotice {
   if (captured.length > 0) {
     unsupported.push('Anything about the material the partial capture never obtained.');
   }
+  for (const label of missingLabels)
+    unsupported.push(`Anything about the project’s ${label}, which was not available.`);
   const notAllExamined = level !== 'no_concern';
+  const onlyMissing =
+    missing.length > 0 &&
+    concerns.length === 0 &&
+    captured.length === 0 &&
+    coverage.verdict !== 'partial';
   return {
     level,
     notAllExamined,
+    knowledge: 'known',
+    missingSources: missing,
     headline:
       level === 'insufficient'
         ? 'SOURCE COVERAGE INSUFFICIENT — too little of the project was examined for these scores to say much about it.'
-        : notAllExamined
-          ? 'PARTIAL SOURCE COVERAGE — not all of the project’s evidence was examined.'
-          : 'No source-coverage concern was found by the path-based checks.',
+        : onlyMissing
+          ? `EXPECTED SOURCE MISSING — no usable capture of the project’s ${missingLabels.join(' or ')} was available. The coverage below describes only the material that was available.`
+          : notAllExamined
+            ? 'PARTIAL SOURCE COVERAGE — not all of the project’s evidence was examined.'
+            : 'No source-coverage concern was found by the path-based checks.',
     caveat,
     checkedNote:
       coverage.provenance === null
@@ -548,6 +584,7 @@ export function coverageQualifier(coverage: AssessmentCoverageSummary): string {
   if (coverage.status === 'not_recorded') return 'source coverage not recorded';
   if (!coverage.verified) return 'source coverage unverified';
   if (coverage.verdict === 'insufficient') return 'source coverage insufficient';
+  if (coverage.missingSources.length > 0) return 'expected source missing';
   if (coverage.verdict === 'partial' || coverage.concerns.length > 0 || coverage.partialCapture) {
     return 'partial source coverage';
   }

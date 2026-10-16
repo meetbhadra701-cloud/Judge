@@ -44,6 +44,31 @@ export function SourceNames({
   );
 }
 
+const OFFICIAL_AUTHORITIES = new Set([
+  'official_event_rules',
+  'official_judging_rubric',
+  'official_track_rules',
+]);
+
+/**
+ * What kind of statement a fact is, from its stored certainty and the authority of the sources it cites (P6D): `explicit` is shown as official
+ * only when an official source is cited, so an unsourced "explicit" statement is never displayed as official.
+ */
+export function basisOf(
+  fact: Pick<ContextFact, 'certainty' | 'sourceIds'>,
+  sources: ReadonlyMap<string, EventSourceSummary>,
+): { label: string; tone: string } {
+  if (fact.certainty === 'unclear') return { label: 'Unverified note', tone: 'warn' };
+  if (fact.certainty === 'interpreted')
+    return { label: 'Organizer’s interpretation', tone: 'human' };
+  const official = fact.sourceIds.some((id) =>
+    OFFICIAL_AUTHORITIES.has(sources.get(id)?.authority ?? ''),
+  );
+  return official
+    ? { label: 'Official', tone: 'ok' }
+    : { label: 'Marked explicit, but cites no official source', tone: 'warn' };
+}
+
 export function FactView({
   fact,
   sources,
@@ -59,6 +84,7 @@ export function FactView({
         {fact.statement} {extra}
       </div>
       <div className="meta">
+        <Tag tone={basisOf(fact, sources).tone}>{basisOf(fact, sources).label}</Tag>
         <Tag tone={fact.certainty === 'unclear' ? 'warn' : 'neutral'}>{fact.certainty}</Tag>
         <Tag tone={fact.origin === 'human' ? 'human' : 'neutral'}>
           {fact.origin === 'human' ? 'human note' : 'source-derived'}

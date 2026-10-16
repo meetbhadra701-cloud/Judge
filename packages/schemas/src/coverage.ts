@@ -223,6 +223,21 @@ export interface AssessmentCoverageView {
   readonly componentsTruncated: boolean;
 }
 
+/**
+ * P6D: the source types every submission is expected to have (the pair the submission flow asks for). An assessment whose pinned captures do not
+ * include one of them examined material from the others only; that is missing evidence (never a low score), and it is reported as such.
+ */
+export const EXPECTED_SOURCE_TYPES = ['github', 'devpost'] as const;
+export type ExpectedSourceType = (typeof EXPECTED_SOURCE_TYPES)[number];
+
+/** The expected source types with NO usable capture among the snapshots an assessment was pinned to. */
+export function missingExpectedSources(
+  snapshots: readonly { readonly sourceType: string }[],
+): ExpectedSourceType[] {
+  const present = new Set(snapshots.map((snapshot) => snapshot.sourceType));
+  return EXPECTED_SOURCE_TYPES.filter((type) => !present.has(type));
+}
+
 /** The one-line account of coverage that travels with a list row or a run (the full view is on the assessment detail). */
 export interface AssessmentCoverageSummary {
   readonly status: 'recorded' | 'not_recorded';
@@ -232,6 +247,11 @@ export interface AssessmentCoverageSummary {
   readonly concerns: readonly string[];
   /** A pinned capture was itself partial (material beyond its limits was never obtained). */
   readonly partialCapture: boolean;
+  /**
+   * P6D: expected source types (GitHub, Devpost) that had no usable capture when the assessment was pinned (never captured, or the capture
+   * failed). Empty when coverage is not verified: nothing is claimed about what an unverified record would say.
+   */
+  readonly missingSources: readonly ExpectedSourceType[];
 }
 
 /** The full stored record of one assessment, returned only when it passed verification. */

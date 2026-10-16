@@ -476,6 +476,14 @@ its own migrations; existing migrations are never edited after being committed.
   model-declared insufficiency, which needs F-4/prompt v3 and stays a blocker for live use) and (d) the limitation `newer_capture_unusable`
   (F-8: a newer capture attempt failed or was rejected, so an older capture was assessed; no score changes). See
   [P6C_REAL_PROJECT_PILOT_REPORT](./milestones/P6C_REAL_PROJECT_PILOT_REPORT.md).
+  P6D adds, without changing the pipeline, the scoring engine or any invariant: (a) track declaration in the normal submission
+  (`POST /events/:id/submissions` accepts `trackKeys` and the `contextVersionId` the submitter saw; the same atomic, idempotent, owner-unique
+  operation; tracks are validated against the locked context, a stale context is refused `CONTEXT_VERSION_CHANGED`, and declarations remain history),
+  (b) the request-time refusal `NO_OVERALL_RUBRIC` next to F-3's, with messages that name what is actually missing, (c) a structured Event Context
+  editor in the web tier that builds exactly the existing `EventContextDocumentInput` (no second format; ids and provenance remain server-computed),
+  (d) the accounting rules of [ACCOUNTING.md](./ACCOUNTING.md): an offline demonstration is never represented as a provider call or as incurred cost,
+  and (e) an explicit-`NODE_ENV` requirement for demonstration providers in the API and worker loaders. See
+  [P6D_REAL_EVENT_USABILITY_REPORT](./milestones/P6D_REAL_EVENT_USABILITY_REPORT.md).
 - **web** renders the M1 Event Context views and the M2 project, source and snapshot views using
   server components and server actions that call the API server-side (`JUDGE_API_URL`,
   `JUDGE_API_TOKEN`). It binds **127.0.0.1** explicitly (its scripts pass `--hostname 127.0.0.1`): it

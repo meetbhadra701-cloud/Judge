@@ -24,7 +24,16 @@ import {
   STORED_REPORT_CHECKS,
 } from '../../packages/assessment/src/index.js';
 
-const usage = {
+const usage: AssessmentRunView['usage'] = {
+  basis: 'simulated',
+  stageExecutions: 0,
+  providerCalls: 0,
+  simulated: {
+    stageExecutions: 0,
+    reportedInputTokens: 0,
+    reportedOutputTokens: 0,
+    notionalCostNanoUsd: 0,
+  },
   attemptsStarted: 0,
   settledCalls: 0,
   unknownCalls: 0,
@@ -57,6 +66,7 @@ function run(overrides: Partial<AssessmentRunView>): AssessmentRunView {
       verdict: null,
       concerns: [],
       partialCapture: false,
+      missingSources: [],
     },
     ...overrides,
   };

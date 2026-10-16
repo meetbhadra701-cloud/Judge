@@ -51,7 +51,12 @@ export function parseRecords(request: StructuredRequest): ParsedRecord[] {
 }
 
 export const DEMONSTRATION_PLACEHOLDER_SHARE = 0.7;
-const USAGE = { inputTokens: 1_000, outputTokens: 200 };
+/**
+ * P6D: the demonstrator is local code. It consumes no provider tokens and costs nothing, so it REPORTS none (it used to report a fixed
+ * 1000/200 token placeholder, which the ledger then priced at about $0.017 per run). Each call is a simulated STAGE EXECUTION (see
+ * docs/ACCOUNTING.md), never a provider call; the ledger rows still exist so the spend guards run over the same path as a live run.
+ */
+const USAGE = { inputTokens: 0, outputTokens: 0 };
 const PER_CALL_LIMIT = 8;
 
 const ok = (json: unknown): LlmResult => ({

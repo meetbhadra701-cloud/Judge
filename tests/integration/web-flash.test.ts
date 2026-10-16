@@ -57,7 +57,11 @@ describe('sealed redirect messages', () => {
 
   it('caps the length and produces a URL-safe parameter', () => {
     const opened = openMessage(sealMessage('x'.repeat(5000)));
-    expect(opened?.length).toBe(400);
+    expect(opened?.length).toBe(1_200);
+    expect(opened?.endsWith(' […]')).toBe(true); // a cut message says it was cut
+    // P6D: the longest refusal the API produces (an organizer's remedy, about 600 characters) arrives whole
+    const remedy = 'x'.repeat(700);
+    expect(openMessage(sealMessage(remedy))).toBe(remedy);
     const url = withSealedError('/projects/p1/capture', 'Could not "retry" & <go>');
     expect(url).toMatch(/^\/projects\/p1\/capture\?error=[A-Za-z0-9_\-.%]+$/);
     const param = decodeURIComponent(url.split('error=')[1] ?? '');

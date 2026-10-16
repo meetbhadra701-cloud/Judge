@@ -822,7 +822,9 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
     expect(historical.indexOf('Source coverage was not recorded')).toBeLessThan(
       historical.indexOf('Overall (version 1)'),
     );
-    expect(historical).toContain('source coverage UNKNOWN');
+    // P6D: unknown coverage says it "could not be verified" (it neither claims the evidence was all examined nor that it was not)
+    expect(historical).toContain('source coverage could not be verified');
+    expect(historical).not.toContain('source coverage UNKNOWN');
     await shot('09b-report-coverage-not-recorded');
 
     await corruptions.judgmentScores(testDb.db, list[0]?.id ?? '');

@@ -61,6 +61,7 @@ import {
   toProjectRecord,
   toRunRecord,
   toSnapshotSummary,
+  isUsable,
   toSourceRecord,
   type ProjectRow,
   type SnapshotRow,
@@ -170,6 +171,13 @@ interface SubmissionIntent {
   readonly githubUrl: string;
   readonly devpostUrl: string;
   readonly name: string;
+  /**
+   * P6D: sorted, unique track keys the project declares; `null` when the request said nothing about tracks (an older client). An empty list is an
+   * explicit "no track".
+   */
+  readonly trackKeys: readonly string[] | null;
+  /** P6D: the locked Event Context version the submitter was shown; `null` when not stated. */
+  readonly contextVersionId: string | null;
   readonly requestHash: string;
 }
 
@@ -238,24 +246,7 @@ export class ProjectService {
       const projectId = await this.retryingTransaction(() =>
         this.db.transaction(async (tx) => {
           const locked = await this.lockedContextOf(tx, eventId);
-          const declared =
-            trackKeys.length === 0
-              ? []
-              : await tx
-                  .select({ id: tracks.id, key: tracks.key })
-                  .from(tracks)
-                  .where(
-                    and(eq(tracks.contextVersionId, locked.id), inArray(tracks.key, trackKeys)),
-                  );
-          const known = new Set(declared.map((track) => track.key));
-          const unknown = trackKeys.filter((key) => !known.has(key));
-          if (unknown.length > 0) {
-            throw new SourceIngestionError(
-              'UNKNOWN_TRACK',
-              'Every declared track must exist in the locked Event Context',
-              { unknownTrackKeys: unknown },
-            );
-          }
+          const declared = await this.resolveDeclaredTracks(tx, locked.id, trackKeys);
           const now = this.now();
           await this.beforeLegacyWrite();
           const project = await this.insertProject(tx, {
@@ -267,26 +258,15 @@ export class ProjectService {
             actorId,
             now,
           });
-          for (const key of trackKeys) {
-            const track = declared.find((candidate) => candidate.key === key);
-            if (!track) continue;
-            await tx.insert(projectTrackSelections).values({
-              id: this.newId(),
-              projectId: project.id,
-              eventId,
-              contextVersionId: locked.id,
-              trackId: track.id,
-              trackKey: track.key,
-              declaredByActorId: actorId,
-              declaredAt: now,
-            });
-            await this.audit(tx, actorId, {
-              entityType: 'project',
-              entityId: project.id,
-              action: SOURCE_INGESTION_AUDIT_ACTIONS.trackDeclared,
-              metadata: { trackKey: track.key, trackId: track.id, contextVersionId: locked.id },
-            });
-          }
+          await this.declareTracks(tx, {
+            projectId: project.id,
+            eventId,
+            contextVersionId: locked.id,
+            trackKeys,
+            declared,
+            actorId,
+            now,
+          });
           await this.afterLegacyWrite();
           return project.id;
         }),
@@ -403,9 +383,10 @@ export class ProjectService {
       .where(eq(projectSources.projectId, projectId))
       .orderBy(asc(projectSources.position));
     const snapshots = await this.snapshotSummaries(projectId);
-    return sources.map((source) =>
-      toSourceRecord(source, snapshots.find((snapshot) => snapshot.sourceId === source.id) ?? null),
-    );
+    return sources.map((source) => {
+      const mine = snapshots.filter((snapshot) => snapshot.sourceId === source.id); // newest first
+      return toSourceRecord(source, mine[0] ?? null, mine.find(isUsable) ?? null);
+    });
   }
 
   // -- Captures ------------------------------------------------------------------------------
@@ -716,6 +697,8 @@ export class ProjectService {
       });
     }
     const typedName = input.name?.trim() ?? null;
+    const trackKeys = input.trackKeys === undefined ? null : [...new Set(input.trackKeys)].sort();
+    const contextVersionId = input.contextVersionId?.toLowerCase() ?? null;
     return {
       eventId,
       actorId,
@@ -723,6 +706,8 @@ export class ProjectService {
       githubUrl: github.canonicalUrl,
       devpostUrl: devpost.canonicalUrl,
       name: typedName ?? `${github.owner}/${github.repo}`,
+      trackKeys,
+      contextVersionId,
       requestHash: createHash('sha256')
         .update(
           JSON.stringify([
@@ -731,6 +716,10 @@ export class ProjectService {
             github.canonicalUrl,
             devpost.canonicalUrl,
             typedName,
+            // P6D: tracks and the context token are part of the request's identity only when stated, so every submission made before they
+            // existed (and every replay of one) keeps its hash
+            ...(trackKeys !== null && trackKeys.length > 0 ? [['tracks', ...trackKeys]] : []),
+            ...(contextVersionId === null ? [] : [['context', contextVersionId]]),
           ]),
         )
         .digest('hex'),
@@ -778,6 +767,24 @@ export class ProjectService {
         ),
       );
     if (same) {
+      // P6D: converging on an existing project must never silently drop a different track choice: declarations are history, not editable
+      if (intent.trackKeys !== null) {
+        const existing = (
+          await tx
+            .select({ key: projectTrackSelections.trackKey })
+            .from(projectTrackSelections)
+            .where(eq(projectTrackSelections.projectId, same.projectId))
+        )
+          .map((row) => row.key)
+          .sort();
+        if (existing.join('\n') !== intent.trackKeys.join('\n')) {
+          throw new SourceIngestionError(
+            'SUBMISSION_CONFLICT',
+            'This project was already submitted with different tracks. A submission’s tracks cannot be changed by submitting it again: nothing was saved. Open the existing project, or ask an organizer to void it and submit the corrected tracks.',
+            { projectIds: [same.projectId], reason: 'tracks_differ', declaredTrackKeys: existing },
+          );
+        }
+      }
       await this.beforeSubmissionWrite();
       await this.insertSubmissionRequest(tx, intent, same.id, same.projectId, 'already_submitted');
       await this.audit(tx, intent.actorId, {
@@ -788,6 +795,18 @@ export class ProjectService {
       });
       return { result: 'already_submitted', projectId: same.projectId, captureRuns: [] };
     }
+
+    // 2b. P6D: a stale form. The tracks were chosen against the Event Context the form showed; if another version has been locked since, the
+    //     choice is refused rather than applied to a context its author never saw (replays and convergence above are unaffected)
+    if (intent.contextVersionId !== null && intent.contextVersionId !== locked.id) {
+      throw new SourceIngestionError(
+        'CONTEXT_VERSION_CHANGED',
+        'The hackathon’s locked Event Context changed after this form was opened. Reload the page, check the tracks again and submit again. Nothing was saved.',
+        { lockedContextVersionId: locked.id },
+      );
+    }
+    // 2c. every selected track must exist in the locked version (the same rule as creating a project directly)
+    const declaredTracks = await this.resolveDeclaredTracks(tx, locked.id, intent.trackKeys ?? []);
 
     // 3. a partial overlap is a DIFFERENT intent: never merged, never silently adopted
     // the ownership registry holds exactly the links of the ACTIVE submissions (a void releases them)
@@ -875,7 +894,16 @@ export class ProjectService {
       contextVersionId: locked.id,
       name: intent.name,
       teamName: null,
-      trackCount: 0,
+      trackCount: declaredTracks.length,
+      actorId: intent.actorId,
+      now,
+    });
+    await this.declareTracks(tx, {
+      projectId: project.id,
+      eventId: intent.eventId,
+      contextVersionId: locked.id,
+      trackKeys: intent.trackKeys ?? [],
+      declared: declaredTracks,
       actorId: intent.actorId,
       now,
     });
@@ -1490,6 +1518,78 @@ export class ProjectService {
       (id) =>
         (counts.get(`${id}\u0000github`) ?? 0) > 1 || (counts.get(`${id}\u0000devpost`) ?? 0) > 1,
     );
+  }
+
+  /**
+   * The declared tracks of the LOCKED Event Context version named by `trackKeys`. Every key must exist in that version (the same rule for
+   * `createProject` and for a submission): a key that is not there is UNKNOWN_TRACK and nothing is written.
+   */
+  private async resolveDeclaredTracks(
+    tx: JudgeDatabase,
+    contextVersionId: string,
+    trackKeys: readonly string[],
+  ): Promise<{ id: string; key: string }[]> {
+    const declared =
+      trackKeys.length === 0
+        ? []
+        : await tx
+            .select({ id: tracks.id, key: tracks.key })
+            .from(tracks)
+            .where(
+              and(
+                eq(tracks.contextVersionId, contextVersionId),
+                inArray(tracks.key, [...trackKeys]),
+              ),
+            );
+    const known = new Set(declared.map((track) => track.key));
+    const unknown = trackKeys.filter((key) => !known.has(key));
+    if (unknown.length > 0) {
+      throw new SourceIngestionError(
+        'UNKNOWN_TRACK',
+        'Every declared track must exist in the locked Event Context',
+        { unknownTrackKeys: unknown },
+      );
+    }
+    return declared;
+  }
+
+  /** Writes the track declarations of a NEW project (one row and one audit event each), in the order the keys were given. */
+  private async declareTracks(
+    tx: JudgeDatabase,
+    input: {
+      projectId: string;
+      eventId: string;
+      contextVersionId: string;
+      trackKeys: readonly string[];
+      declared: readonly { id: string; key: string }[];
+      actorId: string | null;
+      now: Date;
+    },
+  ): Promise<void> {
+    for (const key of input.trackKeys) {
+      const track = input.declared.find((candidate) => candidate.key === key);
+      if (!track) continue;
+      await tx.insert(projectTrackSelections).values({
+        id: this.newId(),
+        projectId: input.projectId,
+        eventId: input.eventId,
+        contextVersionId: input.contextVersionId,
+        trackId: track.id,
+        trackKey: track.key,
+        declaredByActorId: input.actorId,
+        declaredAt: input.now,
+      });
+      await this.audit(tx, input.actorId, {
+        entityType: 'project',
+        entityId: input.projectId,
+        action: SOURCE_INGESTION_AUDIT_ACTIONS.trackDeclared,
+        metadata: {
+          trackKey: track.key,
+          trackId: track.id,
+          contextVersionId: input.contextVersionId,
+        },
+      });
+    }
   }
 
   private async lockedContextOf(tx: JudgeDatabase, eventId: string): Promise<{ id: string }> {
