@@ -148,11 +148,13 @@ describe.each(testDatabaseTargets())('scripted demonstration accounting on %s', 
     expect(summary?.providerCalls).toBe(0);
     expect(summary?.providerMode).toBe('scripted');
     // the database refuses a non-live outcome that claims provider calls, and a stage count that disagrees with the ledger counters
-    const constraints = (await db.execute(
+    type Constraint = { conname: string; def: string };
+    const constraints = await db.execute<Constraint>(
       sql`select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'assessment_run_outcomes'::regclass`,
-    )) as unknown as
-      { rows?: { conname: string; def: string }[] } | { conname: string; def: string }[];
-    const list = Array.isArray(constraints) ? constraints : (constraints.rows ?? []);
+    );
+    const list: Constraint[] = Array.isArray(constraints)
+      ? (constraints as Constraint[])
+      : ((constraints as { rows?: Constraint[] }).rows ?? []);
     const live = list.find((c) => c.conname === 'assessment_run_outcomes_provider_calls_live_only');
     expect(live?.def).toMatch(/provider_mode = 'live'/);
     expect(list.map((c) => c.conname)).toContain('assessment_run_outcomes_stage_executions_match');

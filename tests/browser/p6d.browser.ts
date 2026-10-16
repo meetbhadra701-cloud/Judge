@@ -701,7 +701,9 @@ describe('P6D real-event journeys: structured Event Context editor, track select
       expect(text).toMatch(/Innovation/);
       expect(text).toMatch(/0 provider calls, no tokens, no cost/);
       expect(text).not.toMatch(/\$\d/);
-      expect(text).toMatch(/official_track_rubrics_not_assessed/);
+      // the track rubric is disclosed in words (M6 phase 0, R8B P3-3), not as a raw code
+      expect(text).toMatch(/The event published a rubric for this track/);
+      expect(text).toMatch(/Which rubric was assessed/);
       // both expected sources were captured: no missing-source headline
       expect(text).not.toMatch(/EXPECTED SOURCE MISSING/);
       await shot('B4-report');

@@ -1,3 +1,4 @@
+import type { AssessmentDetail, AssessmentListResponse } from '../../packages/schemas/src/index.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { JudgeDatabase } from '../../packages/database/src/index.js';
 import { ScriptedProvider } from '../../packages/llm/src/index.js';
@@ -28,7 +29,6 @@ const MODELS = {
   assessment: 'claude-sonnet-5-5',
   critic: 'claude-sonnet-5-5',
 };
-type Json = Record<string, any>;
 
 describe.each(testDatabaseTargets())('track rubric disclosure on %s', (_name, open) => {
   let testDb: TestDatabase;
@@ -54,13 +54,13 @@ describe.each(testDatabaseTargets())('track rubric disclosure on %s', (_name, op
     await testDb.close();
   });
 
-  const detailOf = async (projectId: string): Promise<Json> => {
-    const get = async (url: string) =>
-      (
-        await app.inject({ method: 'GET', url, headers: bearer(TEST_TOKENS.organizer) })
-      ).json<Json>();
-    const list = await get(`/projects/${projectId}/assessments`);
-    return get(`/projects/${projectId}/assessments/${list['assessments'][0].id}`);
+  const detailOf = async (projectId: string): Promise<AssessmentDetail> => {
+    const get = async <T>(url: string) =>
+      (await app.inject({ method: 'GET', url, headers: bearer(TEST_TOKENS.organizer) })).json<T>();
+    const list = await get<AssessmentListResponse>(`/projects/${projectId}/assessments`);
+    return get<AssessmentDetail>(
+      `/projects/${projectId}/assessments/${list.assessments[0]?.id ?? ''}`,
+    );
   };
   const run = (worldOptions: Parameters<typeof execute>[1] extends infer S ? S : never) =>
     execute(db, {
@@ -78,7 +78,7 @@ describe.each(testDatabaseTargets())('track rubric disclosure on %s', (_name, op
     });
     expect(result.outcome.kind).toBe('succeeded');
     const detail = await detailOf(result.world.project.id);
-    expect(detail['trackContext']).toEqual({
+    expect(detail.trackContext).toEqual({
       assessedRubric: { scope: 'overall', name: 'Official rubric' },
       declaredTracks: [{ key: 'health', name: 'Track health' }],
       unassessedTrackRubrics: [
@@ -86,11 +86,9 @@ describe.each(testDatabaseTargets())('track rubric disclosure on %s', (_name, op
       ],
     });
     // the track rubric's criterion has no judgment and no number anywhere in the report
-    expect(JSON.stringify(detail['report']['dimensions'])).not.toContain('health_impact');
-    expect(detail['judgments'].map((j: Json) => j['dimensionId'])).not.toContain(
-      'track.health.health_impact',
-    );
-    expect(detail['limitations']).toEqual(
+    expect(JSON.stringify(detail.report?.dimensions)).not.toContain('health_impact');
+    expect(detail.judgments.map((j) => j.dimensionId)).not.toContain('track.health.health_impact');
+    expect(detail.limitations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 'official_track_rubrics_not_assessed' }),
       ]),
@@ -100,13 +98,13 @@ describe.each(testDatabaseTargets())('track rubric disclosure on %s', (_name, op
   it('a project that declared a track WITHOUT a published rubric lists the track and no unassessed rubric; one that declared none says so', async () => {
     const withTrack = await run({ worldOptions: { trackKeys: ['health'], declare: ['health'] } });
     const a = await detailOf(withTrack.world.project.id);
-    expect(a['trackContext']).toMatchObject({
+    expect(a.trackContext).toMatchObject({
       declaredTracks: [{ key: 'health', name: 'Track health' }],
       unassessedTrackRubrics: [],
     });
     const none = await run({ worldOptions: { trackKeys: ['health'] } });
     const b = await detailOf(none.world.project.id);
-    expect(b['trackContext']).toMatchObject({ declaredTracks: [], unassessedTrackRubrics: [] });
+    expect(b.trackContext).toMatchObject({ declaredTracks: [], unassessedTrackRubrics: [] });
   });
 
   it('a rubric of a track the project did NOT declare is not claimed as relevant to this project', async () => {
@@ -118,9 +116,7 @@ describe.each(testDatabaseTargets())('track rubric disclosure on %s', (_name, op
       },
     });
     const detail = await detailOf(result.world.project.id);
-    expect(detail['trackContext'].unassessedTrackRubrics).toEqual([]);
-    expect(detail['trackContext'].declaredTracks).toEqual([
-      { key: 'health', name: 'Track health' },
-    ]);
+    expect(detail.trackContext?.unassessedTrackRubrics).toEqual([]);
+    expect(detail.trackContext?.declaredTracks).toEqual([{ key: 'health', name: 'Track health' }]);
   });
 });

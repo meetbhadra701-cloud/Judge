@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createLogger } from '@judge-copilot/shared';
-import type { EventSourceAuthority } from '@judge-copilot/schemas';
+import {
+  ApiErrorBody,
+  type ContextVersionDetail,
+  type EventSourceAuthority,
+} from '@judge-copilot/schemas';
 import { buildApp, SERVICE_NAME, type ApiApp } from '../app.js';
 import {
   bearer,
@@ -19,7 +23,9 @@ import {
  */
 
 const logger = createLogger({ service: SERVICE_NAME, level: 'silent' });
-type Json = Record<string, any>;
+/** A document the test writes: deliberately loose, because several tests write documents the strict schema would refuse to build. */
+type Doc = Record<string, unknown>;
+const errorCode = (body: unknown): string => ApiErrorBody.parse(body).error.code;
 
 describe.each(testDatabaseTargets())(
   'source authority is one rule for every writer, on %s',
@@ -54,11 +60,11 @@ describe.each(testDatabaseTargets())(
         headers: token === null ? {} : bearer(token),
         ...(payload === undefined ? {} : { payload: payload as object }),
       });
-      return { status: response.statusCode, body: response.json<Json>() };
+      return { status: response.statusCode, body: response.json<unknown>() };
     };
 
     const UNCLEAR = { statement: 'Not stated.', certainty: 'unclear', sourceIds: [] };
-    const baseDocument = (): Json => ({
+    const baseDocument = (): Doc => ({
       dates: {
         startsAt: { ...UNCLEAR, value: null },
         endsAt: { ...UNCLEAR, value: null },
@@ -80,8 +86,12 @@ describe.each(testDatabaseTargets())(
     async function draft() {
       counter += 1;
       const slug = `prov-${Date.now().toString(36)}-${counter}`;
-      const event = (await call('POST', '/events', { name: `Provenance ${slug}`, slug })).body;
-      const version = (await call('POST', `/events/${event.id}/context-versions`, {})).body;
+      const event = (await call('POST', '/events', { name: `Provenance ${slug}`, slug })).body as {
+        id: string;
+      };
+      const version = (await call('POST', `/events/${event.id}/context-versions`, {})).body as {
+        id: string;
+      };
       const base = `/events/${event.id}/context-versions/${version.id}`;
       const sources: Record<string, string> = {};
       for (const authority of [
@@ -98,15 +108,20 @@ describe.each(testDatabaseTargets())(
           title: `SYNTHETIC ${authority}`,
           normalizedText: `SYNTHETIC text for ${authority}.`,
         });
-        sources[authority] = created.body.id;
+        sources[authority] = (created.body as { id: string }).id;
       }
-      const detail = async () => (await call('GET', base)).body;
-      const write = (document: Json) => call('PATCH', `${base}`, { document });
+      const detail = async () => (await call('GET', base)).body as ContextVersionDetail;
+      const write = (document: Doc) => call('PATCH', base, { document });
       const lock = () => call('POST', `${base}/lock`, {});
-      return { event, version, base, sources, detail, write, lock };
+      const source = (authority: EventSourceAuthority): string => {
+        const id = sources[authority];
+        if (id === undefined) throw new Error(`no source of authority ${authority}`);
+        return id;
+      };
+      return { event, version, base, sources, source, detail, write, lock };
     }
 
-    const rubric = (source: string, name = 'Official criteria'): Json => ({
+    const rubric = (source: string, name = 'Official criteria'): Doc => ({
       scope: 'overall',
       trackKey: null,
       name,
@@ -131,18 +146,18 @@ describe.each(testDatabaseTargets())(
       doc['rules'] = [
         { statement: 'Entries must be written in Rust.', certainty: 'explicit', sourceIds: [] },
       ];
-      doc['rubrics'] = [rubric(d.sources['official_judging_rubric']!)];
+      doc['rubrics'] = [rubric(d.source('official_judging_rubric'))];
       expect((await d.write(doc)).status).toBe(200);
       const detail = await d.detail();
-      expect(detail.lockReadiness.ready).toBe(false);
-      expect(detail.lockReadiness.issues).toEqual([
+      expect(detail.lockReadiness?.ready).toBe(false);
+      expect(detail.lockReadiness?.issues).toEqual([
         expect.objectContaining({ code: 'UNOFFICIAL_EXPLICIT_STATEMENT', path: 'rules[0]' }),
       ]);
-      const rule = detail.document.rules[0];
-      expect(detail.statementBases[rule.id]).toBe('unverified');
+      const rule = detail.document?.rules[0];
+      expect(detail.statementBases[rule?.id ?? '']).toBe('unverified');
       const locked = await d.lock();
       expect(locked.status).toBe(422);
-      expect(locked.body.error.code).toBe('UNOFFICIAL_EXPLICIT_STATEMENT');
+      expect(errorCode(locked.body)).toBe('UNOFFICIAL_EXPLICIT_STATEMENT');
       expect((await d.detail()).status).toBe('draft');
     });
 
@@ -155,32 +170,35 @@ describe.each(testDatabaseTargets())(
           {
             statement: 'All entries need a licence.',
             certainty: 'explicit',
-            sourceIds: [d.sources[authority]!],
+            sourceIds: [d.source(authority)],
           },
         ];
-        doc['rubrics'] = [rubric(d.sources['official_judging_rubric']!)];
+        doc['rubrics'] = [rubric(d.source('official_judging_rubric'))];
         expect((await d.write(doc)).status).toBe(200);
         const detail = await d.detail();
-        expect(detail.statementBases[detail.document.rules[0].id]).toBe('unverified');
+        expect(detail.statementBases[detail.document?.rules[0]?.id ?? '']).toBe('unverified');
         const locked = await d.lock();
         expect(locked.status).toBe(422);
-        expect(locked.body.error.code).toBe('UNOFFICIAL_EXPLICIT_STATEMENT');
+        expect(errorCode(locked.body)).toBe('UNOFFICIAL_EXPLICIT_STATEMENT');
       },
     );
 
     it('the same checks cover dates, requirements, the judging format and the prior-work policy, not only rules', async () => {
       const d = await draft();
       const doc = baseDocument();
-      doc['dates'].startsAt = {
-        statement: 'Starts May 1.',
-        certainty: 'explicit',
-        sourceIds: [],
-        value: '2031-05-01T09:00:00Z',
+      doc['dates'] = {
+        ...(doc['dates'] as Doc),
+        startsAt: {
+          statement: 'Starts May 1.',
+          certainty: 'explicit',
+          sourceIds: [],
+          value: '2031-05-01T09:00:00Z',
+        },
       };
       doc['judgingFormat'] = {
         statement: 'Expo judging.',
         certainty: 'explicit',
-        sourceIds: [d.sources['judge_context']!],
+        sourceIds: [d.source('judge_context')],
       };
       doc['priorWorkPolicy'] = {
         statement: 'Prior work allowed.',
@@ -191,9 +209,9 @@ describe.each(testDatabaseTargets())(
       doc['submissionRequirements'] = [
         { statement: 'A public repository.', certainty: 'explicit', sourceIds: [], trackKey: null },
       ];
-      doc['rubrics'] = [rubric(d.sources['official_judging_rubric']!)];
+      doc['rubrics'] = [rubric(d.source('official_judging_rubric'))];
       expect((await d.write(doc)).status).toBe(200);
-      const paths = (await d.detail()).lockReadiness.issues.map((i: Json) => i.path).sort();
+      const paths = ((await d.detail()).lockReadiness?.issues ?? []).map((i) => i.path).sort();
       expect(paths).toEqual([
         'dates.startsAt',
         'judgingFormat',
@@ -209,12 +227,12 @@ describe.each(testDatabaseTargets())(
         {
           statement: 'Original work only.',
           certainty: 'explicit',
-          sourceIds: [d.sources['official_event_rules']!],
+          sourceIds: [d.source('official_event_rules')],
         },
         {
           statement: 'Teams are probably small.',
           certainty: 'interpreted',
-          sourceIds: [d.sources['organizer_guidance']!],
+          sourceIds: [d.source('organizer_guidance')],
         },
         { statement: 'Judges may like polish.', certainty: 'unclear', sourceIds: [] },
       ];
@@ -222,57 +240,57 @@ describe.each(testDatabaseTargets())(
         {
           statement: 'Be kind.',
           certainty: 'explicit',
-          sourceIds: [d.sources['organizer_guidance']!],
+          sourceIds: [d.source('organizer_guidance')],
         },
       ];
-      doc['rubrics'] = [rubric(d.sources['official_judging_rubric']!)];
+      doc['rubrics'] = [rubric(d.source('official_judging_rubric'))];
       expect((await d.write(doc)).status).toBe(200);
       const before = await d.detail();
       expect(before.lockReadiness).toEqual({ ready: true, issues: [] });
-      const ids = before.document.rules.map((r: Json) => r.id);
-      expect(ids.map((id: string) => before.statementBases[id])).toEqual([
+      const ids = (before.document?.rules ?? []).map((r) => r.id);
+      expect(ids.map((id) => before.statementBases[id])).toEqual([
         'official',
         'organizer_interpreted',
         'unverified',
       ]);
       // organizer guidance is advice, not an official statement: it has no basis and is never blocked
       expect(Object.keys(before.statementBases)).not.toContain(
-        before.document.organizerGuidance[0].id,
+        before.document?.organizerGuidance[0]?.id ?? '',
       );
       const locked = await d.lock();
       expect(locked.status).toBe(200);
-      expect(locked.body.status).toBe('locked');
+      expect((locked.body as { status: string }).status).toBe('locked');
     });
 
     it('a rubric that cites no official source cannot be locked (an official rubric is never invented)', async () => {
       const d = await draft();
       const doc = baseDocument();
-      doc['rubrics'] = [rubric(d.sources['organizer_guidance']!, 'Chat-message criteria')];
+      doc['rubrics'] = [rubric(d.source('organizer_guidance'), 'Chat-message criteria')];
       expect((await d.write(doc)).status).toBe(200);
-      expect((await d.detail()).lockReadiness.issues).toEqual([
+      expect((await d.detail()).lockReadiness?.issues).toEqual([
         expect.objectContaining({ code: 'UNSOURCED_OFFICIAL_RUBRIC', path: 'rubrics[0]' }),
       ]);
       const locked = await d.lock();
       expect(locked.status).toBe(422);
-      expect(locked.body.error.code).toBe('UNSOURCED_OFFICIAL_RUBRIC');
+      expect(errorCode(locked.body)).toBe('UNSOURCED_OFFICIAL_RUBRIC');
       const noSource = baseDocument();
-      noSource['rubrics'] = [{ ...rubric(d.sources['official_judging_rubric']!), sourceIds: [] }];
+      noSource['rubrics'] = [{ ...rubric(d.source('official_judging_rubric')), sourceIds: [] }];
       expect((await d.write(noSource)).status).toBe(200);
-      expect((await d.lock()).body.error.code).toBe('UNSOURCED_OFFICIAL_RUBRIC');
+      expect(errorCode((await d.lock()).body)).toBe('UNSOURCED_OFFICIAL_RUBRIC');
     });
 
     it('fixing the statement (citing an official source) makes the same draft lockable; the lock is the only gate, writing is never blocked', async () => {
       const d = await draft();
       const doc = baseDocument();
       doc['rules'] = [{ statement: 'Original work only.', certainty: 'explicit', sourceIds: [] }];
-      doc['rubrics'] = [rubric(d.sources['official_judging_rubric']!)];
+      doc['rubrics'] = [rubric(d.source('official_judging_rubric'))];
       expect((await d.write(doc)).status).toBe(200);
       expect((await d.lock()).status).toBe(422);
       doc['rules'] = [
         {
           statement: 'Original work only.',
           certainty: 'explicit',
-          sourceIds: [d.sources['official_event_rules']!],
+          sourceIds: [d.source('official_event_rules')],
         },
       ];
       expect((await d.write(doc)).status).toBe(200);

@@ -324,7 +324,7 @@ describe.each(testDatabaseTargets())('question engine HTTP API on %s', (_name, o
 
     it('stores nothing and answers 502 when the provider fails', async () => {
       const { projectId, assessmentId } = await assessed();
-      const broken = using({ ok: false, category: 'refusal', sendState: 'sent_unknown' });
+      const broken = using({ ok: false, category: 'refused', sendState: 'sent_unknown' });
       const response = await call('POST', SETS(projectId, assessmentId), { on: broken });
       expect(response.status).toBe(502);
       expect(errorCode(response.body)).toBe('QUESTION_GENERATION_FAILED');

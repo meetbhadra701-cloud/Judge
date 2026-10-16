@@ -74,6 +74,10 @@ export class FakeModel {
   }
 
   readonly step = (request: StructuredRequest): LlmResult => {
+    // the assessment pipeline never issues the question stage (it has its own demonstrator in apps/api)
+    if (request.stage === 'question_generation') {
+      return { ok: false, category: 'bad_request', sendState: 'not_sent' };
+    }
     const records = parseRecords(request);
     const context: Context = {
       request,
