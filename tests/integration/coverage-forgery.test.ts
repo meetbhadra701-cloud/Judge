@@ -294,6 +294,41 @@ describe.each(testDatabaseTargets())(
       }
     });
 
+    it('a verification outcome is never reused after the evidence changed: the same record stops verifying when the frozen configuration it was checked against no longer fits', async () => {
+      const run = await execute(db, {});
+      const id = await assessmentIdOf(run);
+      const original = await rows<{ pipeline_config: unknown }>(
+        db,
+        sql`SELECT pipeline_config FROM assessment_run_inputs WHERE run_id = ${run.runId}`,
+      );
+      clearProvenanceMemo();
+      expect((await reads.getDetail(run.world.project.id, id))?.coverage.verified).toBe(true); // memoized now
+      try {
+        // the run's frozen configuration is rewritten (an immutable row; the guard is disabled for this one statement): the budgets the record
+        // was made under are no longer ones this configuration and extraction can explain
+        await withGuardsDisabled(
+          db,
+          ['runInputs'],
+          [
+            sql`UPDATE assessment_run_inputs SET pipeline_config = jsonb_set(pipeline_config, '{windowing,source}', '60000') WHERE run_id = ${run.runId}`,
+          ],
+        );
+        const detail = await reads.getDetail(run.world.project.id, id);
+        expect(detail?.coverage.verified).toBe(false);
+        expect(detail?.coverage.problems).toContain('provenance_budget_mismatch');
+      } finally {
+        await withGuardsDisabled(
+          db,
+          ['runInputs'],
+          [
+            sql`UPDATE assessment_run_inputs SET pipeline_config = ${JSON.stringify(original[0]?.pipeline_config)}::jsonb WHERE run_id = ${run.runId}`,
+          ],
+        );
+        clearProvenanceMemo();
+      }
+      expect((await reads.getDetail(run.world.project.id, id))?.coverage.verified).toBe(true);
+    });
+
     it('coverage of one project is never readable through another, and a forged record of one project does not affect another', async () => {
       const a = await execute(db, {});
       const b = await execute(db, {});

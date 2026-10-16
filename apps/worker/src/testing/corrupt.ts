@@ -13,6 +13,7 @@ export const IMMUTABLE_GUARDS = {
   judgments: ['assessment_dimension_judgments', 'assessment_dimension_judgments_immutable_guard'],
   citations: ['assessment_judgment_citations', 'assessment_judgment_citations_immutable_guard'],
   coverage: ['assessment_run_coverage', 'assessment_run_coverage_immutable_guard'],
+  runInputs: ['assessment_run_inputs', 'assessment_run_inputs_immutable_guard'],
 } as const;
 
 export type GuardedTable = keyof typeof IMMUTABLE_GUARDS;
