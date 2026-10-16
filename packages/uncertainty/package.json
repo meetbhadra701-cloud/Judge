@@ -1,0 +1,25 @@
+{
+  "name": "@judge-copilot/uncertainty",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Uncertainty analysis (uncertainty-engine/v1): from a VERIFIED pre-interview assessment and its frozen context to structured uncertainty opportunities, each with a reproducible evidence trail. Layer 2 (deterministic core): no I/O, no model calls.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/context": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*"
+  }
+}

@@ -361,6 +361,18 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
 
+  packages/questions:
+    dependencies:
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../context
+      '@judge-copilot/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+      '@judge-copilot/uncertainty':
+        specifier: workspace:*
+        version: link:../uncertainty
+
   packages/safe-http:
     dependencies:
       '@judge-copilot/capture':
@@ -399,6 +411,15 @@ importers:
       zod:
         specifier: ^4.6.5
         version: 4.6.5
+
+  packages/uncertainty:
+    dependencies:
+      '@judge-copilot/context':
+        specifier: workspace:*
+        version: link:../context
+      '@judge-copilot/schemas':
+        specifier: workspace:*
+        version: link:../schemas
 
   packages/video:
     dependencies:

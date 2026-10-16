@@ -1,0 +1,26 @@
+{
+  "name": "@judge-copilot/questions",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Question validation, deterministic information-gain ranking and five-question selection (question-engine/v1). Question PHRASING is a model's task; everything here is code. Layer 2 (deterministic core): no I/O, no model calls.",
+  "exports": {
+    ".": {
+      "@judge-copilot/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@judge-copilot/context": "workspace:*",
+    "@judge-copilot/schemas": "workspace:*",
+    "@judge-copilot/uncertainty": "workspace:*"
+  }
+}
