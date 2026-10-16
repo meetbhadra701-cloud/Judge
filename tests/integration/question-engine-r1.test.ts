@@ -354,6 +354,37 @@ describe.each(testDatabaseTargets())('question engine R1 (R9A P2-1, P2-2) on %s'
       await Promise.all([warm.close(), blocked.close(), blockedApp.close(), takeover.close()]);
     });
 
+    it('a claim won just AFTER another request published (the claim row is deleted with the set) returns the set, calls no provider and leaves no claim behind', async () => {
+      const { projectId, assessmentId } = await assessed();
+      const first = new GatedProvider(false);
+      const publisher = instance(first);
+      const published = setOf((await call(publisher, 'POST', SETS(projectId, assessmentId))).body);
+      expect(first.calls).toBe(1);
+      // a late request that read "no set yet" twice (before the publication became visible to it), then wins the vacant claim
+      const late = new GatedProvider(false);
+      const service = new QuestionService({ db, offline: RUNTIME, provider: late });
+      const store = service['store'];
+      const real = store.findSetIdByKey.bind(store);
+      let blind = 2;
+      store.findSetIdByKey = async (project, key) => {
+        if (blind > 0) {
+          blind -= 1;
+          return null;
+        }
+        return real(project, key);
+      };
+      const lateApp = buildWith(service);
+      const response = await call(lateApp, 'POST', SETS(projectId, assessmentId));
+      expect(blind).toBe(0);
+      expect(response.status).toBe(200);
+      expect(resultOf(response.body)).toBe('already_generated');
+      expect(setOf(response.body).id).toBe(published.id);
+      expect(late.calls).toBe(0);
+      expect(await storedSets(projectId, assessmentId)).toHaveLength(1);
+      expect(await store.generationClaim(await keyOf(assessmentId))).toBeNull();
+      await Promise.all([publisher.close(), lateApp.close()]);
+    });
+
     it('a stale holder cannot publish after its claim was taken over: the new holder’s set stands and the old one returns it', async () => {
       const { projectId, assessmentId } = await assessed();
       const slow = new GatedProvider(true);
