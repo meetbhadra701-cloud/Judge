@@ -151,6 +151,31 @@ describe('selection: how many questions, and why', () => {
   });
 });
 
+describe('selection: golden', () => {
+  it('pins the order, values and marginal values of the reference world (a change here is a change of policy and needs a new policy version)', () => {
+    const { result, closed } = pipeline(world().input);
+    const handleOf = (id: string | undefined) =>
+      closed.opportunities.find((o) => o.opportunity.id === id)?.handle;
+    expect(
+      result.selected.map((q) => [
+        q.rank,
+        q.valueBp,
+        q.marginalBp,
+        q.noveltyMilli,
+        handleOf(q.opportunityIds[0]),
+      ]),
+    ).toEqual([
+      [1, 1800, 1800, 1000, 'O-002'],
+      [2, 1350, 1350, 1000, 'O-005'],
+      [3, 1050, 1050, 1000, 'O-003'],
+      [4, 1700, 850, 500, 'O-001'],
+      [5, 1275, 638, 500, 'O-004'],
+    ]);
+    expect(result.shortfall).toBeNull();
+    expect(result.counts).toEqual({ opportunities: 6, candidates: 6, rejected: 0, selected: 5 });
+  });
+});
+
 describe('selection: spread, weights and domination', () => {
   it('uneven weights: the question about the heaviest criterion is asked first, and reweighting the rubric reorders it', () => {
     const heavyTechnical = pipeline(world().input);

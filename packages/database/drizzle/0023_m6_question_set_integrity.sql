@@ -1,23 +1,36 @@
--- M6: question set integrity. Hand-written: drizzle-kit does not model triggers.
+-- M6: question set integrity. Hand-written: drizzle-kit does not model triggers. IDEMPOTENT on purpose (DROP TRIGGER IF EXISTS, CREATE OR REPLACE FUNCTION):
+-- the documented recovery of docs/MIGRATIONS.md section 6.4 may re-run it together with 0020.
 -- A question set is a historical record of what the question engine produced for ONE verified assessment. Normal application paths (and direct SQL)
 -- cannot rewrite or erase it; an administrator can still run an explicit, reviewed data migration by disabling these triggers inside it.
 -- The existing `assessment_immutable_guard` and `assessment_no_truncate` functions (migration 0011) are reused: same rule, same error.
 
 -- 1. Append-only ----------------------------------------------------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS "question_sets_immutable_guard" ON "question_sets";
+--> statement-breakpoint
 CREATE TRIGGER "question_sets_immutable_guard" BEFORE UPDATE OR DELETE ON "question_sets"
   FOR EACH ROW EXECUTE FUNCTION "assessment_immutable_guard"();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_set_opportunities_immutable_guard" ON "question_set_opportunities";
 --> statement-breakpoint
 CREATE TRIGGER "question_set_opportunities_immutable_guard" BEFORE UPDATE OR DELETE ON "question_set_opportunities"
   FOR EACH ROW EXECUTE FUNCTION "assessment_immutable_guard"();
 --> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_set_questions_immutable_guard" ON "question_set_questions";
+--> statement-breakpoint
 CREATE TRIGGER "question_set_questions_immutable_guard" BEFORE UPDATE OR DELETE ON "question_set_questions"
   FOR EACH ROW EXECUTE FUNCTION "assessment_immutable_guard"();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_sets_no_truncate" ON "question_sets";
 --> statement-breakpoint
 CREATE TRIGGER "question_sets_no_truncate" BEFORE TRUNCATE ON "question_sets"
   FOR EACH STATEMENT EXECUTE FUNCTION "assessment_no_truncate"();
 --> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_set_opportunities_no_truncate" ON "question_set_opportunities";
+--> statement-breakpoint
 CREATE TRIGGER "question_set_opportunities_no_truncate" BEFORE TRUNCATE ON "question_set_opportunities"
   FOR EACH STATEMENT EXECUTE FUNCTION "assessment_no_truncate"();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_set_questions_no_truncate" ON "question_set_questions";
 --> statement-breakpoint
 CREATE TRIGGER "question_set_questions_no_truncate" BEFORE TRUNCATE ON "question_set_questions"
   FOR EACH STATEMENT EXECUTE FUNCTION "assessment_no_truncate"();
@@ -25,7 +38,7 @@ CREATE TRIGGER "question_set_questions_no_truncate" BEFORE TRUNCATE ON "question
 
 -- 2. Ownership: a set is tied to exactly the assessment it was derived from ---------------------------------------------------------------
 -- (the composite foreign key already proves the assessment belongs to the same project)
-CREATE FUNCTION "question_sets_guard"() RETURNS trigger
+CREATE OR REPLACE FUNCTION "question_sets_guard"() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
   v_assessment "pre_interview_assessments"%ROWTYPE;
@@ -46,13 +59,15 @@ BEGIN
 END;
 $$;
 --> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_sets_guard" ON "question_sets";
+--> statement-breakpoint
 CREATE TRIGGER "question_sets_guard" BEFORE INSERT ON "question_sets"
   FOR EACH ROW EXECUTE FUNCTION "question_sets_guard"();
 --> statement-breakpoint
 
 -- 3. Completeness, checked at commit: a set has exactly the opportunities and questions it declares, ranks and ordinals are gapless,
 --    and every question points at opportunities of ITS OWN set. A row added to a committed set later fails this check.
-CREATE FUNCTION "question_set_completeness_check"() RETURNS trigger
+CREATE OR REPLACE FUNCTION "question_set_completeness_check"() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
   v_set uuid;
@@ -94,11 +109,17 @@ BEGIN
 END;
 $$;
 --> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_sets_complete" ON "question_sets";
+--> statement-breakpoint
 CREATE CONSTRAINT TRIGGER "question_sets_complete" AFTER INSERT ON "question_sets"
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "question_set_completeness_check"();
 --> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_set_opportunities_complete" ON "question_set_opportunities";
+--> statement-breakpoint
 CREATE CONSTRAINT TRIGGER "question_set_opportunities_complete" AFTER INSERT ON "question_set_opportunities"
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "question_set_completeness_check"();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "question_set_questions_complete" ON "question_set_questions";
 --> statement-breakpoint
 CREATE CONSTRAINT TRIGGER "question_set_questions_complete" AFTER INSERT ON "question_set_questions"
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "question_set_completeness_check"();

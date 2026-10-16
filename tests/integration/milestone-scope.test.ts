@@ -1,4 +1,9 @@
 /*
+ * M6 UPDATE (docs/milestones/M6_FIVE_QUESTION_ENGINE_REPORT.md): M6 adds the two pure packages `uncertainty` and `questions`, the `question-candidates/v1` prompt,
+ * the three immutable question-set tables (migrations 0022/0023), the API question routes (apps/api/src/questions) and the Five Questions section of the
+ * assessment page. It adds NO answer, interview, reassessment or final-score table, route or UI, and NO live provider. Everything from M7 on must stay
+ * unimplemented; the assertions below were updated for M6 and nothing else was loosened.
+ *
  * Guards the M5 scope while M5 is built phase by phase (docs/V1_CONTRACT.md, docs/milestones/M5-design.md).
  * M3 added the evidence graph; M4 the pure scoring engine. M5 PHASE P1 added only the shared assessment
  * vocabularies/schemas and the provider-neutral `packages/llm` interface (digest, timeout, retry, local
@@ -24,8 +29,6 @@ const ROOT = resolve(import.meta.dirname, '../..');
 
 /** Packages that must remain README-only placeholders until their milestone. */
 const NOT_YET_IMPLEMENTED = [
-  'uncertainty', // M6
-  'questions', // M6
   'browser', // headless/sandboxed browser inspection (deferred; M2 uses plain HTTP observation)
 ];
 
@@ -43,6 +46,8 @@ const IMPLEMENTED_PACKAGES = [
   'llm', // M5 P1: provider-neutral interface only; no vendor adapter yet
   'prompts', // M5 P2: pure renderer and frozen templates only; no provider, no pipeline
   'assessment', // M5 P3: pure gates, planning and policy only; no provider, no database, no pipeline
+  'uncertainty', // M6: pure, neutral uncertainty analysis; no I/O, no model
+  'questions', // M6: pure candidate validation, ranking and selection; no I/O, no model
 ];
 
 const MODEL_SDKS = [
@@ -95,6 +100,9 @@ const M5_P4_TABLES = [
   'pre_interview_assessments',
 ];
 
+/** The only tables M6 adds (migration 0022): the immutable question set of one verified assessment. No answer, interview, final-score or delta table. */
+const M6_TABLES = ['question_set_opportunities', 'question_set_questions', 'question_sets'];
+
 /** The only tables M3 may add. */
 const M3_TABLES = ['claims', 'contradictions', 'evidence_items', 'evidence_relations', 'unknowns'];
 
@@ -141,6 +149,11 @@ const applicationSource = ['apps', 'packages'].flatMap((group) => sourceFiles(jo
  */
 const API_GATE_FILE = join(ROOT, 'apps/api/src/assessments/runtime-gate.ts');
 const API_CONFIG_FILE = join(ROOT, 'apps/api/src/assessments/pipeline-config.ts');
+/** M6: the question service composes the guarded provider; its generation module renders the prompt and builds the request; its demonstrator only types the request. */
+const API_QUESTION_FILES = ['service.ts', 'generation.ts', 'demonstration.ts'].map((name) =>
+  join(ROOT, 'apps/api/src/questions', name),
+);
+const API_QUESTION_GENERATION = join(ROOT, 'apps/api/src/questions/generation.ts');
 const importedNames = (file: string, pkg: string): string[] => {
   const match = new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*'${pkg.replace('/', '\\/')}'`).exec(
     readFileSync(file, 'utf8'),
@@ -192,6 +205,7 @@ describe('M5 milestone scope (phase P6A)', () => {
     const migrations = join(ROOT, 'packages/database/drizzle');
     const graphTables: string[] = [];
     const laterTables: string[] = [];
+    const m6Tables: string[] = [];
     for (const file of readdirSync(migrations).filter((name) => name.endsWith('.sql'))) {
       const created = [
         ...readFileSync(join(migrations, file), 'utf8').matchAll(
@@ -201,6 +215,10 @@ describe('M5 milestone scope (phase P6A)', () => {
       for (const table of created) {
         if (M5_P4_TABLES.includes(table)) {
           laterTables.push(table);
+          continue;
+        }
+        if (M6_TABLES.includes(table)) {
+          m6Tables.push(table);
           continue;
         }
         expect(LATER_TABLE_PATTERN.test(table), `${file}: ${table}`).toBe(false);
@@ -215,6 +233,8 @@ describe('M5 milestone scope (phase P6A)', () => {
     expect(graphTables.sort()).toEqual(M3_TABLES);
     // P4 adds exactly the assessment-persistence tables, and no question, answer, interview, final-score or delta table
     expect(laterTables.sort()).toEqual(M5_P4_TABLES);
+    // M6 adds exactly the three question-set tables, and no answer, interview, final-score or delta table
+    expect(m6Tables.sort()).toEqual(M6_TABLES);
   });
 
   it('defines no score, weight, confidence, coverage, rank or accusation column on a graph table', () => {
@@ -328,6 +348,11 @@ describe('M5 milestone scope (phase P6A)', () => {
       '0019_p6b_beta3_identity_registry.sql',
       // P6B-beta3-R1: one table, assessment_run_coverage (what a run's source selection examined), with its append-only triggers; no scoring.
       '0020_p6b_beta3_r1_coverage_record.sql',
+      // M6 phase 0: two additive nullable columns on assessment_run_outcomes (stage executions vs provider calls); no table
+      '0021_m6_outcome_accounting.sql',
+      // M6: the three immutable question-set tables, then their triggers (append-only, ownership, completeness). No answer, interview or final-score table.
+      '0022_m6_question_sets.sql',
+      '0023_m6_question_set_integrity.sql',
     ]);
   });
 
@@ -405,9 +430,14 @@ describe('M5 milestone scope (phase P6A)', () => {
     );
     expect(
       importers.every(
-        (file) => file.startsWith(join(ROOT, 'apps/worker/src')) || file === API_GATE_FILE,
+        (file) =>
+          file.startsWith(join(ROOT, 'apps/worker/src')) ||
+          file === API_GATE_FILE ||
+          API_QUESTION_FILES.includes(file),
       ),
     ).toBe(true);
+    // M6: the question ROUTES, and every other API file, never touch a provider
+    expect(importers.some((file) => file.endsWith('questions/routes.ts'))).toBe(false);
     expect(importers.length).toBeGreaterThan(0);
     expect(importedNames(API_GATE_FILE, '@judge-copilot/llm')).toEqual([
       'ReplayFixtureFile',
@@ -451,13 +481,21 @@ describe('M5 milestone scope (phase P6A)', () => {
     );
     expect(
       importers.every(
-        (file) => file.startsWith(join(ROOT, 'apps/worker/src')) || file === API_CONFIG_FILE,
+        (file) =>
+          file.startsWith(join(ROOT, 'apps/worker/src')) ||
+          file === API_CONFIG_FILE ||
+          file === API_QUESTION_GENERATION,
       ),
     ).toBe(true);
     expect(importers.length).toBeGreaterThan(0);
-    // the API can build the frozen configuration and render nothing
+    // the assessment half of the API can build the frozen configuration and render nothing; only the question generation module renders (the question prompt)
     expect(importedNames(API_CONFIG_FILE, '@judge-copilot/prompts')).toEqual([
       'buildPipelineConfig',
+    ]);
+    expect(importedNames(API_QUESTION_GENERATION, '@judge-copilot/prompts')).toEqual([
+      'QUESTION_PROMPT',
+      'questionRequestFields',
+      'renderQuestionPrompt',
     ]);
     for (const { dir, manifest } of workspaceManifests()) {
       if (
@@ -563,10 +601,15 @@ describe('M5 milestone scope (phase P6A)', () => {
     ].map((match) => match[1] ?? '');
     expect(createdAssessmentTables.sort()).toEqual(M5_P4_TABLES);
     expect(
-      /CREATE TABLE (?:IF NOT EXISTS )?"[a-z_]*(post_interview|final_score|question|answer|delta)[a-z_]*"/i.test(
+      /CREATE TABLE (?:IF NOT EXISTS )?"[a-z_]*(post_interview|final_score|answer|delta)[a-z_]*"/i.test(
         sql,
       ),
     ).toBe(false);
+    expect(
+      [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?"([a-z_]*question[a-z_]*)"/gi)]
+        .map((match) => match[1] ?? '')
+        .sort(),
+    ).toEqual(M6_TABLES);
     expect(existsSync(join(ROOT, 'packages/prompts/package.json'))).toBe(true);
     // the API and the web UI know the assessment run type only inside their own assessment modules (P6A); the worker's loop executes it
     const ALLOWED = [
@@ -601,6 +644,8 @@ describe('M5 milestone scope (phase P6A)', () => {
     for (const file of routeFiles) {
       // P6A: the assessment routes are the four pinned below (design §10.2) and nothing else of this kind
       if (file === join(ROOT, 'apps/api/src/assessments/routes.ts')) continue;
+      // M6: the question routes are pinned by the test below
+      if (file === join(ROOT, 'apps/api/src/questions/routes.ts')) continue;
       const paths = [...readFileSync(file, 'utf8').matchAll(/['`](\/[^'`]*)['`]/g)].map(
         (match) => match[1] ?? '',
       );
@@ -636,6 +681,58 @@ describe('M5 milestone scope (phase P6A)', () => {
     expect(
       routes + readFileSync(join(ROOT, 'apps/api/src/assessments/service.ts'), 'utf8'),
     ).not.toMatch(/createAssessmentLoop|runAssessment|generate\(|renderPrompt|\.transaction\(/);
+  });
+
+  it('exposes exactly the three approved question routes (one POST, two GETs), refuses every write, and has no answer, interview or final-score route', () => {
+    const routes = readFileSync(join(ROOT, 'apps/api/src/questions/routes.ts'), 'utf8');
+    const handlers = [
+      ...routes.matchAll(/app\.(get|post|put|patch|delete|all)\(\s*'([^']+)'/g),
+    ].map((m) => `${(m[1] ?? '').toUpperCase()} ${m[2] ?? ''}`);
+    expect(handlers.sort()).toEqual([
+      'GET /projects/:projectId/assessments/:assessmentId/question-sets',
+      'GET /projects/:projectId/question-sets/:setId',
+      'POST /projects/:projectId/assessments/:assessmentId/question-sets',
+    ]);
+    expect(routes).toContain("guard('question.generate')");
+    expect(routes).toContain('QUESTION_SET_READ_ONLY');
+    expect(
+      /\b(answer|interview|final|reassess|score|rank)\b/i.test(
+        routes.replace(/question-sets/g, ''),
+      ),
+    ).toBe(false);
+    // no route renders a prompt or calls a model
+    expect(
+      routes + readFileSync(join(ROOT, 'apps/api/src/questions/service.ts'), 'utf8'),
+    ).not.toMatch(/createAssessmentLoop|runAssessment|renderPrompt|\.transaction\(/);
+  });
+
+  it('keeps the pure M6 packages pure: no I/O, process, network, database, environment, clock or randomness, and no model or prompt package', () => {
+    for (const name of ['uncertainty', 'questions']) {
+      const manifest = JSON.parse(
+        readFileSync(join(ROOT, 'packages', name, 'package.json'), 'utf8'),
+      ) as { dependencies?: Record<string, string> };
+      const allowed = new Set([
+        '@judge-copilot/context',
+        '@judge-copilot/schemas',
+        '@judge-copilot/uncertainty',
+        'zod',
+      ]);
+      for (const dep of Object.keys(manifest.dependencies ?? {})) {
+        expect(allowed.has(dep), `${name}: ${dep}`).toBe(true);
+      }
+      for (const file of sourceFiles(join(ROOT, 'packages', name, 'src'), {
+        includeTests: false,
+      })) {
+        if (file.includes('/testing/')) continue;
+        const text = readFileSync(file, 'utf8');
+        expect(
+          /from ['"](node:|fs|path|child_process|http|https|net|crypto)|process\.env|Date\.now|new Date\(|Math\.random|fetch\(|@judge-copilot\/(llm|prompts|database)/.test(
+            text,
+          ),
+          relative(ROOT, file),
+        ).toBe(false);
+      }
+    }
   });
 
   it('registers only GET handlers for the evidence graph (writes are refused, never served)', () => {

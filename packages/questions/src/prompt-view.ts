@@ -1,7 +1,7 @@
 import type { ClosedSet } from './closed-set.js';
 
 /*
- * The plain-data view of a closed set that a candidate-generation prompt renders (the strict `QuestionPromptInput` of `@judge-copilot/prompts`).
+ * The plain-data view of a closed set that a candidate-generation prompt renders (the strict input schema of the candidate prompt, which lives in the adapter layer).
  * It lives here, in the deterministic layer, because only code decides what a model may see: handles and bounded labels, never a persisted id.
  */
 

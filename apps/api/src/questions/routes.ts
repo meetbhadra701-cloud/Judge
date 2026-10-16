@@ -9,7 +9,7 @@ const SetParams = z.object({ projectId: Uuid, setId: Uuid });
 
 /**
  * M6 question routes. Authenticated; `question.read` for the GETs, `question.generate` for the POST. A question set is immutable and written only by trusted
- * server code: there is no route that edits, deletes, ranks or re-scores one, and every other method on these paths answers 405. The POST is idempotent
+ * server code: there is no route that edits or deletes one, and every other method on these paths answers 405. The POST is idempotent
  * (the same assessment, policy, prompt and provider return the stored set with 200) and answers 201 for a set it just created.
  */
 export function registerQuestionRoutes(app: ApiApp, service: QuestionService, guard: Guard): void {

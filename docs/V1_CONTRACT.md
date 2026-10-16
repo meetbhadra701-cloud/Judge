@@ -109,3 +109,5 @@ local-only: the API binds to `127.0.0.1` by default.
 - [M2 — Immutable Project-Source Ingestion](./milestones/M2-report.md)
 - [M3 — Evidence Graph](./milestones/M3-report.md)
 - [M4 — Deterministic Scoring Engine](./milestones/M4-report.md) (design: [M4-design](./milestones/M4-design.md))
+- [M5 — AI Pre-Interview Assessment](./milestones/M5-P6A-report.md) (design: [M5-design](./milestones/M5-design.md); real-event usability: [P6D](./milestones/P6D_REAL_EVENT_USABILITY_REPORT.md))
+- [M6 — Uncertainty Analysis and Five-Question Engine](./milestones/M6_FIVE_QUESTION_ENGINE_REPORT.md)

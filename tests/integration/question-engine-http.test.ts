@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { JudgeDatabase } from '../../packages/database/src/index.js';
 import {
+  computeRequestDigest,
+  REPLAY_FIXTURE_VERSION,
   ScriptedProvider,
+  type LlmProvider,
   type LlmResult,
   type ScriptedStep,
+  type StructuredRequest,
 } from '../../packages/llm/src/index.js';
 import {
   ApiErrorBody,
@@ -404,6 +408,73 @@ describe.each(testDatabaseTargets())('question engine HTTP API on %s', (_name, o
         expect(text).not.toContain(forbidden);
       }
       await hostile.close();
+    });
+
+    it('replays a hand-written fixture by request digest: labelled a replay demonstration; a request the fixture does not hold stores nothing', async () => {
+      const { projectId, assessmentId } = await assessed();
+      // record the exact request the service builds under the replay identity (the recorder fails, so nothing is stored), then answer it by hand
+      let recorded: StructuredRequest | null = null;
+      const recorder: LlmProvider = {
+        id: 'replay',
+        mode: 'replay',
+        generate: (request) => {
+          recorded = request;
+          return Promise.resolve<LlmResult>({
+            ok: false,
+            category: 'refused',
+            sendState: 'not_sent',
+          });
+        },
+      };
+      const REPLAY = { provider: { id: 'replay', mode: 'replay' }, models: MODELS } as const;
+      const recording = buildWith(new QuestionService({ db, offline: REPLAY, provider: recorder }));
+      expect((await call('POST', SETS(projectId, assessmentId), { on: recording })).status).toBe(
+        502,
+      );
+      await recording.close();
+      const request = recorded as StructuredRequest | null;
+      if (request === null) throw new Error('the request was not recorded');
+      const answer = questionDemonstrationStep(request);
+      if (!answer.ok) throw new Error('expected an answer');
+      const fixture = {
+        version: REPLAY_FIXTURE_VERSION,
+        synthetic: true,
+        entries: [
+          {
+            requestDigest: computeRequestDigest(request),
+            stage: 'question_generation',
+            note: 'hand-written synthetic answer',
+            output: answer.json,
+            usage: { inputTokens: 0, outputTokens: 0 },
+          },
+        ],
+      };
+      const replaying = buildWith(
+        new QuestionService({ db, offline: REPLAY, replayFixture: fixture }),
+      );
+      const hit = await call('POST', SETS(projectId, assessmentId), { on: replaying });
+      expect(hit.status).toBe(201);
+      expect(setOf(hit.body).generation).toMatchObject({
+        providerMode: 'replay',
+        demonstration: true,
+        models: null,
+      });
+      expect(setOf(hit.body).questions.length).toBeGreaterThan(0);
+      // a fixture that holds no answer for the request is a replay miss: nothing is stored
+      const other = await assessed();
+      const empty = buildWith(
+        new QuestionService({
+          db,
+          offline: REPLAY,
+          replayFixture: { version: REPLAY_FIXTURE_VERSION, synthetic: true, entries: [] },
+        }),
+      );
+      const miss = await call('POST', SETS(other.projectId, other.assessmentId), { on: empty });
+      expect(miss.status).toBe(502);
+      expect(errorCode(miss.body)).toBe('QUESTION_GENERATION_FAILED');
+      expect(await storedSets(other.projectId, other.assessmentId)).toEqual([]);
+      await empty.close();
+      await replaying.close();
     });
 
     it('answers 503 and generates nothing when no provider is configured, while reading keeps working', async () => {

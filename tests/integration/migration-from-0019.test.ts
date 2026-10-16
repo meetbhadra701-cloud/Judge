@@ -109,7 +109,7 @@ describe.each(testDatabaseTargets())(
       await db.execute(sql`DROP TABLE assessment_run_coverage`);
       await db.execute(sql`DROP FUNCTION assessment_run_coverage_insert_guard()`);
       await db.execute(
-        sql`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = ${WHEN_0020}`,
+        sql`DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= ${WHEN_0020}`,
       );
       clearProvenanceMemo();
     });
@@ -125,9 +125,17 @@ describe.each(testDatabaseTargets())(
           'function assessment_run_coverage_insert_guard',
         ]),
       );
-      expect((await diagnoseMigrations(db, migrationsFolder)).notApplied).toEqual([
-        '0020_p6b_beta3_r1_coverage_record',
-      ]);
+      // the migrator applies only what is newer than the newest bookkeeping row, so a 0019 installation lacks 0020 AND every later migration
+      // (each of them is idempotent: docs/MIGRATIONS.md section 6.4)
+      const { notApplied } = await diagnoseMigrations(db, migrationsFolder);
+      expect(notApplied[0]).toBe('0020_p6b_beta3_r1_coverage_record');
+      expect(notApplied).toEqual(
+        expect.arrayContaining([
+          '0021_m6_outcome_accounting',
+          '0022_m6_question_sets',
+          '0023_m6_question_set_integrity',
+        ]),
+      );
       await expect(assertSchemaReady(db)).rejects.toThrow(/does not match this version/);
     });
 
