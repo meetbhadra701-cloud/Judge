@@ -40,6 +40,8 @@ const STATUS_BY_CODE: Record<EventContextErrorCode, number> = {
   INVALID_CONFLICT: 422,
   INVALID_CONFLICT_RESOLUTION: 422,
   CONTEXT_CONTENT_MISSING: 422,
+  UNOFFICIAL_EXPLICIT_STATEMENT: 422,
+  UNSOURCED_OFFICIAL_RUBRIC: 422,
 };
 
 function hasPgCode(error: unknown, codes: readonly string[]): boolean {

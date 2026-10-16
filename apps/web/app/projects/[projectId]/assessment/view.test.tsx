@@ -220,6 +220,8 @@ const detail = (overrides: Partial<AssessmentDetail>): AssessmentDetail => ({
   createdAt: '2026-01-02T03:04:05.000Z',
   providerMode: 'replay',
   replayDemonstration: true,
+  rubricProvenance: 'official_source_cited',
+  trackContext: null,
   target: 'overall',
   verified: true,
   verificationFailure: null,
@@ -830,6 +832,70 @@ describe('P6B-alpha: preliminary and withheld presentation', () => {
     expect(html).toContain('Preliminary:');
     expect(html).toContain('Advisory only');
     expect(html).toContain('before any');
+  });
+
+  it('M6 phase 0: an official rubric that cites an official source is called official; one locked before the source rule says it is organizer-entered', () => {
+    const official = render(
+      list([summary({ overall: { state: 'scored', score10: 7 } })]),
+      detail({}),
+    );
+    expect(official).toContain('(official)');
+    const unsourced = render(
+      list([summary({ overall: { state: 'scored', score10: 7 } })]),
+      detail({ rubricProvenance: 'no_official_source_cited' }),
+    );
+    expect(unsourced).toContain('organizer-entered; cites no official source');
+    expect(unsourced).not.toContain('(official)');
+  });
+
+  it('M6 phase 0 (R8B P3-3): the page says which rubric was assessed, which tracks were declared, and that a track rubric was NOT scored', () => {
+    const html = render(
+      list([summary({ overall: { state: 'scored', score10: 7 } })]),
+      detail({
+        limitations: [
+          {
+            code: 'official_track_rubrics_not_assessed',
+            count: 1,
+            subjects: ['Health track rubric'],
+          },
+        ],
+        trackContext: {
+          assessedRubric: { scope: 'overall', name: 'Overall Criteria' },
+          declaredTracks: [
+            { key: 'health', name: 'Health & Care' },
+            { key: 'climate', name: 'Climate' },
+          ],
+          unassessedTrackRubrics: [
+            { trackKey: 'health', trackName: 'Health & Care', rubricName: 'Health track rubric' },
+          ],
+        },
+      }),
+    );
+    expect(html).toContain('data-testid="track-context"');
+    expect(html).toContain('Which rubric was assessed.');
+    expect(html).toContain('Overall Criteria');
+    expect(html).toContain('the tracks');
+    expect(html).toContain('Health &amp; Care, Climate');
+    expect(html).toContain('That track rubric was not scored');
+    expect(html).toContain('Health &amp; Care (“Health track rubric”)');
+    // the raw limitation code is accompanied by a plain-language sentence
+    expect(html).toContain('data-testid="limitation-official_track_rubrics_not_assessed"');
+    expect(html).toContain('criteria were NOT scored');
+  });
+
+  it('a project with no declared track says so, and without a track rubric nothing is claimed as unscored', () => {
+    const html = render(
+      list([summary({ overall: { state: 'scored', score10: 7 } })]),
+      detail({
+        trackContext: {
+          assessedRubric: { scope: 'overall', name: 'Overall Criteria' },
+          declaredTracks: [],
+          unassessedTrackRubrics: [],
+        },
+      }),
+    );
+    expect(html).toContain('This project declared no track.');
+    expect(html).not.toContain('unassessed-track-rubrics');
   });
 
   it('a withheld assessment shows guidance by failure code, no content, and no "show assessment" button, only Reassess', () => {

@@ -148,6 +148,13 @@
       "when": 1792108000000,
       "tag": "0020_p6b_beta3_r1_coverage_record",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792174569212,
+      "tag": "0021_m6_outcome_accounting",
+      "breakpoints": true
     }
   ]
 }

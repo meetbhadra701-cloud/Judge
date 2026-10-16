@@ -28,7 +28,15 @@ import {
  */
 
 const R1_WHEN_0020 = 1792054780003;
-const FINAL = 20;
+/** The journal entry the R1 branch shipped with an old timestamp (the defect these tests reproduce). */
+const R1_ENTRY = 20;
+/** The final migration of the shipped folder (M6 added 0021 after 0020). */
+const FINAL =
+  (
+    JSON.parse(readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8')) as {
+      entries: unknown[];
+    }
+  ).entries.length - 1;
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -57,9 +65,11 @@ function folderUpTo(last: number): string {
 function r1Folder(): string {
   const { root, journalPath } = copyFolder();
   const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as JournalFile;
-  const entry = journal.entries.find((candidate) => candidate.idx === FINAL);
+  const entry = journal.entries.find((candidate) => candidate.idx === R1_ENTRY);
   if (!entry) throw new Error('no 0020 entry');
   entry.when = R1_WHEN_0020;
+  // the folder as R1 shipped it ended at 0020 (later migrations did not exist)
+  journal.entries = journal.entries.filter((candidate) => candidate.idx <= R1_ENTRY);
   writeFileSync(journalPath, JSON.stringify(journal));
   writeFileSync(
     join(root, `${entry.tag}.sql`),
@@ -198,7 +208,9 @@ describe.each(emptyDatabaseTargets())('migration upgrade matrix on %s', (_name, 
       );
       // the startup guard of the services refuses to run against this database
       await expect(assertSchemaReady(t.db, shipped)).rejects.toThrow(SchemaNotReadyError);
-      // the repaired journal applies it, without touching what is there
+      // the repaired journal (at the time: ending at 0020) applies it, without touching what is there; later migrations then follow
+      await migrateFolder(t, folderUpTo(R1_ENTRY));
+      expect(await tableCount(t.db, 'assessment_run_coverage')).toBe(1);
       await migrateFolder(t, migrationsFolder);
       await assertFullyMigrated(t.db);
       await expect(assertSchemaReady(t.db)).resolves.toBeUndefined();
@@ -277,9 +289,10 @@ describe.each(emptyDatabaseTargets())('migration upgrade matrix on %s', (_name, 
       const objects = await verifySchemaObjects(t.db, migrationsFolder);
       expect(objects.ok).toBe(false);
       expect(objects.missing).toEqual(expect.arrayContaining(['table assessment_run_coverage']));
-      // docs/MIGRATIONS.md section 6.4: remove ONLY the 0020 bookkeeping row, then migrate (0020 is idempotent). Disposable database only.
+      // docs/MIGRATIONS.md section 6.4: remove the 0020 bookkeeping row AND every later one (the migrator only applies what is newer than the newest
+      // recorded row), then migrate (0020 and the later migrations are idempotent). Disposable database only.
       await t.db.execute(
-        sql`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1792108000000`,
+        sql`DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= 1792108000000`,
       );
       await migrateFolder(t, migrationsFolder);
       await assertFullyMigrated(t.db);

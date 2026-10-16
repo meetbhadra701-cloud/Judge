@@ -40,6 +40,12 @@ export {
   ReplayRecording,
   type ReplayRecordingInput,
 } from './replay-extractor.js';
+export {
+  citesOfficialSource,
+  isOfficialAuthority,
+  OFFICIAL_SOURCE_AUTHORITIES,
+  statementBasisOf,
+} from './provenance.js';
 export { lockedContentHash } from './snapshot.js';
 export { listUnresolved } from './unresolved.js';
 export {

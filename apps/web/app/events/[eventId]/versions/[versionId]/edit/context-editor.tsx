@@ -20,6 +20,7 @@ import {
   fieldOfServerPath,
   formatPercent,
   isOfficial,
+  orphanedTrackReferences,
   type AnchorRow,
   type Basis,
   type CriterionRow,
@@ -112,6 +113,7 @@ export function ContextEditor({
     label: track.name.trim() === '' ? 'New track (not named yet)' : track.name,
   }));
 
+  const orphans = orphanedTrackReferences(model);
   const hasOverall = model.rubrics.some((rubric) => rubric.scope === 'overall');
 
   return (
@@ -404,6 +406,10 @@ export function ContextEditor({
                     Only the track: {track.label}
                   </option>
                 ))}
+                {row.trackKey !== '' &&
+                !trackOptions.some((track) => track.uid === row.trackKey) ? (
+                  <option value={row.trackKey}>(its track was removed: choose again)</option>
+                ) : null}
               </select>
             </label>
             {errorsOf(`requirements.${String(i)}.trackKey`)}
@@ -486,6 +492,13 @@ export function ContextEditor({
             rubric). Teams pick their tracks when they submit their project.
           </small>
         </p>
+        {orphans.length > 0 ? (
+          <p role="alert" className="error" data-testid="orphaned-track-references">
+            A track was removed that these still belong to: {orphans.map((o) => o.what).join(', ')}.
+            They have <strong>not</strong> been made event-wide. Choose another track for each, or
+            remove it, before saving.
+          </p>
+        ) : null}
         {model.tracks.map((track, i) => (
           <TrackEditor
             key={track.uid}

@@ -14,6 +14,7 @@ import {
   remapSourceIds,
   sourceContentHash,
   sourceSetFingerprint,
+  statementBasisOf,
   validateForLock,
   type EventContextExtractor,
   type VersionSources,
@@ -45,6 +46,7 @@ import {
   type EventRecord,
   type EventSourceInput,
   type EventSourceRecord,
+  type StatementBasis,
   type UpdateEventContextRequest,
 } from '@judge-copilot/schemas';
 import { and, asc, count, desc, eq, inArray, max } from 'drizzle-orm';
@@ -294,6 +296,7 @@ export class EventContextService {
       lockReadiness,
       rebuildWouldReplaceReviewedChanges,
       integrity,
+      statementBases: statementBasesOf(document, sources),
     };
   }
 
@@ -1039,6 +1042,20 @@ function countHumanItems(document: EventContextDocument): number {
     ...document.rubrics.flatMap((rubric) => rubric.criteria),
   ];
   return items.filter((item) => item.origin === 'human' || item.humanModified).length;
+}
+
+/** The basis of every non-guidance fact of a document, by fact id (derived, never stored). */
+function statementBasesOf(
+  document: EventContextDocument | null,
+  sources: readonly SourceRow[],
+): Record<string, StatementBasis> {
+  if (!document) return {};
+  const authorities = versionSources(sources);
+  return Object.fromEntries(
+    listFacts(document)
+      .filter(({ path }) => !path.startsWith('organizerGuidance'))
+      .map(({ fact }) => [fact.id, statementBasisOf(fact, authorities)] as const),
+  );
 }
 
 function versionSources(sources: readonly SourceRow[]): VersionSources {

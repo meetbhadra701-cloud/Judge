@@ -1,3 +1,4 @@
+import { isOfficialAuthority } from '@judge-copilot/context';
 import type {
   EventContextDocument,
   EventContextDocumentInput,
@@ -54,20 +55,12 @@ const BASIS_OF: Readonly<Record<SourceCertainty, Basis>> = {
   unclear: 'unverified',
 };
 
-/** Sources whose authority makes a statement "official". Organizer guidance, judge context and the universal fallback never do. */
-const OFFICIAL_AUTHORITIES: ReadonlySet<EventSourceAuthority> = new Set([
-  'official_event_rules',
-  'official_judging_rubric',
-  'official_track_rules',
-]);
-
 export interface SourceOption {
   readonly id: string;
   readonly title: string;
   readonly authority: EventSourceAuthority;
 }
-export const isOfficial = (source: SourceOption): boolean =>
-  OFFICIAL_AUTHORITIES.has(source.authority);
+export const isOfficial = (source: SourceOption): boolean => isOfficialAuthority(source.authority);
 
 // -- The form model --------------------------------------------------------------------------------------------------------------------
 
@@ -396,7 +389,7 @@ export function documentFromModel(
   const known = (ids: readonly string[]) => ids.filter((id) => sourceById.has(id));
   const authorityOf = (id: string): EventSourceAuthority =>
     sourceById.get(id)?.authority ?? 'universal_fallback';
-  const isOfficialId = (id: string): boolean => OFFICIAL_AUTHORITIES.has(authorityOf(id));
+  const isOfficialId = (id: string): boolean => isOfficialAuthority(authorityOf(id));
 
   const fact = (row: FactRow, field: string, section: 'official-capable' | 'guidance') => {
     if (row.basis === 'official' && section === 'guidance') {
@@ -571,7 +564,13 @@ export function documentFromModel(
       if (rubric.trackKey === '')
         issues.push(issue(`${field}.trackKey`, 'Choose the track this rubric belongs to.'));
       else if (!keyByUid.has(rubric.trackKey))
-        issues.push(issue(`${field}.trackKey`, 'This track is not defined. Add the track first.'));
+        issues.push(
+          issue(
+            `${field}.trackKey`,
+            'This rubric belonged to a track that has been removed. Choose another track for it, or remove the rubric. It was not changed for you, and nothing is saved until you decide.',
+            'save',
+          ),
+        );
     }
     const rubricSources = known(rubric.sourceIds);
     const needed: ReadonlySet<EventSourceAuthority> =
@@ -729,10 +728,13 @@ export function documentFromModel(
     const built = listFact(row, field, 'official-capable');
     const trackKey = resolveTrack(row.trackKey);
     if (row.trackKey !== '' && trackKey === null) {
+      // M6 phase 0 (R8B P3-2): never widen silently. A requirement for a track that is gone is NOT turned into an event-wide requirement: nothing is
+      // saved until the organizer chooses another track, applies it to every project on purpose, or removes it
       issues.push(
         issue(
           `${field}.trackKey`,
-          'This track is not defined. Add the track first, or apply the requirement to every project.',
+          'This requirement belonged to a track that has been removed. Choose another track for it, apply it to every project on purpose, or remove the requirement. It was not changed for you, and nothing is saved until you decide.',
+          'save',
         ),
       );
     }
@@ -906,8 +908,40 @@ export function explainLockIssue(issueFromApi: { code: string; message: string }
       return 'Either give every criterion a weight or leave every weight empty. An official rubric is not half-weighted, and no weight is invented.';
     }
   }
+  if (code === 'UNOFFICIAL_EXPLICIT_STATEMENT') {
+    return 'A statement is marked official but cites no official source (the official rules, rubric or track rules). Cite the official source it comes from in Edit Event Context, or mark it as your interpretation or an unverified note. Nothing is treated as official without a source.';
+  }
+  if (code === 'UNSOURCED_OFFICIAL_RUBRIC') {
+    return 'A rubric is the event’s official judging standard, so it must cite the official source it was copied from (the official judging rubric, rules or track rules). Add that source on this page and select it for the rubric in Edit Event Context.';
+  }
   if (code === 'CONTEXT_CONTENT_MISSING') {
     return 'Nothing has been entered yet. Use Edit Event Context to enter the event’s criteria, rules and tracks.';
   }
   return message;
+}
+
+/**
+ * Track-scoped items (requirements and rubrics) whose track is no longer in the model: a track was removed, renamed away or never existed (M6 phase 0,
+ * R8B P3-2). The editor warns about them as soon as it happens, and `documentFromModel` refuses to save while any exist.
+ */
+export function orphanedTrackReferences(
+  model: Pick<EditorModel, 'tracks' | 'requirements' | 'rubrics'>,
+): { readonly field: string; readonly what: string }[] {
+  const uids = new Set(model.tracks.map((track) => track.uid));
+  const out: { field: string; what: string }[] = [];
+  model.requirements.forEach((row, i) => {
+    if (row.trackKey !== '' && !uids.has(row.trackKey))
+      out.push({
+        field: `requirements.${String(i)}.trackKey`,
+        what: `Requirement ${String(i + 1)}`,
+      });
+  });
+  model.rubrics.forEach((rubric, i) => {
+    if (rubric.scope === 'track' && rubric.trackKey !== '' && !uids.has(rubric.trackKey))
+      out.push({
+        field: `rubrics.${String(i)}.trackKey`,
+        what: `Rubric “${rubric.name.trim() || String(i + 1)}”`,
+      });
+  });
+  return out;
 }

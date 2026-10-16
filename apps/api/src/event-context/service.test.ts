@@ -884,7 +884,8 @@ describe.each(testDatabaseTargets())('Event Context workflow on %s', (_name, ope
       input.dates.judgingStartsAt = {
         ...input.dates.judgingStartsAt,
         statement: 'Judging starts 2031-06-08 at 17:00 UTC (organizer announcement).',
-        certainty: 'explicit',
+        // an announcement is organizer guidance, not an official source: the organizer's reading of it is an interpretation (M6 phase 0)
+        certainty: 'interpreted',
         value: '2031-06-08T17:00:00Z',
       };
       await expectCode(

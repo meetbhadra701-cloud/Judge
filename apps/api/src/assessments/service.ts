@@ -187,12 +187,15 @@ export class AssessmentService {
       case 'no_context_reference_evidence':
         throw new AssessmentApiError(
           'NO_CONTEXT_REFERENCE_EVIDENCE',
-          result.contextDefinesTracks && result.declaredTrackKeys.length === 0
-            ? 'The locked Event Context offers an assessment nothing to refer to for this project: it has no explicit event-wide rule or submission requirement, and its only reference material is track-specific, but this project declared no track. Nothing was queued or spent. A project’s tracks are chosen when it is submitted and are never edited afterwards: ask an organizer to void this submission and submit it again with its track selected, or add an explicit event rule or requirement in a new Event Context version, lock it, and request the assessment again.'
-            : 'The locked Event Context has no explicit rule, no explicit submission requirement and no declared track for an assessment to refer to. Nothing was queued or spent. Add an explicit rule or requirement (marked as stated in an official source) in a new Event Context version, lock it, and request the assessment again.',
+          result.unofficialStatements > 0
+            ? `The locked Event Context states ${String(result.unofficialStatements)} rule(s) or requirement(s) as explicit, but none of them cites an official source (the official rules, rubric or track rules), so none can be used as official reference for an assessment. Nothing was queued or spent. Cite the official source for each statement in a new Event Context version, lock it, and request the assessment again.`
+            : result.contextDefinesTracks && result.declaredTrackKeys.length === 0
+              ? 'The locked Event Context offers an assessment nothing to refer to for this project: it has no explicit event-wide rule or submission requirement, and its only reference material is track-specific, but this project declared no track. Nothing was queued or spent. A project’s tracks are chosen when it is submitted and are never edited afterwards: ask an organizer to void this submission and submit it again with its track selected, or add an explicit event rule or requirement in a new Event Context version, lock it, and request the assessment again.'
+              : 'The locked Event Context has no explicit rule, no explicit submission requirement and no declared track for an assessment to refer to. Nothing was queued or spent. Add an explicit rule or requirement (marked as stated in an official source) in a new Event Context version, lock it, and request the assessment again.',
           {
             contextDefinesTracks: result.contextDefinesTracks,
             declaredTrackKeys: [...result.declaredTrackKeys],
+            unofficialStatements: result.unofficialStatements,
           },
         );
       case 'no_overall_rubric':

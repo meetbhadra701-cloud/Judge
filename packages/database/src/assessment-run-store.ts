@@ -125,6 +125,8 @@ export type RequestAssessmentResult =
       /** P6D: what the refusal can honestly tell the judge. Whether the locked context defines tracks, and which the project declared. */
       readonly contextDefinesTracks: boolean;
       readonly declaredTrackKeys: readonly string[];
+      /** M6 phase 0: explicit rules/requirements the context states but that cite no official source (so they are not reference evidence). */
+      readonly unofficialStatements: number;
     }
   /** P6D: the locked context has no official OVERALL rubric (track rubrics are not assessed); the run could only have failed late. */
   | { readonly kind: 'no_overall_rubric'; readonly trackRubrics: number }
@@ -315,11 +317,15 @@ export class AssessmentRunStore {
             trackRubrics: contextRubrics.filter((rubric) => rubric.scope === 'track').length,
           };
         }
-        if (buildEventReferenceItems(pinned.snapshot, pins.declaredTrackKeys).items.length === 0) {
+        const reference = buildEventReferenceItems(pinned.snapshot, pins.declaredTrackKeys);
+        if (reference.items.length === 0) {
           return {
             kind: 'no_context_reference_evidence',
             contextDefinesTracks: contextTracks.length > 0,
             declaredTrackKeys: [...pins.declaredTrackKeys],
+            unofficialStatements: reference.exclusions.filter(
+              (exclusion) => exclusion.code === 'not_official_source',
+            ).length,
           };
         }
       }
@@ -1143,6 +1149,11 @@ export class AssessmentRunStore {
         input: sql<number>`coalesce(sum(${assessmentRunCalls.inputTokens}), 0)`.mapWith(Number),
         output: sql<number>`coalesce(sum(${assessmentRunCalls.outputTokens}), 0)`.mapWith(Number),
         cost: sql<number>`coalesce(sum(${assessmentRunCalls.costNanoUsd}), 0)`.mapWith(Number),
+        // M6 phase 0: only a live row is an external provider invocation (a released reservation never reached the provider)
+        liveCalls:
+          sql<number>`count(*) filter (where ${assessmentRunCalls.providerMode} = 'live' and ${assessmentRunCalls.state} <> 'released')`.mapWith(
+            Number,
+          ),
       })
       .from(assessmentRunCalls)
       .where(eq(assessmentRunCalls.runId, outcome.runId));
@@ -1161,6 +1172,8 @@ export class AssessmentRunStore {
       inputTokens: totals?.input ?? 0,
       outputTokens: totals?.output ?? 0,
       costNanoUsd: totals?.cost ?? 0,
+      stageExecutions: totals?.attempts ?? 0,
+      providerCalls: totals?.liveCalls ?? 0,
     });
   }
 

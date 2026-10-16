@@ -38,6 +38,14 @@ export const SOURCE_CERTAINTY_VALUES = ['explicit', 'interpreted', 'unclear'] as
 export const SourceCertainty = z.enum(SOURCE_CERTAINTY_VALUES);
 export type SourceCertainty = z.infer<typeof SourceCertainty>;
 
+/**
+ * What kind of statement an Event Context fact is, derived by code from its certainty and the authority of the sources it cites (M6 phase 0):
+ * `official` (explicit AND cites an official source), `organizer_interpreted`, or `unverified` (unclear, or "explicit" that cites no official source).
+ */
+export const STATEMENT_BASIS_VALUES = ['official', 'organizer_interpreted', 'unverified'] as const;
+export const StatementBasis = z.enum(STATEMENT_BASIS_VALUES);
+export type StatementBasis = z.infer<typeof StatementBasis>;
+
 export const RUBRIC_SCOPE_VALUES = ['overall', 'track'] as const;
 export const RubricScope = z.enum(RUBRIC_SCOPE_VALUES);
 export type RubricScope = z.infer<typeof RubricScope>;

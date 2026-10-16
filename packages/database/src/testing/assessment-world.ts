@@ -3,6 +3,7 @@
  * (document, tracks, rubric rows, content hash computed by the same rule the API uses), real captured snapshots with artifact text,
  * declared tracks, and a small but genuine extraction batch whose quotes are exact spans of the stored artifacts.
  */
+import { randomUUID } from 'node:crypto';
 import {
   assembleContextBatch,
   buildEventReferenceItems,
@@ -21,6 +22,7 @@ import type { CreateExtractionInput } from '../extraction-store.js';
 import {
   actors,
   eventContextVersions,
+  eventSources,
   events,
   projectTrackSelections,
   rubricAnchors,
@@ -36,15 +38,20 @@ const next = () => (counter += 1);
 export const uuid = (n: number, prefix = 'd0000001'): string =>
   `${prefix}-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
 
+/** The official source every synthetic context cites for what it states as explicit (M6 phase 0: "explicit" is only trusted with an official source). */
+export const OFFICIAL_RULES_SOURCE_ID = 'd0000002-0000-4000-8000-000000000001';
+export const OFFICIAL_RULES_SOURCE_TEXT = 'SYNTHETIC official rules text for tests.';
+
 const fact = (
   n: number,
   statement = 'Not stated.',
   certainty: 'explicit' | 'interpreted' | 'unclear' = 'unclear',
+  sourceId: string | null = OFFICIAL_RULES_SOURCE_ID,
 ) => ({
   id: uuid(n),
   statement,
   certainty,
-  sourceIds: [],
+  sourceIds: certainty === 'unclear' || sourceId === null ? [] : [sourceId],
   origin: 'human' as const,
   humanModified: false,
 });
@@ -54,6 +61,8 @@ export interface ContextOptions {
   rubricWeights?: [number, number];
   trackKeys?: string[];
   rules?: { statement: string; certainty: 'explicit' | 'interpreted' | 'unclear' }[];
+  /** M6 phase 0: rules labelled explicit that cite NO source (what a context locked before the source rule can hold). */
+  unsourcedRules?: boolean;
   requirements?: {
     statement: string;
     certainty: 'explicit' | 'interpreted' | 'unclear';
@@ -61,7 +70,10 @@ export interface ContextOptions {
   }[];
 }
 
-export function contextDocument(options: ContextOptions = {}): EventContextDocument {
+export function contextDocument(
+  options: ContextOptions = {},
+  sourceId: string = OFFICIAL_RULES_SOURCE_ID,
+): EventContextDocument {
   const date = (n: number) => ({ ...fact(n), value: null });
   return {
     dates: {
@@ -71,9 +83,11 @@ export function contextDocument(options: ContextOptions = {}): EventContextDocum
       submissionDeadline: date(4),
     },
     judgingFormat: fact(5),
-    rules: (options.rules ?? []).map((rule, i) => fact(20 + i, rule.statement, rule.certainty)),
+    rules: (options.rules ?? []).map((rule, i) =>
+      fact(20 + i, rule.statement, rule.certainty, options.unsourcedRules ? null : sourceId),
+    ),
     submissionRequirements: (options.requirements ?? []).map((requirement, i) => ({
-      ...fact(40 + i, requirement.statement, requirement.certainty),
+      ...fact(40 + i, requirement.statement, requirement.certainty, sourceId),
       trackKey: requirement.trackKey,
     })),
     priorWorkPolicy: { ...fact(6), stance: 'unclear' },
@@ -83,7 +97,7 @@ export function contextDocument(options: ContextOptions = {}): EventContextDocum
       key,
       name: `Track ${key}`,
       description: `Projects in the ${key} track must address ${key}.`,
-      sourceIds: [],
+      sourceIds: [sourceId],
       origin: 'human' as const,
       humanModified: false,
     })),
@@ -94,7 +108,7 @@ export function contextDocument(options: ContextOptions = {}): EventContextDocum
         name: 'Official rubric',
         scaleMin: 0,
         scaleMax: 10,
-        sourceIds: [],
+        sourceIds: [sourceId],
         origin: 'human',
         humanModified: false,
         criteria: [
@@ -107,7 +121,7 @@ export function contextDocument(options: ContextOptions = {}): EventContextDocum
               { score: 0, description: 'No coherent problem.' },
               { score: 10, description: 'A precisely defined problem that is clearly solved.' },
             ],
-            sourceIds: [],
+            sourceIds: [sourceId],
             origin: 'human',
             humanModified: false,
           },
@@ -117,7 +131,7 @@ export function contextDocument(options: ContextOptions = {}): EventContextDocum
             description: 'Published description of usability.',
             weight: options.rubricWeights?.[1] ?? 0.5,
             anchors: [],
-            sourceIds: [],
+            sourceIds: [sourceId],
             origin: 'human',
             humanModified: false,
           },
@@ -136,7 +150,8 @@ export async function seedLockedContext(
   eventId: string,
   options: ContextOptions = {},
 ) {
-  const document = contextDocument(options);
+  const sourceId = randomUUID();
+  const document = contextDocument(options, sourceId);
   const [previous] = await db
     .select({
       id: eventContextVersions.id,
@@ -157,6 +172,18 @@ export async function seedLockedContext(
     })
     .returning();
   if (!version) throw new Error('version');
+  const sourceContentHash = sha256(OFFICIAL_RULES_SOURCE_TEXT);
+  await db.insert(eventSources).values({
+    id: sourceId,
+    contextVersionId: version.id,
+    sourceType: 'pasted_text',
+    authority: 'official_event_rules',
+    title: 'SYNTHETIC official rules',
+    url: null,
+    normalizedText: OFFICIAL_RULES_SOURCE_TEXT,
+    contentHash: sourceContentHash,
+    position: 0,
+  });
   const trackIdByKey = new Map<string, string>();
   for (const [i, track] of document.tracks.entries()) {
     const [row] = await db
@@ -222,7 +249,19 @@ export async function seedLockedContext(
     .update(eventContextVersions)
     .set({ content })
     .where(eq(eventContextVersions.id, version.id));
-  const hash = lockedContentHash({ document, sources: [] });
+  const hash = lockedContentHash({
+    document,
+    sources: [
+      {
+        id: sourceId,
+        authority: 'official_event_rules',
+        sourceType: 'pasted_text',
+        title: 'SYNTHETIC official rules',
+        url: null,
+        contentHash: sourceContentHash,
+      },
+    ],
+  });
   if (previous?.status === 'locked') {
     await db.execute(
       sql`UPDATE event_context_versions SET status = 'superseded' WHERE id = ${previous.id}`,
@@ -231,7 +270,14 @@ export async function seedLockedContext(
   await db.execute(
     sql`UPDATE event_context_versions SET status = 'locked', locked_at = now(), locked_content_hash = ${hash} WHERE id = ${version.id}`,
   );
-  return { versionId: version.id, version: version.version, document, hash, trackIdByKey };
+  return {
+    versionId: version.id,
+    version: version.version,
+    document,
+    hash,
+    trackIdByKey,
+    sourceId,
+  };
 }
 
 export const DEVPOST_TEXT = [
@@ -333,7 +379,22 @@ export function lockedSnapshotOf(
     supersedesId: null,
     changeReason: null,
     summary: null,
-    sources: [],
+    sources: [
+      {
+        id: world.context.sourceId,
+        contextVersionId: versionId,
+        sourceType: 'pasted_text',
+        authority: 'official_event_rules',
+        authorityRank: 100,
+        title: 'SYNTHETIC official rules',
+        url: null,
+        contentHash: sha256(OFFICIAL_RULES_SOURCE_TEXT),
+        textLength: OFFICIAL_RULES_SOURCE_TEXT.length,
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        copiedFromId: null,
+      },
+    ],
     document: world.context.document,
   };
 }

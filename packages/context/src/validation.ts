@@ -7,6 +7,7 @@ import { resolveConflict } from './conflicts.js';
 import { issue, type TypedIssue } from './errors.js';
 import { listFacts } from './facts.js';
 import { canonicalJson } from './hash.js';
+import { citesOfficialSource } from './provenance.js';
 import { collectSourceIds } from './references.js';
 
 /** Source ID → authority for the sources of ONE context version. */
@@ -158,7 +159,45 @@ export function validateForLock(
   return [
     ...validateDocument(document, sources),
     ...document.rubrics.flatMap((rubric, i) => rubricWeightSumIssues(rubric, `rubrics[${i}]`)),
+    ...officialProvenanceIssues(document, sources),
   ];
+}
+
+/**
+ * M6 phase 0 (R8B P3-1): nothing can be LOCKED as official without an official source, whichever way it was written (the structured editor, the
+ * advanced editor or a direct API call). A draft may still hold such a statement (the issue is reported in `lockReadiness`); an already locked
+ * version is never rewritten, and the assessment input re-derives the basis itself (a historical unsourced "explicit" statement is not official
+ * reference evidence either). Organizer guidance is advice, not an official statement, and is exempt.
+ */
+function officialProvenanceIssues(
+  document: EventContextDocument,
+  sources: VersionSources,
+): TypedIssue[] {
+  const issues: TypedIssue[] = [];
+  for (const { path, fact } of listFacts(document)) {
+    if (path.startsWith('organizerGuidance')) continue;
+    if (fact.certainty === 'explicit' && !citesOfficialSource(fact.sourceIds, sources)) {
+      issues.push(
+        issue(
+          'UNOFFICIAL_EXPLICIT_STATEMENT',
+          path,
+          'A statement marked explicit (official) must cite at least one official source (official rules, rubric or track rules). Cite one, or mark the statement as interpreted or unclear',
+        ),
+      );
+    }
+  }
+  document.rubrics.forEach((rubric, i) => {
+    if (!citesOfficialSource(rubric.sourceIds, sources)) {
+      issues.push(
+        issue(
+          'UNSOURCED_OFFICIAL_RUBRIC',
+          `rubrics[${i}]`,
+          'A rubric is the event’s official judging standard and must cite at least one official source (the official judging rubric, rules or track rules)',
+        ),
+      );
+    }
+  });
+  return issues;
 }
 
 function validateRubricStructure(

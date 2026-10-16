@@ -155,3 +155,30 @@ function blankInput() {
     conflicts: [],
   };
 }
+
+describe('M6 phase 0 (R8B P3-2): the editor never silently widens a requirement whose track was removed', () => {
+  it('a requirement whose track was removed is announced, keeps its own marked choice, and is not shown as "Every project"', () => {
+    const initial = {
+      ...blankModel(),
+      tracks: [],
+      requirements: [
+        {
+          statement: 'Health entrants must name an advisor.',
+          basis: 'unverified' as const,
+          sourceIds: [],
+          trackKey: 'removed-track',
+        },
+      ],
+    };
+    const html = render(initial);
+    expect(html).toContain('data-testid="orphaned-track-references"');
+    expect(html).toContain('Requirement 1');
+    expect(html).toContain('have <strong>not</strong> been made event-wide');
+    expect(html).toContain('(its track was removed: choose again)');
+    expect(html).toMatch(/<option value="removed-track" selected="">\(its track was removed/);
+  });
+
+  it('no warning is shown when every track reference is intact', () => {
+    expect(render()).not.toContain('orphaned-track-references');
+  });
+});

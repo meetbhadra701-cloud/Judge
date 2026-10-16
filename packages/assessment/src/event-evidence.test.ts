@@ -70,4 +70,67 @@ describe('Event-Context reference evidence (design §4.7)', () => {
     expect(result.items).toEqual([]);
     expect(result.exclusions).toEqual([{ kind: 'rule', code: 'too_long' }]);
   });
+
+  describe('M6 phase 0 (R8B P3-1): "explicit" is only trusted together with an official source', () => {
+    const withSources = (
+      sourceIds: string[],
+      authority: 'official_event_rules' | 'organizer_guidance' | 'judge_context',
+    ) => {
+      const base = lockedSnapshot({
+        rules: [{ statement: 'Projects must be original work.', certainty: 'explicit' }],
+        requirements: [
+          {
+            statement: 'Every submission needs a demo link.',
+            certainty: 'explicit',
+            trackKey: null,
+          },
+        ],
+      });
+      const sourceId = base.sources[0]?.id ?? '';
+      return {
+        ...base,
+        sources: base.sources.map((source) => ({ ...source, authority })),
+        document: {
+          ...base.document,
+          rules: base.document.rules.map((rule) => ({
+            ...rule,
+            sourceIds: sourceIds.length ? [sourceId] : [],
+          })),
+          submissionRequirements: base.document.submissionRequirements.map((requirement) => ({
+            ...requirement,
+            sourceIds: sourceIds.length ? [sourceId] : [],
+          })),
+        },
+      };
+    };
+
+    it('an official source makes an explicit rule and requirement reference evidence', () => {
+      const result = buildEventReferenceItems(withSources(['x'], 'official_event_rules'), []);
+      expect(result.items.map((i) => i.kind)).toEqual(['rule', 'submission_requirement']);
+    });
+
+    it('an explicit statement citing NO source is excluded, and counted as not official (never silently dropped)', () => {
+      const result = buildEventReferenceItems(withSources([], 'official_event_rules'), []);
+      expect(result.items).toEqual([]);
+      expect(result.exclusions.map((e) => `${e.kind}:${e.code}`)).toEqual([
+        'rule:not_official_source',
+        'submission_requirement:not_official_source',
+      ]);
+    });
+
+    it.each(['organizer_guidance', 'judge_context'] as const)(
+      'an explicit statement citing only a lower-authority source (%s) is excluded',
+      (authority) => {
+        const result = buildEventReferenceItems(withSources(['x'], authority), []);
+        expect(result.items).toEqual([]);
+        expect(result.exclusions.every((e) => e.code === 'not_official_source')).toBe(true);
+      },
+    );
+
+    it('a source id that is not among the frozen sources counts for nothing', () => {
+      const base = withSources(['x'], 'official_event_rules');
+      const result = buildEventReferenceItems({ ...base, sources: [] }, []);
+      expect(result.items).toEqual([]);
+    });
+  });
 });

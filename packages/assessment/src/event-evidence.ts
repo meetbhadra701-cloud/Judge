@@ -6,6 +6,7 @@ import {
   REFERENCE_KIND_VALUES,
   type EventContextLockedSnapshot,
 } from '@judge-copilot/schemas';
+import { statementBasisOf } from '@judge-copilot/context';
 import { codePointCount } from './text.js';
 
 /*
@@ -13,7 +14,8 @@ import { codePointCount } from './text.js';
  * evidence, reproduced as the locked words (NFC, graph-text normalized):
  *
  *   - each DECLARED track's definition (name and description);
- *   - rules and submission requirements whose certainty is `explicit` and that apply to the overall submission or to a declared track.
+ *   - rules and submission requirements whose certainty is `explicit` AND that cite at least one official source (P3-1: a label without a source
+ *     is not official), and that apply to the overall submission or to a declared track.
  *
  * `interpreted` and `unclear` statements are excluded and counted. These items say what the EVENT requires; they say nothing about
  * what the PROJECT does, so they are labelled `unverified`, carry version-level provenance only, and the judgment gates (G6) accept a
@@ -77,7 +79,8 @@ export function referenceMetaByEvidenceId(
 
 export interface EventReferenceExclusion {
   readonly kind: EventReferenceKind;
-  readonly code: 'not_explicit' | 'not_applicable_track' | 'too_long' | 'empty';
+  readonly code:
+    'not_explicit' | 'not_official_source' | 'not_applicable_track' | 'too_long' | 'empty';
 }
 
 export interface EventReferenceResult {
@@ -98,6 +101,10 @@ export function buildEventReferenceItems(
   declaredTrackKeys: readonly string[],
 ): EventReferenceResult {
   const declared = new Set(declaredTrackKeys);
+  // M6 phase 0 (R8B P3-1): "explicit" is only trusted together with an official source; the frozen snapshot carries each source's authority
+  const authorities = new Map(
+    locked.sources.map((source) => [source.id, source.authority] as const),
+  );
   const items: EventReferenceItem[] = [];
   const exclusions: EventReferenceExclusion[] = [];
   const counters: Record<EventReferenceKind, number> = {
@@ -144,6 +151,10 @@ export function buildEventReferenceItems(
       exclusions.push({ kind: 'rule', code: 'not_explicit' });
       continue;
     }
+    if (statementBasisOf(rule, authorities) !== 'official') {
+      exclusions.push({ kind: 'rule', code: 'not_official_source' });
+      continue;
+    }
     add('rule', 'overall_rule', null, rule.statement);
   }
   for (const requirement of document.submissionRequirements) {
@@ -153,6 +164,10 @@ export function buildEventReferenceItems(
     }
     if (requirement.certainty !== 'explicit') {
       exclusions.push({ kind: 'submission_requirement', code: 'not_explicit' });
+      continue;
+    }
+    if (statementBasisOf(requirement, authorities) !== 'official') {
+      exclusions.push({ kind: 'submission_requirement', code: 'not_official_source' });
       continue;
     }
     add(

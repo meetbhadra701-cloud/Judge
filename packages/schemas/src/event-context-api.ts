@@ -4,6 +4,7 @@ import {
   EventContextDocument,
   EventContextDocumentInput,
   EventSourceSummary,
+  StatementBasis,
 } from './event-context.js';
 import { Slug, Uuid } from './primitives.js';
 
@@ -118,6 +119,11 @@ export const ContextVersionDetail = ContextVersionSummary.extend({
   rebuildWouldReplaceReviewedChanges: z.boolean().nullable(),
   /** Frozen versions only: whether the stored content still hashes to `lockedContentHash`. */
   integrity: z.enum(['verified', 'mismatch']).nullable(),
+  /**
+   * Derived by code, never stored or hashed: the basis (official / organizer_interpreted / unverified) of every fact of `document` except organizer guidance,
+   * keyed by fact id. An `explicit` fact is `official` only when it cites an official-authority source. Empty until a document exists.
+   */
+  statementBases: z.record(z.string(), StatementBasis),
 });
 export type ContextVersionDetail = z.infer<typeof ContextVersionDetail>;
 

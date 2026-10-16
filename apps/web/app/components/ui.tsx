@@ -1,3 +1,4 @@
+import { statementBasisOf } from '@judge-copilot/context';
 import type { ContextConflict, ContextFact, EventSourceSummary } from '@judge-copilot/schemas';
 import type { ReactNode } from 'react';
 
@@ -44,29 +45,25 @@ export function SourceNames({
   );
 }
 
-const OFFICIAL_AUTHORITIES = new Set([
-  'official_event_rules',
-  'official_judging_rubric',
-  'official_track_rules',
-]);
-
 /**
- * What kind of statement a fact is, from its stored certainty and the authority of the sources it cites (P6D): `explicit` is shown as official
- * only when an official source is cited, so an unsourced "explicit" statement is never displayed as official.
+ * What kind of statement a fact is, from its stored certainty and the authority of the sources it cites. The decision is the ONE shared function
+ * (`statementBasisOf`, also used by the lock gate, the API and the assessment input), so an unsourced "explicit" statement is never displayed as
+ * official here while being counted as official there.
  */
 export function basisOf(
   fact: Pick<ContextFact, 'certainty' | 'sourceIds'>,
   sources: ReadonlyMap<string, EventSourceSummary>,
 ): { label: string; tone: string } {
-  if (fact.certainty === 'unclear') return { label: 'Unverified note', tone: 'warn' };
-  if (fact.certainty === 'interpreted')
-    return { label: 'Organizer’s interpretation', tone: 'human' };
-  const official = fact.sourceIds.some((id) =>
-    OFFICIAL_AUTHORITIES.has(sources.get(id)?.authority ?? ''),
+  const basis = statementBasisOf(
+    fact,
+    new Map([...sources].map(([id, source]) => [id, source.authority] as const)),
   );
-  return official
-    ? { label: 'Official', tone: 'ok' }
-    : { label: 'Marked explicit, but cites no official source', tone: 'warn' };
+  if (basis === 'official') return { label: 'Official', tone: 'ok' };
+  if (basis === 'organizer_interpreted')
+    return { label: 'Organizer’s interpretation', tone: 'human' };
+  return fact.certainty === 'explicit'
+    ? { label: 'Marked explicit, but cites no official source', tone: 'warn' }
+    : { label: 'Unverified note', tone: 'warn' };
 }
 
 export function FactView({

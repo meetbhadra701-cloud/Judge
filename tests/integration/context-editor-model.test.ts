@@ -16,6 +16,7 @@ import {
   inputFromDocument,
   keyFromName,
   modelFromInput,
+  orphanedTrackReferences,
   type EditorModel,
   type SourceOption,
 } from '../../apps/web/lib/context-editor.js';
@@ -445,5 +446,116 @@ describe('what the API reports is mapped to the same fields', () => {
     ['document', 'form'],
   ])('%s -> %s', (path, field) => {
     expect(fieldOfServerPath(path)).toBe(field);
+  });
+});
+
+describe('M6 phase 0 (R8B P3-2): removing a track never widens its requirements to the whole event', () => {
+  const built = (model: EditorModel) => documentFromModel(model, SOURCES);
+  const saveBlockers = (model: EditorModel) =>
+    built(model)
+      .issues.filter((entry) => entry.blocks === 'save')
+      .map((entry) => entry.field);
+
+  it('deleting a track that a requirement and a track rubric belong to blocks SAVING, names both items and changes nothing for the organizer', () => {
+    const model = complete();
+    const trackless = {
+      ...model,
+      tracks: model.tracks.filter((track) => track.uid !== 'new-health'),
+    };
+    const result = built(trackless);
+    // both referencing items are reported as blocking the save; no document is produced that could be stored
+    expect(saveBlockers(trackless)).toEqual(
+      expect.arrayContaining(['requirements.1.trackKey', 'rubrics.1.trackKey']),
+    );
+    expect(
+      orphanedTrackReferences(trackless)
+        .map((o) => o.field)
+        .sort(),
+    ).toEqual(['requirements.1.trackKey', 'rubrics.1.trackKey']);
+    expect(result.issues.find((i) => i.field === 'requirements.1.trackKey')?.message).toMatch(
+      /belonged to a track that has been removed.*not changed for you/,
+    );
+  });
+
+  it('after the organizer decides, the same model saves: reassigned to another track, applied to every project ON PURPOSE, or removed', () => {
+    const model = complete();
+    const without = { ...model, tracks: model.tracks.filter((t) => t.uid !== 'new-health') };
+    const requirementIndex = without.requirements.findIndex((r) => r.trackKey === 'new-health');
+    const decide = (
+      change: (
+        r: EditorModel['requirements'][number],
+      ) => EditorModel['requirements'][number] | null,
+    ) => ({
+      ...without,
+      requirements: without.requirements.flatMap((r, i) => {
+        if (i !== requirementIndex) return [r];
+        const next = change(r);
+        return next === null ? [] : [next];
+      }),
+      rubrics: without.rubrics.filter((r) => r.scope === 'overall'),
+    });
+    const toClimate = decide((r) => ({ ...r, trackKey: 'new-climate' }));
+    expect(saveBlockers(toClimate)).toEqual([]);
+    expect(must(built(toClimate).input).submissionRequirements[1]?.trackKey).toBe('climate');
+    const everyone = decide((r) => ({ ...r, trackKey: '' }));
+    expect(saveBlockers(everyone)).toEqual([]);
+    expect(must(built(everyone).input).submissionRequirements[1]?.trackKey).toBeNull();
+    const removed = decide(() => null);
+    expect(saveBlockers(removed)).toEqual([]);
+    expect(must(built(removed).input).submissionRequirements).toHaveLength(1);
+  });
+
+  it('renaming a SAVED track keeps its key, so its requirement and rubric follow it (an unsaved track gets its key from its name when first saved)', () => {
+    const model = complete();
+    const saved = {
+      ...model,
+      tracks: model.tracks.map((track) =>
+        track.uid === 'new-health'
+          ? { ...track, existing: true, key: 'health_care' }
+          : { ...track, existing: true, key: 'climate' },
+      ),
+    };
+    const renamed = {
+      ...saved,
+      tracks: saved.tracks.map((track) =>
+        track.uid === 'new-health' ? { ...track, name: 'Health, Care and Wellbeing' } : track,
+      ),
+    };
+    expect(saveBlockers(renamed)).toEqual([]);
+    const input = must(built(renamed).input);
+    expect(input.tracks.map((t) => t.key)).toEqual(['health_care', 'climate']);
+    expect(input.tracks[0]?.name).toBe('Health, Care and Wellbeing');
+    expect(input.submissionRequirements[1]?.trackKey).toBe('health_care');
+    expect(input.rubrics[1]?.trackKey).toBe('health_care');
+  });
+
+  it('a stale or never-existing key (a crafted document) is refused, never coerced into an event-wide requirement', () => {
+    const model = complete();
+    const stale = {
+      ...model,
+      requirements: model.requirements.map((r, i) => (i === 1 ? { ...r, trackKey: 'ghost' } : r)),
+    };
+    expect(saveBlockers(stale)).toContain('requirements.1.trackKey');
+    // and the produced input must not be usable as a silent "every project" document
+    expect(built(stale).issues.some((i) => i.blocks === 'save')).toBe(true);
+  });
+
+  it('a newly added track can be referenced before it has a key, and a removed NEW track is reported the same way', () => {
+    const model = blankModel();
+    const withNew = {
+      ...model,
+      tracks: [{ ...blankTrack('t-new'), name: 'Robotics', sourceIds: [TRACKS] }],
+      requirements: [
+        {
+          ...blankRequirement(),
+          statement: 'Robots must be shown.',
+          basis: 'unverified' as const,
+          trackKey: 't-new',
+        },
+      ],
+    };
+    expect(saveBlockers(withNew)).toEqual([]);
+    const removed = { ...withNew, tracks: [] };
+    expect(saveBlockers(removed)).toContain('requirements.0.trackKey');
   });
 });

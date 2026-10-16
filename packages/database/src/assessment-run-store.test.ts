@@ -202,6 +202,7 @@ describe.each(testDatabaseTargets())(
           kind: 'no_context_reference_evidence',
           contextDefinesTracks: false,
           declaredTrackKeys: [],
+          unofficialStatements: 0,
         });
         // an unclear/interpreted-only rule is not explicit reference evidence either
         const unclearOnly = await seedAssessmentWorld(db, {
@@ -223,6 +224,30 @@ describe.each(testDatabaseTargets())(
         expect((await store.requestAssessment(requestInput(trackOnly))).kind).toBe('run_created');
       });
 
+      it('M6 phase 0: a context locked BEFORE the source rule, whose explicit rules cite no official source, gives an assessment nothing official to refer to (it is not rewritten, and nothing is queued)', async () => {
+        const store = newRunStore(db);
+        const runsBefore = await countRows('analysis_runs');
+        const historical = await seedAssessmentWorld(db, {
+          rules: [
+            { statement: 'Entries must be written in Rust.', certainty: 'explicit' },
+            { statement: 'No third-party libraries.', certainty: 'explicit' },
+          ],
+          unsourcedRules: true,
+        });
+        expect(await store.requestAssessment(requestInput(historical))).toEqual({
+          kind: 'no_context_reference_evidence',
+          contextDefinesTracks: false,
+          declaredTrackKeys: [],
+          unofficialStatements: 2,
+        });
+        expect(await countRows('analysis_runs')).toBe(runsBefore);
+        // the same rules citing an official source proceed
+        const sourced = await seedAssessmentWorld(db, {
+          rules: [{ statement: 'Entries must be written in Rust.', certainty: 'explicit' }],
+        });
+        expect((await store.requestAssessment(requestInput(sourced))).kind).toBe('run_created');
+      });
+
       it('P6D: the refusal for a context whose reference material is track-specific says whether the context defines tracks and which the project declared', async () => {
         const store = newRunStore(db);
         const runsBefore = await countRows('analysis_runs');
@@ -231,6 +256,7 @@ describe.each(testDatabaseTargets())(
           kind: 'no_context_reference_evidence',
           contextDefinesTracks: true,
           declaredTrackKeys: [],
+          unofficialStatements: 0,
         });
         expect(await countRows('analysis_runs')).toBe(runsBefore);
         const declared = await seedAssessmentWorld(db, {

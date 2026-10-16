@@ -106,4 +106,28 @@ describe('P6D structured save action (server tier)', () => {
       { path: 'rubrics[0].criteria[1].weight', message: 'bad weight' },
     ]);
   });
+
+  it('M6 phase 0 (R8B P3-2): a crafted post whose requirement names a track that does not exist is refused, never saved as an event-wide requirement', async () => {
+    const built = documentFromModel(blankModel(), SOURCES).input;
+    if (built === null) throw new Error('the blank model builds');
+    const crafted = {
+      ...built,
+      submissionRequirements: [
+        {
+          statement: 'Health entrants must name a clinical advisor.',
+          certainty: 'interpreted',
+          sourceIds: [NOTES],
+          trackKey: 'ghost',
+        },
+      ],
+    };
+    api.apiRequest.mockResolvedValueOnce(draft());
+    const result = await saveStructuredContextAction(INITIAL, form(crafted));
+    expect(result.error).toMatch(/was not saved/);
+    expect(result.issues.map((i) => i.path)).toContain('requirements.0.trackKey');
+    expect(result.issues.find((i) => i.path === 'requirements.0.trackKey')?.message).toMatch(
+      /not changed for you/,
+    );
+    expect(api.apiRequest).toHaveBeenCalledTimes(1); // only the version read: nothing reached the API
+  });
 });

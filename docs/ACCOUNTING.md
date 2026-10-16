@@ -30,6 +30,22 @@ It is kept in three places, so no single mistake can break it:
 3. **On the page.** A demonstration report says "0 provider calls, no tokens, no cost" and "N local demonstration stage(s)". A live run (not
    available today) shows its measured usage and cost.
 
+## The outcome row ("billing summary") — M6 phase 0 (R8B P3-4)
+
+`assessment_run_outcomes` holds four counters named `attempts_started`, `settled_calls`, `unknown_calls` and `released_calls`. They count **ledger entries**,
+that is **local stage executions**: for a live provider each entry is one provider call, but for an offline demonstration each entry is a pass of local code
+and no model was called, so a scripted run legitimately stores, for example, `settled_calls = 9` next to `input_tokens = 0`, `cost_nano_usd = 0` and
+`provider_mode = 'scripted'`. The names are historical and immutable rows are not rewritten, so M6 adds two explicit columns (migration `0021`) and database
+comments instead:
+
+| Column             | Meaning                                                                           | Rule                                                                    |
+| ------------------ | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `stage_executions` | local stage executions of the run (equals `attempts_started`)                     | CHECK `stage_executions IS NULL OR stage_executions = attempts_started` |
+| `provider_calls`   | external provider invocations (a released reservation never reached the provider) | CHECK: 0 unless `provider_mode = 'live'`                                |
+
+Both are `NULL` for a run recorded before M6 ("not recorded"). A report of spend must read `provider_calls` (or the API's `usage.providerCalls`), never
+`settled_calls`, and must treat every non-`live` run as simulated whatever its counters say.
+
 ## Historical records
 
 Nothing stored is rewritten or deleted. Runs made before P6D keep their ledger rows (including the priced placeholder of the scripted pilot). They are

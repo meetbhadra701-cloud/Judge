@@ -360,6 +360,15 @@ export const assessmentRunOutcomes = pgTable(
     inputTokens: safeBigint('input_tokens').notNull(),
     outputTokens: safeBigint('output_tokens').notNull(),
     costNanoUsd: safeBigint('cost_nano_usd').notNull(),
+    /**
+     * M6 phase 0 (R8B P3-4). The four counters above (`attempts_started`, `settled_calls`, `unknown_calls`, `released_calls`) count LEDGER ENTRIES, that is
+     * LOCAL STAGE EXECUTIONS: for a live provider each is one call, for an offline demonstration (`replay`, `scripted`) each is a pass of local code and no
+     * model was called. They keep their historical names and meaning (renaming or rewriting immutable rows is not done). These two columns say it
+     * explicitly for runs recorded from M6 on; NULL for earlier runs ("not recorded"), which the read model reinterprets from the ledger's provider mode.
+     */
+    stageExecutions: integer('stage_executions'),
+    /** External provider invocations made by the run (never released reservations). Always 0 unless the run's provider mode is `live`. */
+    providerCalls: integer('provider_calls'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (table) => [
@@ -383,6 +392,14 @@ export const assessmentRunOutcomes = pgTable(
     check(
       'assessment_run_outcomes_counts_valid',
       sql`attempts_started = settled_calls + unknown_calls + released_calls AND attempts_started >= 0 AND input_tokens >= 0 AND output_tokens >= 0 AND cost_nano_usd >= 0`,
+    ),
+    check(
+      'assessment_run_outcomes_provider_calls_live_only',
+      sql`provider_calls IS NULL OR (provider_calls >= 0 AND (provider_calls = 0 OR provider_mode = 'live'))`,
+    ),
+    check(
+      'assessment_run_outcomes_stage_executions_match',
+      sql`stage_executions IS NULL OR stage_executions = attempts_started`,
     ),
   ],
 );

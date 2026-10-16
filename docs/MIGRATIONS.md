@@ -142,6 +142,7 @@ is why the whole test suite passed.
 - `0020` was never accepted: it exists only on the R1 review branch and was not released or deployed. Its SQL is now **idempotent** (`CREATE TABLE IF NOT EXISTS`, guarded foreign keys, `DROP TRIGGER IF EXISTS` before each
   `CREATE TRIGGER`, `CREATE OR REPLACE FUNCTION`), so it is safe on a database at 0019 (applies), on a database built fresh from the R1 branch (re-runs harmlessly, leaving the same objects; its bookkeeping then
   shows two rows for 0020, the old timestamp and the new one, which is expected and harmless) and on a fresh database.
+- **Recovery after later migrations exist (M6, `0021`).** The migrator applies only migrations newer than the NEWEST bookkeeping row, so removing 0020's row alone no longer re-applies 0020 once 0021 has been recorded: delete the rows of 0020 **and of every later migration** (`DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= 1792108000000`), then run `pnpm db:migrate`. 0021 is idempotent for exactly this reason. Disposable or backed-up databases only.
 - **Assumption to confirm before deploying:** no persistent installation has any state other than these two. If one does (for example a hand-edited `drizzle.__drizzle_migrations`), run the checks in §6.5 first.
 - **Guard against recurrence.** `pnpm db:check` (part of `pnpm check`) now runs `packages/database/scripts/check-migration-journal.ts` before `drizzle-kit check`. It fails the build on a non-increasing `when`, a duplicate or
   non-contiguous `idx`, a tag that differs from its index, a malformed entry, a journal entry without its `.sql` file or snapshot, and an `.sql` file without an entry. When you generate a new migration, if the check
@@ -169,7 +170,7 @@ incomplete schema (`SchemaNotReadyError`, naming what is missing).
 | bookkeeping complete but objects missing (for example the table or a guard trigger) | someone dropped objects, or a partial manual restore         | **take a backup first.** Because 0020 is idempotent, apply its SQL once in a transaction: `psql -1 -v ON_ERROR_STOP=1 -f packages/database/drizzle/0020_p6b_beta3_r1_coverage_record.sql`, then re-run `db:verify-schema`. Do **not** edit `__drizzle_migrations` on a database that holds data you cannot rebuild |
 | a migration fails                                                                   | the whole upgrade ran in one transaction and was rolled back | fix the cause and re-run; nothing was partly applied (covered by the interrupted-upgrade test)                                                                                                                                                                                                                     |
 
-On a **disposable** database only, the other documented repair is to delete the single bookkeeping row (`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1792108000000`) and migrate again; the matrix test
+On a **disposable** database only, the other documented repair is to delete the bookkeeping rows of 0020 and of every later migration (`DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= 1792108000000`) and migrate again; the matrix test
 exercises it. There is no down migration; rollback is restoring the pre-upgrade backup.
 
 ### 6.7 What the upgrade tests prove

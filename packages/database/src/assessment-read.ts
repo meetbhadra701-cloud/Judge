@@ -5,7 +5,7 @@ import {
   verifyJudgmentsAgainstReport,
   verifyStoredAssessment,
 } from '@judge-copilot/assessment';
-import { canonicalJson, sha256Hex } from '@judge-copilot/context';
+import { canonicalJson, isOfficialAuthority, sha256Hex } from '@judge-copilot/context';
 import {
   ASSESSMENT_API_NOTICE,
   ASSESSMENT_DEMONSTRATION_NOTICE,
@@ -17,6 +17,7 @@ import {
   type AssessmentCoverageSummary,
   type AssessmentCoverageView,
   type AssessmentDetail,
+  type AssessmentTrackContext,
   type AssessmentGuardView,
   type AssessmentJudgmentView,
   type AssessmentLimitationView,
@@ -43,11 +44,15 @@ import {
   assessmentRunInputs,
   assessmentRunInputSnapshots,
   assessmentRunOutcomes,
+  eventSources,
   evidenceItems,
   graphExtractionItems,
   preInterviewAssessments,
   projects,
+  projectTrackSelections,
+  rubrics,
   sourceSnapshots,
+  tracks,
   unknowns,
 } from './schema/index.js';
 
@@ -553,6 +558,80 @@ export class AssessmentReadStore {
     };
   }
 
+  /**
+   * M6 phase 0 (R8B P3-1): whether the overall rubric the assessment was scored against cites an official-authority source. A rubric locked since the
+   * source rule always does; one locked before it may not, and a report must not call such a rubric "official" without saying so. Read-time and derived:
+   * nothing stored is changed.
+   */
+  private async rubricProvenanceOf(
+    report: ScoreReport,
+  ): Promise<'official_source_cited' | 'no_official_source_cited' | 'not_applicable'> {
+    const versionId = report.rubric.contextVersionId;
+    if (!report.rubric.official || versionId === null) return 'not_applicable';
+    const [rubric] = await this.db
+      .select({ sourceIds: rubrics.sourceIds })
+      .from(rubrics)
+      .where(and(eq(rubrics.contextVersionId, versionId), eq(rubrics.scope, 'overall')));
+    const ids = rubric?.sourceIds ?? [];
+    if (ids.length === 0) return 'no_official_source_cited';
+    const cited = await this.db
+      .select({ authority: eventSources.authority })
+      .from(eventSources)
+      .where(and(eq(eventSources.contextVersionId, versionId), inArray(eventSources.id, ids)));
+    return cited.some((source) => isOfficialAuthority(source.authority))
+      ? 'official_source_cited'
+      : 'no_official_source_cited';
+  }
+
+  /** Which tracks the project declared under the pinned context version, and which track rubrics exist for them (none of which is assessed). */
+  private async trackContextOf(
+    projectId: string,
+    report: ScoreReport,
+  ): Promise<AssessmentTrackContext | null> {
+    const versionId = report.rubric.contextVersionId;
+    if (!report.rubric.official || versionId === null) return null;
+    const declared = await this.db
+      .select({ key: tracks.key, name: tracks.name, id: tracks.id })
+      .from(projectTrackSelections)
+      .innerJoin(tracks, eq(tracks.id, projectTrackSelections.trackId))
+      .where(
+        and(
+          eq(projectTrackSelections.projectId, projectId),
+          eq(projectTrackSelections.contextVersionId, versionId),
+        ),
+      )
+      .orderBy(asc(tracks.displayOrder));
+    const trackRubrics =
+      declared.length === 0
+        ? []
+        : await this.db
+            .select({ trackId: rubrics.trackId, name: rubrics.name })
+            .from(rubrics)
+            .where(
+              and(
+                eq(rubrics.contextVersionId, versionId),
+                eq(rubrics.scope, 'track'),
+                inArray(
+                  rubrics.trackId,
+                  declared.map((track) => track.id),
+                ),
+              ),
+            );
+    return {
+      assessedRubric: { scope: 'overall', name: report.rubric.name },
+      declaredTracks: declared.map(({ key, name }) => ({ key, name })),
+      unassessedTrackRubrics: declared.flatMap((track) =>
+        trackRubrics
+          .filter((rubric) => rubric.trackId === track.id)
+          .map((rubric) => ({
+            trackKey: track.key,
+            trackName: track.name,
+            rubricName: rubric.name,
+          })),
+      ),
+    };
+  }
+
   /** The assessment of THIS project with its judgments, citations and evidence, or null. */
   async getDetail(projectId: string, assessmentId: string): Promise<AssessmentDetail | null> {
     const [row] = await this.db
@@ -610,6 +689,8 @@ export class AssessmentReadStore {
         verified: false,
         verificationFailure: inspection.failure,
         report: null,
+        rubricProvenance: 'not_applicable' as const,
+        trackContext: null,
         judgments: [],
         limitations: [],
         coverage: (await this.coverageOf(row.runId, storedLimitationsOf(row))).view,
@@ -700,6 +781,8 @@ export class AssessmentReadStore {
       verified: true,
       verificationFailure: null,
       report: inspection.report,
+      rubricProvenance: await this.rubricProvenanceOf(inspection.report),
+      trackContext: await this.trackContextOf(projectId, inspection.report),
       judgments,
       limitations,
       coverage: (await this.coverageOf(row.runId, storedLimitationsOf(row))).view,

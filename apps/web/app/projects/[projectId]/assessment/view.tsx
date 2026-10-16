@@ -326,11 +326,45 @@ function AssessmentView({
         )}
         <p>
           <small>
-            Rubric: {report.rubric.name} ({report.rubric.official ? 'official' : 'fallback'}).
-            Confidence is an index, not a probability. Parameters are heuristic and uncalibrated.
+            Rubric: {report.rubric.name} (
+            {!report.rubric.official
+              ? 'fallback'
+              : detail.rubricProvenance === 'no_official_source_cited'
+                ? 'organizer-entered; cites no official source'
+                : 'official'}
+            ). Confidence is an index, not a probability. Parameters are heuristic and uncalibrated.
             Assessment target: overall rubric only. Provider {detail.providerMode}.
           </small>
         </p>
+        {detail.trackContext !== null ? (
+          <div data-testid="track-context" className="notice" role="note">
+            <p>
+              <strong>Which rubric was assessed.</strong> The event’s overall rubric “
+              {detail.trackContext.assessedRubric.name}”, which applies to every project. Only this
+              rubric is scored in this version.
+            </p>
+            {detail.trackContext.declaredTracks.length === 0 ? (
+              <p>This project declared no track.</p>
+            ) : (
+              <p>
+                This project declared{' '}
+                {detail.trackContext.declaredTracks.length === 1 ? 'the track' : 'the tracks'}:{' '}
+                {detail.trackContext.declaredTracks.map((track) => track.name).join(', ')}.
+              </p>
+            )}
+            {detail.trackContext.unassessedTrackRubrics.length > 0 ? (
+              <p data-testid="unassessed-track-rubrics">
+                The event also published a separate rubric for{' '}
+                {detail.trackContext.unassessedTrackRubrics
+                  .map((rubric) => `${rubric.trackName} (“${rubric.rubricName}”)`)
+                  .join(', ')}
+                . <strong>That track rubric was not scored</strong>: its criteria have no result
+                here, nothing was substituted for them, and they are not part of the overall number.
+                Judge them yourself.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {scaleExplanation(report.rubric.scale) !== null ? (
           <p className="notice" role="note" data-testid="scale-note">
             {scaleExplanation(report.rubric.scale)}

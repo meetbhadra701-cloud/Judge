@@ -1,3 +1,4 @@
+import { sql } from '../../packages/database/src/testing/databases.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   assessmentRunCalls,
@@ -129,6 +130,32 @@ describe.each(testDatabaseTargets())('scripted demonstration accounting on %s', 
     }
     // the serialized response contains no cost anywhere
     expect(JSON.stringify(detail)).not.toMatch(/"costNanoUsd":[1-9]/);
+  });
+
+  it('M6 phase 0 (R8B P3-4): the outcome row says in its own columns that a demonstration executed local stages and made NO provider call', async () => {
+    const run = await execute(db, {
+      provider: new ScriptedProvider([demonstrationStep], { repeatLast: true }),
+      worldOptions: world,
+    });
+    const rows = await run.calls();
+    const [summary] = (await db.select().from(assessmentRunOutcomes)).filter(
+      (row) => row.runId === run.runId,
+    );
+    // the historical ledger counters keep their meaning (ledger entries = local stage executions) ...
+    expect(summary?.attemptsStarted).toBe(rows.length);
+    // ... and the explicit columns separate the two things that must never be confused
+    expect(summary?.stageExecutions).toBe(rows.length);
+    expect(summary?.providerCalls).toBe(0);
+    expect(summary?.providerMode).toBe('scripted');
+    // the database refuses a non-live outcome that claims provider calls, and a stage count that disagrees with the ledger counters
+    const constraints = (await db.execute(
+      sql`select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'assessment_run_outcomes'::regclass`,
+    )) as unknown as
+      { rows?: { conname: string; def: string }[] } | { conname: string; def: string }[];
+    const list = Array.isArray(constraints) ? constraints : (constraints.rows ?? []);
+    const live = list.find((c) => c.conname === 'assessment_run_outcomes_provider_calls_live_only');
+    expect(live?.def).toMatch(/provider_mode = 'live'/);
+    expect(list.map((c) => c.conname)).toContain('assessment_run_outcomes_stage_executions_match');
   });
 
   it('a record written BEFORE P6D (a priced placeholder in a scripted run) is reinterpreted, never rewritten: actual cost 0, the old figure kept as a labelled diagnostic', async () => {

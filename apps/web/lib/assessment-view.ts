@@ -165,6 +165,8 @@ export const LIMITATION_EXPLANATIONS: Readonly<Record<string, string>> = {
     'Part of the rubric weight was left out because the assessor itself declared those dimensions to lack evidence. That declaration was not independently reviewed, so the partial number may be higher than a full assessment would give. Treat it as a partial view, not as the project’s overall score.',
   newer_capture_unusable:
     'A newer attempt to capture this source failed or was rejected, so an older capture was assessed. This says nothing about the project and lowered no score.',
+  official_track_rubrics_not_assessed:
+    'The event published a rubric for this track, but this version assesses the event’s overall rubric only. The track rubric’s criteria were NOT scored, nothing was substituted for them and they are not part of the overall number. Judge them yourself.',
   organizer_supplied_source:
     'This text was typed or pasted by an organizer and was not fetched from, or compared with, the source.',
 };

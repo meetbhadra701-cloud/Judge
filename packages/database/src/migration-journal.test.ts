@@ -31,6 +31,10 @@ function mutate(change: (journal: Journal, folder: string) => void): string[] {
   writeFileSync(path, JSON.stringify(journal));
   return checkMigrationJournal(folder);
 }
+/** The idx the shipped journal ends with (M6 added 0021 after 0020: no assertion here may hard-code the final migration). */
+const LAST_IDX =
+  (JSON.parse(readFileSync(join(migrationsFolder, 'meta', '_journal.json'), 'utf8')) as Journal)
+    .entries.length - 1;
 const last = (journal: Journal) =>
   journal.entries[journal.entries.length - 1] as Record<string, number | string>;
 const previous = (journal: Journal) =>
@@ -43,11 +47,9 @@ describe('the migration journal check', () => {
 
   it('rejects a migration whose timestamp is not greater than its predecessor (the defect that skipped 0020), equal or lower', () => {
     const lower = mutate((j) => {
-      last(j)['when'] = 1792054780003;
+      last(j)['when'] = (previous(j)['when'] as number) - 1;
     });
-    expect(lower.join('\n')).toMatch(
-      /0020_p6b_beta3_r1_coverage_record.*not greater than the previous.*SKIP/,
-    );
+    expect(lower.join('\n')).toMatch(/not greater than the previous.*SKIP/);
     const equal = mutate((j) => {
       last(j)['when'] = previous(j)['when'] as number;
     });
@@ -67,12 +69,12 @@ describe('the migration journal check', () => {
       mutate((j) => {
         last(j)['idx'] = 19;
       }).join('\n'),
-    ).toContain('idx must be 20');
+    ).toContain(`idx must be ${String(LAST_IDX)}`);
     expect(
       mutate((j) => {
-        last(j)['idx'] = 22;
+        last(j)['idx'] = LAST_IDX + 2;
       }).join('\n'),
-    ).toContain('idx must be 20');
+    ).toContain(`idx must be ${String(LAST_IDX)}`);
   });
 
   it('rejects a tag whose number differs from its idx, a malformed tag, and a duplicate tag', () => {

@@ -132,6 +132,9 @@ export function planWorld(
 
 // -- Event Context fixtures ---------------------------------------------------------------------------------------------
 
+/** The official source every synthetic context cites for what it states as explicit (M6 phase 0: "explicit" is only trusted with an official source). */
+export const OFFICIAL_SOURCE_ID = uid(1, 'd0000002');
+
 const fact = (
   n: number,
   statement = 'Not stated.',
@@ -140,7 +143,7 @@ const fact = (
   id: uid(n, 'd0000001'),
   statement,
   certainty,
-  sourceIds: [],
+  sourceIds: certainty === 'unclear' ? [] : [OFFICIAL_SOURCE_ID],
   origin: 'human' as const,
   humanModified: false,
 });
@@ -152,6 +155,15 @@ export interface CriterionFixture {
   weight: number | null;
   anchors?: { score: number; description: string }[];
 }
+
+const OFFICIAL_SOURCE = {
+  id: OFFICIAL_SOURCE_ID,
+  authority: 'official_event_rules',
+  sourceType: 'pasted_text',
+  title: 'SYNTHETIC official rules',
+  url: null,
+  contentHash: '0'.repeat(64),
+} as const;
 
 export function lockedSnapshot(
   options: {
@@ -199,7 +211,7 @@ export function lockedSnapshot(
       key,
       name: `Track ${key}`,
       description: `Projects in the ${key} track must address ${key}.`,
-      sourceIds: [],
+      sourceIds: [OFFICIAL_SOURCE_ID],
       origin: 'human' as const,
       humanModified: false,
     })),
@@ -212,7 +224,7 @@ export function lockedSnapshot(
             name: 'Official rubric',
             scaleMin: options.scale?.min ?? 0,
             scaleMax: options.scale?.max ?? 10,
-            sourceIds: [],
+            sourceIds: [OFFICIAL_SOURCE_ID],
             origin: 'human',
             humanModified: false,
             criteria: criteria.map((criterion) => ({
@@ -221,7 +233,7 @@ export function lockedSnapshot(
               description: criterion.description ?? `Published description of ${criterion.key}.`,
               weight: criterion.weight,
               anchors: criterion.anchors ?? [],
-              sourceIds: [],
+              sourceIds: [OFFICIAL_SOURCE_ID],
               origin: 'human' as const,
               humanModified: false,
             })),
@@ -234,11 +246,21 @@ export function lockedSnapshot(
     version: 1,
     status: 'locked',
     lockedAt: '2031-04-12T00:00:00.000Z',
-    lockedContentHash: lockedContentHash({ document, sources: [] }),
+    lockedContentHash: lockedContentHash({ document, sources: [OFFICIAL_SOURCE] }),
     supersedesId: null,
     changeReason: null,
     summary: null,
-    sources: [],
+    sources: [
+      {
+        ...OFFICIAL_SOURCE,
+        contextVersionId: VERSION_ID,
+        authorityRank: 100,
+        textLength: 1,
+        capturedAt: '2031-04-12T00:00:00.000Z',
+        createdAt: '2031-04-12T00:00:00.000Z',
+        copiedFromId: null,
+      },
+    ],
     document,
   };
 }

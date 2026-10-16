@@ -230,6 +230,22 @@ export interface AssessmentJudgmentView {
   readonly citations: readonly JudgmentCitationView[];
 }
 
+/**
+ * Which tracks the project declared and which rubric was actually assessed (M6 phase 0, R8B P3-3). Derived at read time from the immutable context
+ * version the assessment pinned and the project's track declarations; nothing is stored or scored from it. Only the OVERALL rubric is assessed in this
+ * version: a track's own rubric is listed here as NOT assessed, never folded into the overall score and never silently scored.
+ */
+export interface AssessmentTrackContext {
+  readonly assessedRubric: { readonly scope: 'overall'; readonly name: string };
+  readonly declaredTracks: readonly { readonly key: string; readonly name: string }[];
+  /** Track rubrics the locked context published for a track THIS project declared. They were not assessed. */
+  readonly unassessedTrackRubrics: readonly {
+    readonly trackKey: string;
+    readonly trackName: string;
+    readonly rubricName: string;
+  }[];
+}
+
 export interface AssessmentLimitationView {
   readonly code: string;
   readonly count: number;
@@ -249,6 +265,14 @@ export interface AssessmentDetail {
   readonly verified: boolean;
   readonly verificationFailure: string | null;
   readonly report: ScoreReport | null;
+  /**
+   * Read-time, derived (M6 phase 0): whether the overall rubric cites an official-authority source. `no_official_source_cited` appears only for a rubric
+   * locked before the source rule; the page then says the rubric is organizer-entered, not that it is official. `not_applicable` for the fallback or an unverified assessment.
+   */
+  readonly rubricProvenance:
+    'official_source_cited' | 'no_official_source_cited' | 'not_applicable';
+  /** Null for an assessment that did not verify, or one scored against the fallback rubric. */
+  readonly trackContext: AssessmentTrackContext | null;
   readonly judgments: readonly AssessmentJudgmentView[];
   readonly limitations: readonly AssessmentLimitationView[];
   readonly coverage: AssessmentCoverageView;
