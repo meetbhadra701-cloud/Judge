@@ -249,9 +249,21 @@ export function validateCandidates(raw: unknown, closed: ClosedSet): ValidationR
         return refuse('exceeds_per_opportunity_limit');
       }
     }
-    // -- duplicates: the same words, or nearly (a candidate is compared with the ones already accepted)
-    if (accepted.some((other) => tokenJaccard(other.text, text) >= 0.85))
+    // -- duplicates: the same words, or nearly (a candidate is compared with the ones already accepted). Alike wording about the SAME uncertainty is a
+    //    duplicate; alike wording about different uncertainties is two questions (templated phrasing around a different criterion name), unless it is identical.
+    const opportunityIdsOfThis = opportunities.map((o) => o.opportunity.id);
+    if (
+      accepted.some((other) => {
+        const similarity = tokenJaccard(other.text, text);
+        return (
+          similarity >= 0.95 ||
+          (similarity >= 0.85 &&
+            other.opportunityIds.some((id) => opportunityIdsOfThis.includes(id)))
+        );
+      })
+    ) {
       return refuse('duplicate_of_candidate');
+    }
 
     const opportunityIds = opportunities.map((o) => o.opportunity.id).sort();
     const dimensionIds =

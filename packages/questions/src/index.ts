@@ -21,7 +21,9 @@ export {
 } from './rank.js';
 export {
   MIN_MARGINAL_BP,
+  NEAR_IDENTICAL_TEXT,
   overlapMilli,
+  SIMILAR_TEXT,
   selectQuestions,
   type SelectedQuestion,
   type SelectionResult,

@@ -51,8 +51,6 @@ const logger = createLogger({ service: SERVICE_NAME, level: 'silent' });
 const [, openDatabase] = testDatabaseTargets()[0] as [string, () => Promise<TestDatabase>];
 
 const OFFICIAL = 'Official — stated in an official source I cite';
-const INTERPRETATION = 'Organizer’s interpretation — my reading of the sources';
-const UNVERIFIED = 'Unverified note — not confirmed by any source';
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 
 // -- Synthetic official-source texts (clearly labelled; written to look like the real thing) ----------------------------------------------
@@ -70,21 +68,6 @@ const RUBRIC_TEXT = [
   'Innovation (40%): how new and thoughtful the idea is. 1 = a copy of an existing product; 5 = a genuinely new approach.',
   'Execution (35%): how completely and carefully the project is built.',
   'Impact (25%): how many people could benefit and how much.',
-].join('\n');
-const NOTES_TEXT = [
-  'SYNTHETIC REGRESSION FIXTURE — NOT A REAL EVENT.',
-  'Organizer notes to judges: please be generous with first-time hackers.',
-].join('\n');
-const TRACK_RULES_TEXT = [
-  'SYNTHETIC REGRESSION FIXTURE — NOT A REAL EVENT.',
-  'Northwind Open Hackathon 2026 — Track Rules.',
-  'Health & Care track: projects must improve health outcomes. Health entrants must name a clinical advisor.',
-  'Climate track: projects must reduce or measure emissions. Climate entrants must cite their data source.',
-  'Sponsor challenge (Health & Care): the sponsor judges this track with the Health rubric below.',
-].join('\n');
-const HEALTH_RUBRIC_TEXT = [
-  'SYNTHETIC REGRESSION FIXTURE — NOT A REAL EVENT.',
-  'Health & Care track criteria (score each from 0 to 10): Clinical relevance. Safety.',
 ].join('\n');
 const DEVPOST_TEXT = [
   'SYNTHETIC REGRESSION TEXT — NOT A REAL DEVPOST SUBMISSION.',
@@ -124,6 +107,11 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
   const shot = async (name: string) => {
     mkdirSync(SHOTS, { recursive: true });
     await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true });
+  };
+  /** The Five Questions section alone, so a reviewer sees what the judge sees without scrolling a long report. */
+  const shotQuestions = async (name: string) => {
+    mkdirSync(SHOTS, { recursive: true });
+    await page.getByTestId('five-questions').screenshot({ path: join(SHOTS, `${name}.png`) });
   };
   const main = async () => page.locator('main').innerText();
   const api = async <T = Record<string, unknown>>(path: string) =>
@@ -180,8 +168,6 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
   /** Ticks a source in the picker inside `scope` (the picker lists sources by their TITLE, never by an identifier). */
   const pick = async (scope: Locator, title: string) =>
     scope.getByLabel(new RegExp(`^\\s*${title}`)).check();
-  const section = (heading: RegExp) =>
-    page.locator('section').filter({ has: page.getByRole('heading', { name: heading }) });
   const dateBox = (label: string) =>
     page
       .locator('fieldset')
@@ -427,6 +413,7 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
       expect(await section.getByRole('button').count()).toBe(1);
       expect(await section.innerText()).not.toMatch(/\d+ ?%|probab|score of/i);
       await shot('C3-before-generating');
+      await shotQuestions('C3-section-before-generating');
     });
 
     it('C4. generating shows a labelled demonstration set: every question with its reason, the uncertainty it addresses and its evidence links', async () => {
@@ -478,6 +465,7 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
       expect(sets.sets).toHaveLength(1);
       setId = sets.sets[0]?.id ?? '';
       await shot('C4-five-questions');
+      await shotQuestions('C4-five-questions-section');
     });
 
     it('C5. reloading shows the same set; generating again returns the stored set; the assessment is untouched', async () => {
@@ -528,7 +516,7 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
       expect(eventId).toBeTruthy();
       projectId = await submitProject(
         eventId ?? '',
-        'https://github.com/synthetic/atlas',
+        'https://github.com/synthetic/moving',
         'https://devpost.com/software/team-not-in-fixtures-2',
       );
       await reloadUntil(
@@ -555,6 +543,7 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
       expect(count).toBeGreaterThan(0);
       expect(count).toBeLessThanOrEqual(5);
       await shot('D2-missing-source-questions');
+      await shotQuestions('D2-missing-source-section');
     });
   });
 
@@ -573,7 +562,7 @@ describe('M6 real-browser journeys: Five Questions from a verified preliminary r
       const eventId = /events\/([0-9a-f-]+)/.exec(eventHref)?.[1] ?? '';
       const fresh = await submitProject(
         eventId,
-        'https://github.com/synthetic/atlas',
+        'https://github.com/synthetic/oversized',
         'https://devpost.com/software/team-not-in-fixtures-3',
       );
       await page.goto(`${webUrl}/projects/${fresh}/assessment`);

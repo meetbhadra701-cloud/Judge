@@ -10,7 +10,8 @@ import { compareRanked, type RankedCandidate } from './rank.js';
  * Five-question selection: deterministic, greedy by MARGINAL value, diverse by construction.
  *
  *   marginal(q | S) = value(q) × novelty(q | S)             novelty(q | S) = Π over s ∈ S of (1 − overlap(q, s))
- *   overlap(q, s)   = max( J(opportunities), 0.8·J(references), 0.5·J(dimensions), J(text) if J(text) ≥ 0.7 )     J = Jaccard similarity
+ *   overlap(q, s)   = max( J(opportunities), w·J(references), 0.5·J(dimensions), J(text) if the wording is near-identical, or similar AND the two address the same uncertainty or criterion )     J = Jaccard similarity;
+ *                     w = 0.8 when they address the same uncertainty or criterion, and 0.4 when they do not (the same record cited for two different criteria is partial overlap, not a repeat)
  *
  * Each round selects the candidate with the highest marginal value (ties: the ranking's total order). The loop stops when five are chosen, or when the best
  * remaining marginal value is below MIN_MARGINAL_BP: a question that would add (almost) nothing is not selected, so the list is never padded. An issue that
@@ -49,15 +50,30 @@ const jaccard = <T>(a: readonly T[], b: readonly T[]): number => {
   return both / (left.size + right.size - both);
 };
 
+/**
+ * Wording that is this close is the same question however it was reached.
+ * Below it, similar wording is evidence of redundancy only when the two questions are also about the same uncertainty or criterion: two questions about
+ * DIFFERENT criteria that happen to be phrased alike ("... an example that illustrates X") ask for different things and are both worth asking.
+ */
+export const NEAR_IDENTICAL_TEXT = 0.95;
+export const SIMILAR_TEXT = 0.7;
+const SHARED_RECORD_WEIGHT_SAME_TOPIC = 0.8;
+const SHARED_RECORD_WEIGHT_OTHER_TOPIC = 0.4;
+
 /** How much of `a`'s value is already delivered by `b`, in thousandths. Symmetric. */
 export function overlapMilli(a: RankedCandidate, b: RankedCandidate): number {
   const references = (c: RankedCandidate): string[] => c.references.map((r) => `${r.type}:${r.id}`);
+  const opportunities = jaccard(a.opportunityIds, b.opportunityIds);
+  const records = jaccard(references(a), references(b));
+  const dimensions = jaccard(a.dimensionIds, b.dimensionIds);
   const text = tokenJaccard(a.text, b.text);
+  // the same uncertainty or the same rubric criterion: the two questions are about the same thing
+  const sameTopic = opportunities > 0 || dimensions > 0;
   const overlap = Math.max(
-    jaccard(a.opportunityIds, b.opportunityIds),
-    0.8 * jaccard(references(a), references(b)),
-    0.5 * jaccard(a.dimensionIds, b.dimensionIds),
-    text >= 0.7 ? text : 0,
+    opportunities,
+    (sameTopic ? SHARED_RECORD_WEIGHT_SAME_TOPIC : SHARED_RECORD_WEIGHT_OTHER_TOPIC) * records,
+    0.5 * dimensions,
+    text >= NEAR_IDENTICAL_TEXT || (text >= SIMILAR_TEXT && sameTopic) ? text : 0,
   );
   return Math.min(1000, Math.round(overlap * 1000));
 }

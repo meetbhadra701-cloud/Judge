@@ -212,6 +212,45 @@ describe('selection: spread, weights and domination', () => {
     expect(result.selected.length).toBeLessThan(4);
   });
 
+  it('templated phrasing around different criteria is two questions; near-identical wording is one even when the records differ', () => {
+    const w = world();
+    const onCriterion = (id: string) =>
+      w.closed.opportunities.find((o) => o.opportunity.dimensionIds.join() === id);
+    const first = onCriterion('official.technical_depth');
+    const second = onCriterion('official.impact');
+    if (!first || !second) throw new Error('expected one opportunity on each of two criteria');
+    const phrase = (subject: string) =>
+      `Could you show us a concrete example from the project that illustrates ${subject}?`;
+    const alike = pipeline(w.input, () => [
+      candidate({
+        opportunities: [first.handle],
+        mode: 'show_me',
+        text: phrase('the first criterion'),
+      }),
+      candidate({
+        opportunities: [second.handle],
+        mode: 'show_me',
+        text: phrase('the second criterion'),
+      }),
+    ]);
+    // no shared opportunity, record or criterion: alike wording does not make them redundant
+    const [a, b] = alike.ranked;
+    if (!a || !b) throw new Error('expected two ranked candidates');
+    expect(a.opportunityIds).not.toEqual(b.opportunityIds);
+    expect(a.dimensionIds.some((id) => b.dimensionIds.includes(id))).toBe(false);
+    expect(overlapMilli(a, b)).toBeLessThan(700);
+    expect(alike.result.selected).toHaveLength(2);
+
+    const same =
+      'Could you show us how the streaming pipeline handles a failed batch on the project itself?';
+    const identical = pipeline(w.input, () => [
+      candidate({ opportunities: [first.handle], mode: 'show_me', text: same }),
+      candidate({ opportunities: [second.handle], mode: 'show_me', text: `${same} ` }),
+    ]);
+    // identical wording is refused as a duplicate at validation, whatever the records
+    expect(identical.validated.rejected.map((r) => r.code)).toEqual(['duplicate_of_candidate']);
+  });
+
   it('overlap is symmetric, bounded, and 1000 for a question about the same issue', () => {
     const { ranked } = pipeline(manyUncertainties());
     const [a, b] = ranked;

@@ -59,6 +59,67 @@ interface Template {
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
+/** What an unknown of each recorded type is best answered by. The type is the code-written prefix of the observation ("Recorded gap (missing): ..."). */
+const UNKNOWN_VARIANTS: Readonly<Record<string, Template>> = {
+  missing: {
+    mode: 'ask',
+    info: ['link_or_document', 'explanation'],
+    effort: 'brief',
+    distinguishes: 'moderate',
+    text: () =>
+      'Is there material about the project, such as a demo video or a live deployment, that the assessment did not receive?',
+    reason: () =>
+      'The assessment recorded that some material was not provided; it infers nothing from that, and the team can point to it if it exists.',
+  },
+  unverifiable: {
+    mode: 'verify',
+    info: ['live_demonstration', 'measurement'],
+    effort: 'moderate',
+    distinguishes: 'moderate',
+    text: () =>
+      'Could you show us how a statement the assessment could not check can be checked on the project itself?',
+    reason: () =>
+      'The assessment recorded a statement it could only check by a demonstration or a test, which an interview can provide.',
+  },
+  ambiguous: {
+    mode: 'clarify',
+    info: ['explanation'],
+    effort: 'brief',
+    distinguishes: 'moderate',
+    text: () =>
+      'Could you clarify which of the possible meanings the team intended for a statement the assessment found ambiguous?',
+    reason: () => 'The assessment recorded a statement that can be read more than one way.',
+  },
+  contradictory: {
+    mode: 'clarify',
+    info: ['explanation', 'link_or_document'],
+    effort: 'brief',
+    distinguishes: 'strong',
+    text: () =>
+      'Could you explain how two parts of the team’s materials, which the assessment found hard to reconcile, fit together?',
+    reason: () => 'The assessment recorded two passages that do not obviously agree.',
+  },
+  eligibility: {
+    mode: 'ask',
+    info: ['explanation', 'link_or_document'],
+    effort: 'brief',
+    distinguishes: 'moderate',
+    text: () =>
+      'Could you tell us how the project meets an event rule or requirement that the assessment could not confirm?',
+    reason: () =>
+      'The assessment recorded a rule or requirement it could not confirm from the material.',
+  },
+  subjective: {
+    mode: 'ask',
+    info: ['explanation'],
+    effort: 'brief',
+    distinguishes: 'weak',
+    text: () => 'What would you like the judges to weigh most about this project, and why?',
+    reason: () =>
+      'The assessment recorded a matter of judgment that only the interview can inform.',
+  },
+};
+
 const quote = (name: string): string => `“${name.replace(/[“”"]/g, '').slice(0, 80)}”`;
 
 const TEMPLATES: Readonly<Record<string, Template>> = {
@@ -179,7 +240,13 @@ export function questionDemonstrationStep(request: StructuredRequest): LlmResult
   for (const record of records) {
     if (!record.handle.startsWith('O-')) continue;
     const kind = text(record.meta['kind']);
-    const template = TEMPLATES[kind];
+    // an unknown is asked about according to its recorded TYPE (a code-written prefix of the observation), never according to what the team wrote
+    const unknownType =
+      kind === 'unknown_recorded'
+        ? /^Recorded gap \((\w+)\)/.exec(record.body ?? '')?.[1]
+        : undefined;
+    const template =
+      (unknownType !== undefined ? UNKNOWN_VARIANTS[unknownType] : undefined) ?? TEMPLATES[kind];
     if (!template) continue;
     const dimensions = (record.meta['dimensions'] as string[] | undefined) ?? [];
     const references = (record.meta['references'] as string[] | undefined) ?? [];
@@ -195,7 +262,7 @@ export function questionDemonstrationStep(request: StructuredRequest): LlmResult
           : names.length > 1
             ? `${quote(names[0] ?? '')} and related criteria`
             : 'this project';
-    const signature = `${kind}|${subject}`;
+    const signature = `${kind}|${unknownType ?? ''}|${subject}`;
     if (seen.has(signature)) continue;
     seen.add(signature);
     candidates.push({

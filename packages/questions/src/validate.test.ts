@@ -212,6 +212,34 @@ describe('validateCandidates: flooding and duplicates', () => {
     expect(duplicate.rejected.map((r) => r.code)).toEqual(['duplicate_of_candidate']);
   });
 
+  it('alike wording about the SAME uncertainty is a duplicate; about different uncertainties it is two questions', () => {
+    const [first, second] = closed.opportunities;
+    if (!first || !second) throw new Error('expected two opportunities');
+    const base =
+      'Could you show us a concrete example from the project that illustrates the first criterion?';
+    const alike =
+      'Could you show us a concrete example from the project that illustrates the second criterion?';
+    const sameIssue = run(
+      candidate({ opportunities: [first.handle], text: base }),
+      candidate({ opportunities: [first.handle], text: alike }),
+    );
+    expect(sameIssue.rejected.map((r) => r.code)).toEqual([]); // 0.82 < 0.85: alike, not a duplicate
+    const nearlySame =
+      'Could you show us a concrete example from the project that illustrates the first criterion in action?';
+    expect(
+      run(
+        candidate({ opportunities: [first.handle], text: base }),
+        candidate({ opportunities: [first.handle], text: nearlySame }),
+      ).rejected.map((r) => r.code),
+    ).toEqual(['duplicate_of_candidate']);
+    expect(
+      run(
+        candidate({ opportunities: [first.handle], text: base }),
+        candidate({ opportunities: [second.handle], text: nearlySame }),
+      ).rejected,
+    ).toEqual([]);
+  });
+
   it('treats hostile project text as data: nothing in a claim’s text changes what a handle resolves to', () => {
     const hostile = world({
       claims: [
