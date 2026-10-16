@@ -63,6 +63,18 @@ export {
 } from './assessment-store.js';
 export { AssessmentReadStore, groupUnknowns } from './assessment-read.js';
 export {
+  QuestionSetStore,
+  type PersistedOpportunity,
+  type PersistedQuestion,
+  type PersistQuestionSetInput,
+  type PersistQuestionSetResult,
+} from './question-set-store.js';
+export {
+  QuestionInputReader,
+  type QuestionInputIdentity,
+  type QuestionInputResult,
+} from './question-input-reader.js';
+export {
   ExtractionInputError,
   GraphExtractionStore,
   type CreateExtractionInput,

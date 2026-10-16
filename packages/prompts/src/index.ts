@@ -35,3 +35,17 @@ export {
   checkPipelineConfig,
   currentPromptIdentities,
 } from './pipeline-config.js';
+export {
+  QUESTION_PROMPT,
+  QUESTION_PROMPT_ID,
+  QUESTION_PROMPT_INPUT_LIMITS,
+  QUESTION_PROMPT_VERSION,
+  QuestionPromptInput,
+  questionRequestFields,
+  renderQuestionPrompt,
+} from './question-prompt.js';
+export type {
+  QuestionPromptIdentity,
+  QuestionRenderOptions,
+  RenderedQuestionPrompt,
+} from './question-prompt.js';

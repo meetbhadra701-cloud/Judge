@@ -275,6 +275,9 @@ importers:
       '@judge-copilot/scoring':
         specifier: workspace:*
         version: link:../scoring
+      '@judge-copilot/uncertainty':
+        specifier: workspace:*
+        version: link:../uncertainty
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)

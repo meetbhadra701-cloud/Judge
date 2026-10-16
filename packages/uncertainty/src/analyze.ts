@@ -299,7 +299,10 @@ export function analyzeUncertainty(input: UncertaintyInput): UncertaintyReport {
   // 2. an assessed dimension that rests ONLY on team statements
   const restsOnClaims = new Set<string>();
   for (const dimension of input.dimensions.filter((d) => d.state === 'assessed')) {
-    const cited = dimension.citedEvidenceIds;
+    // Event-context records state what the EVENT requires; they say nothing about the project, so they never count as the project's evidence
+    const cited = dimension.citedEvidenceIds.filter(
+      (id) => evidenceById.get(id)?.origin !== 'event_context',
+    );
     if (cited.length === 0 || cited.some(observationLike)) continue;
     restsOnClaims.add(dimension.id);
     add({
@@ -540,7 +543,11 @@ export function analyzeUncertainty(input: UncertaintyInput): UncertaintyReport {
   for (const dimension of input.dimensions.filter(
     (d) => d.state === 'assessed' && !restsOnClaims.has(d.id),
   )) {
+    const aboutProject = dimension.citedEvidenceIds.some(
+      (id) => evidenceById.get(id)?.origin !== 'event_context',
+    );
     const thin =
+      !aboutProject ||
       (dimension.evidenceStrength !== null &&
         dimension.evidenceStrength < THRESHOLDS.thinEvidenceStrength) ||
       dimension.confidence < THRESHOLDS.thinConfidence;
@@ -549,7 +556,9 @@ export function analyzeUncertainty(input: UncertaintyInput): UncertaintyReport {
       kind: 'thin_evidence',
       severity: shareOf(dimension.id) >= THRESHOLDS.dominantShare ? 'high' : 'moderate',
       dimensionIds: [dimension.id],
-      observation: `“${dimension.name}” was scored on a small amount of evidence (the assessment's own confidence index for it is ${String(Math.round(dimension.confidence * 100))}%). The score may move with more evidence in either direction.`,
+      observation: aboutProject
+        ? `“${dimension.name}” was scored on a small amount of evidence (the assessment's own confidence index for it is ${String(Math.round(dimension.confidence * 100))}%). The score may move with more evidence in either direction.`
+        : `“${dimension.name}” cites only what the event requires and nothing the project itself showed, so what the project does on this criterion has not been examined. The score may move with more evidence in either direction.`,
       trail: [
         ...dimTrail([dimension.id]),
         ...dimension.citedEvidenceIds.map((id): TrailEntry => ({

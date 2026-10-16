@@ -33,3 +33,4 @@ export {
   type ValidatedCandidate,
   type ValidationResult,
 } from './validate.js';
+export { promptViewOf, type QuestionPromptView } from './prompt-view.js';

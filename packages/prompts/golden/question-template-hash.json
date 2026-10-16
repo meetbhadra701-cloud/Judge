@@ -1,0 +1,7 @@
+{
+  "id": "question-candidates",
+  "version": "v1",
+  "stage": "question_generation",
+  "templateHash": "3efdf00cde81456b7ad9a66354ba9a8f52d0bce0da076090698ab3c48630f7f3",
+  "outputSchemaHash": "5bc1a9f49b4153b4e1d34692940e7e3a67d8bfb0d81055e35b3229fe45ee1eae"
+}

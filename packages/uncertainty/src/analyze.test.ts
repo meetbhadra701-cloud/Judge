@@ -268,6 +268,19 @@ describe('analyzeUncertainty: one rule at a time', () => {
     ).toContain('sponsor-a');
   });
 
+  it('a dimension that cites only event requirements has examined nothing about the project, and is not mistaken for team claims', () => {
+    const input = quietInput();
+    const report = analyzeUncertainty({
+      ...input,
+      evidence: [
+        ...input.evidence.filter((e) => e.id !== 'ev-impact'),
+        evidence('ev-impact', { origin: 'event_context', verificationLevel: 'unverified' }),
+      ],
+    });
+    expect(report.opportunities.map((o) => o.kind)).toEqual(['thin_evidence']);
+    expect(report.opportunities[0]?.observation).toMatch(/only what the event requires/);
+  });
+
   it('thin evidence is flagged from the assessment’s own indices and is reported in either direction', () => {
     const input = quietInput();
     const report = analyzeUncertainty({

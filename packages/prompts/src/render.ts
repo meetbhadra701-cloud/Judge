@@ -228,7 +228,7 @@ const LAYOUTS: { [S in AssessmentStage]: (input: never) => Layout } = {
   }),
 };
 
-function walkStrings(
+export function walkStrings(
   value: unknown,
   path: string,
   visit: (text: string, path: string) => void,
@@ -245,7 +245,7 @@ function walkStrings(
 
 const MIN_SECRET_CHARS = 8;
 
-function checkSecrets(secrets: readonly string[] | undefined): readonly string[] {
+export function checkSecrets(secrets: readonly string[] | undefined): readonly string[] {
   const list = secrets ?? [];
   list.forEach((secret, index) => {
     if (secret.length < MIN_SECRET_CHARS) {
@@ -257,14 +257,14 @@ function checkSecrets(secrets: readonly string[] | undefined): readonly string[]
   return list;
 }
 
-function itemText(markers: { begin: string; end: string }, item: FramedItem): string {
+export function itemText(markers: { begin: string; end: string }, item: FramedItem): string {
   const lines = [markers.begin, `meta: ${canonicalJson(item.meta)}`];
   if (item.body !== undefined) lines.push('text:', item.body);
   lines.push(markers.end);
   return lines.join('\n');
 }
 
-function deepFreeze<T>(value: T): T {
+export function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) deepFreeze(child);
     Object.freeze(value);

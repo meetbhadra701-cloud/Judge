@@ -3,6 +3,7 @@ import type {
   BudgetDenialReason,
   LlmFailureCategory,
   ProviderMode,
+  QuestionStage,
   SendState,
 } from '@judge-copilot/schemas';
 
@@ -24,7 +25,7 @@ export interface GenerationSettings {
 }
 
 export interface StructuredRequest {
-  readonly stage: AssessmentStage;
+  readonly stage: AssessmentStage | QuestionStage;
   readonly promptId: string;
   readonly promptVersion: string;
   readonly promptTemplateHash: string;

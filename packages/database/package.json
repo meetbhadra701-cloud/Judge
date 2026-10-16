@@ -31,6 +31,7 @@
     "@judge-copilot/evidence": "workspace:*",
     "@judge-copilot/schemas": "workspace:*",
     "@judge-copilot/scoring": "workspace:*",
+    "@judge-copilot/uncertainty": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "postgres": "^3.4.9"
   },

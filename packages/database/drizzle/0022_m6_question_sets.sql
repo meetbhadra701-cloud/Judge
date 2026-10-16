@@ -1,0 +1,100 @@
+CREATE TABLE "question_set_opportunities" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"set_id" uuid NOT NULL,
+	"ordinal" integer NOT NULL,
+	"opportunity_key" text NOT NULL,
+	"kind" text NOT NULL,
+	"severity" text NOT NULL,
+	"dimension_ids" jsonb NOT NULL,
+	"relevance_milli" integer NOT NULL,
+	"observation" text NOT NULL,
+	"clarified_by" jsonb NOT NULL,
+	"trail" jsonb NOT NULL,
+	"reference_views" jsonb NOT NULL,
+	CONSTRAINT "question_set_opportunities_ordinal_key" UNIQUE("set_id","ordinal"),
+	CONSTRAINT "question_set_opportunities_key_key" UNIQUE("set_id","opportunity_key"),
+	CONSTRAINT "question_set_opportunities_key_valid" CHECK (opportunity_key ~ '^opp-[0-9a-f]{16}$'),
+	CONSTRAINT "question_set_opportunities_ordinal_positive" CHECK (ordinal >= 1),
+	CONSTRAINT "question_set_opportunities_kind_valid" CHECK (kind IN ('dimension_not_assessed', 'dimension_rests_on_claims', 'claim_unverified', 'contradiction_recorded', 'unknown_recorded', 'source_missing', 'coverage_partial', 'requirement_unaddressed', 'track_rubric_not_assessed', 'thin_evidence')),
+	CONSTRAINT "question_set_opportunities_severity_valid" CHECK (severity IN ('critical', 'high', 'moderate', 'low')),
+	CONSTRAINT "question_set_opportunities_relevance_range" CHECK (relevance_milli BETWEEN 0 AND 1000),
+	CONSTRAINT "question_set_opportunities_observation_bounded" CHECK (char_length(observation) BETWEEN 1 AND 2000),
+	CONSTRAINT "question_set_opportunities_json_shapes" CHECK (jsonb_typeof(dimension_ids) = 'array' AND jsonb_typeof(clarified_by) = 'array' AND jsonb_typeof(trail) = 'array' AND jsonb_array_length(trail) <= 64 AND jsonb_typeof(reference_views) = 'array' AND jsonb_array_length(reference_views) <= 64)
+);
+--> statement-breakpoint
+CREATE TABLE "question_set_questions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"set_id" uuid NOT NULL,
+	"rank" integer NOT NULL,
+	"candidate_key" text NOT NULL,
+	"mode" text NOT NULL,
+	"text" text NOT NULL,
+	"reason" text NOT NULL,
+	"expected_information" jsonb NOT NULL,
+	"dimensions" jsonb NOT NULL,
+	"opportunity_keys" jsonb NOT NULL,
+	"reference_views" jsonb NOT NULL,
+	"ranking_value_bp" integer NOT NULL,
+	"marginal_bp" integer NOT NULL,
+	"novelty_milli" integer NOT NULL,
+	"factors" jsonb NOT NULL,
+	CONSTRAINT "question_set_questions_rank_key" UNIQUE("set_id","rank"),
+	CONSTRAINT "question_set_questions_candidate_key" UNIQUE("set_id","candidate_key"),
+	CONSTRAINT "question_set_questions_rank_range" CHECK (rank BETWEEN 1 AND 5),
+	CONSTRAINT "question_set_questions_candidate_key_valid" CHECK (candidate_key ~ '^cand-[0-9a-f]{16}$'),
+	CONSTRAINT "question_set_questions_mode_valid" CHECK (mode IN ('ask', 'clarify', 'show_me', 'demonstrate', 'verify')),
+	CONSTRAINT "question_set_questions_text_bounded" CHECK (char_length(text) BETWEEN 1 AND 400 AND char_length(reason) BETWEEN 1 AND 600),
+	CONSTRAINT "question_set_questions_numbers_valid" CHECK (ranking_value_bp BETWEEN 0 AND 10000 AND marginal_bp BETWEEN 0 AND 10000 AND novelty_milli BETWEEN 0 AND 1000),
+	CONSTRAINT "question_set_questions_json_shapes" CHECK (jsonb_typeof(expected_information) = 'array' AND jsonb_typeof(dimensions) = 'array' AND jsonb_typeof(opportunity_keys) = 'array' AND jsonb_array_length(opportunity_keys) >= 1 AND jsonb_typeof(reference_views) = 'array' AND jsonb_typeof(factors) = 'object')
+);
+--> statement-breakpoint
+CREATE TABLE "question_sets" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"project_id" uuid NOT NULL,
+	"assessment_id" uuid NOT NULL,
+	"context_version_id" uuid NOT NULL,
+	"extraction_id" uuid NOT NULL,
+	"report_output_hash" text NOT NULL,
+	"policy_version" text NOT NULL,
+	"uncertainty_engine_version" text NOT NULL,
+	"weight_basis" text NOT NULL,
+	"generation_key" text NOT NULL,
+	"input_hash" text NOT NULL,
+	"provider_mode" text NOT NULL,
+	"provider_id" text NOT NULL,
+	"demonstration" boolean NOT NULL,
+	"model" text NOT NULL,
+	"prompt_id" text NOT NULL,
+	"prompt_version" text NOT NULL,
+	"prompt_template_hash" text NOT NULL,
+	"output_schema_hash" text NOT NULL,
+	"request_digest" text,
+	"candidate_output_hash" text,
+	"opportunity_count" integer NOT NULL,
+	"candidate_count" integer NOT NULL,
+	"rejected_count" integer NOT NULL,
+	"selected_count" integer NOT NULL,
+	"shortfall_code" text,
+	"shortfall_explanation" text,
+	"rejections" jsonb NOT NULL,
+	"created_by_actor_id" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "question_sets_generation_key_key" UNIQUE("generation_key"),
+	CONSTRAINT "question_sets_id_project_id_key" UNIQUE("id","project_id"),
+	CONSTRAINT "question_sets_hashes_hex" CHECK (report_output_hash ~ '^[0-9a-f]{64}$' AND generation_key ~ '^[0-9a-f]{64}$' AND input_hash ~ '^[0-9a-f]{64}$' AND prompt_template_hash ~ '^[0-9a-f]{64}$' AND output_schema_hash ~ '^[0-9a-f]{64}$' AND (request_digest IS NULL OR request_digest ~ '^[0-9a-f]{64}$') AND (candidate_output_hash IS NULL OR candidate_output_hash ~ '^[0-9a-f]{64}$')),
+	CONSTRAINT "question_sets_versions_valid" CHECK (policy_version ~ '^[a-z0-9-]+/v[0-9]+$' AND uncertainty_engine_version ~ '^[a-z0-9-]+/v[0-9]+$'),
+	CONSTRAINT "question_sets_provider_mode_valid" CHECK (provider_mode IN ('live', 'replay', 'scripted')),
+	CONSTRAINT "question_sets_demonstration_matches_mode" CHECK (demonstration = (provider_mode <> 'live')),
+	CONSTRAINT "question_sets_request_pair" CHECK ((request_digest IS NULL) = (candidate_output_hash IS NULL)),
+	CONSTRAINT "question_sets_counts_valid" CHECK (opportunity_count >= 0 AND candidate_count >= 0 AND rejected_count >= 0 AND selected_count >= 0 AND selected_count <= 5 AND selected_count <= candidate_count AND (opportunity_count > 0 OR selected_count = 0)),
+	CONSTRAINT "question_sets_shortfall_shape" CHECK ((selected_count = 5) = (shortfall_code IS NULL) AND (shortfall_code IS NULL) = (shortfall_explanation IS NULL) AND (shortfall_code IS NULL OR shortfall_code IN ('no_uncertainty', 'no_valid_candidates', 'fewer_defensible_candidates', 'redundant_candidates'))),
+	CONSTRAINT "question_sets_text_bounded" CHECK (shortfall_explanation IS NULL OR char_length(shortfall_explanation) BETWEEN 1 AND 2000)
+);
+--> statement-breakpoint
+ALTER TABLE "question_set_opportunities" ADD CONSTRAINT "question_set_opportunities_set_id_question_sets_id_fk" FOREIGN KEY ("set_id") REFERENCES "public"."question_sets"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "question_set_questions" ADD CONSTRAINT "question_set_questions_set_id_question_sets_id_fk" FOREIGN KEY ("set_id") REFERENCES "public"."question_sets"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "question_sets" ADD CONSTRAINT "question_sets_created_by_actor_id_actors_id_fk" FOREIGN KEY ("created_by_actor_id") REFERENCES "public"."actors"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "question_sets" ADD CONSTRAINT "question_sets_project_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "question_sets" ADD CONSTRAINT "question_sets_assessment_same_project_fk" FOREIGN KEY ("assessment_id","project_id") REFERENCES "public"."pre_interview_assessments"("id","project_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "question_sets_assessment_idx" ON "question_sets" USING btree ("assessment_id","created_at");--> statement-breakpoint
+CREATE INDEX "question_sets_project_idx" ON "question_sets" USING btree ("project_id","created_at");
