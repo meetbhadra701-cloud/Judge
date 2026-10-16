@@ -18,10 +18,12 @@ export const WorkerEnv = BaseEnv.extend({
   CAPTURE_FIXTURE_DIR: z.string().min(1).optional(),
   /**
    * The pre-interview assessment pipeline (M5 P5). `none` (default): the assessment loop is off and nothing contacts any model.
-   * `replay`: the offline demonstration provider over a hand-authored fixture file (development and test only). A live provider
+   * `replay`: the offline demonstration provider over a hand-authored fixture file (development and test only). `scripted`: the SCRIPTED
+   * DEMONSTRATION provider (P6C): fixed placeholder answers for ANY captured project, no fixture, nothing is read from the project's meaning
+   * (development and test only). A live provider
    * does not exist yet (P6); it will be a further value here and needs a separate owner authorization.
    */
-  ASSESSMENT_PROVIDER: z.enum(['none', 'replay']).default('none'),
+  ASSESSMENT_PROVIDER: z.enum(['none', 'replay', 'scripted']).default('none'),
   ASSESSMENT_REPLAY_FIXTURE: z.string().min(1).optional(),
   ASSESSMENT_CONCURRENCY: z.coerce.number().int().min(1).max(2).default(1),
   ASSESSMENT_POLL_INTERVAL_MS: z.coerce.number().int().min(100).max(60_000).default(2_000),
@@ -35,6 +37,13 @@ export const WorkerEnv = BaseEnv.extend({
     .default(900_000),
   ASSESSMENT_SHUTDOWN_GRACE_MS: z.coerce.number().int().min(0).max(120_000).default(10_000),
 }).superRefine((env, ctx) => {
+  if (env.ASSESSMENT_PROVIDER === 'scripted' && env.NODE_ENV === 'production') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ASSESSMENT_PROVIDER'],
+      message: 'The scripted demonstration provider is for development and tests only',
+    });
+  }
   if (env.ASSESSMENT_PROVIDER === 'replay') {
     if (env.NODE_ENV === 'production') {
       ctx.addIssue({

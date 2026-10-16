@@ -10,41 +10,9 @@ import { computeRequestDigest, type LlmResult, type StructuredRequest } from '@j
 import type { AssessmentStage } from '@judge-copilot/schemas';
 import { CLAIM_QUOTES, EVIDENCE_QUOTE, EVIDENCE_TEXT } from './assessment-world.js';
 
-export interface ParsedRecord {
-  readonly handle: string;
-  readonly meta: Record<string, unknown>;
-  readonly body: string | null;
-}
+import { parseRecords, type ParsedRecord } from '../assessment/demonstration-model.js';
 
-const BEGIN = /^<<<ITEM (\S+) ([0-9a-f]{16})>>>$/;
-
-/** Parses the records of a rendered request. A record ends only at the END line carrying ITS code, as the framing promises. */
-export function parseRecords(request: StructuredRequest): ParsedRecord[] {
-  const records: ParsedRecord[] = [];
-  for (const block of request.user) {
-    const lines = block.split('\n');
-    for (let index = 0; index < lines.length; index += 1) {
-      const begin = BEGIN.exec(lines[index] ?? '');
-      if (!begin) continue;
-      const handle = begin[1] ?? '';
-      const code = begin[2] ?? '';
-      const end = `<<<END ITEM ${handle} ${code}>>>`;
-      let stop = index + 1;
-      while (stop < lines.length && lines[stop] !== end) stop += 1;
-      const inner = lines.slice(index + 1, stop);
-      const metaLine = inner[0] ?? '';
-      const meta = JSON.parse(metaLine.replace(/^meta: /, '')) as Record<string, unknown>;
-      const textAt = inner.indexOf('text:');
-      records.push({
-        handle,
-        meta,
-        body: textAt >= 0 ? inner.slice(textAt + 1).join('\n') : null,
-      });
-      index = stop;
-    }
-  }
-  return records;
-}
+export { parseRecords, type ParsedRecord };
 
 export interface Context {
   readonly request: StructuredRequest;

@@ -104,6 +104,8 @@ const isDemonstration = (mode: ProviderMode | null): boolean =>
 
 const REPLAY_NOTICE =
   'REPLAY DEMONSTRATION — replayed hand-written synthetic outputs, not a live model assessment.';
+const SCRIPTED_NOTICE =
+  'SCRIPTED DEMONSTRATION — every score is the same fixed placeholder (70 % of each scale) produced by rules that did not read the project, not a model assessment. The numbers say nothing about its quality.';
 
 /**
  * One entry per distinct (type, text) of an assessment's unknowns, in the order of first appearance, with how many identical records the
@@ -573,7 +575,7 @@ export class AssessmentReadStore {
         semanticRelevance: 'not_verified' as const,
         storedText: 'not_hash_covered' as const,
         target: 'overall_rubric_only' as const,
-        replay: replay ? REPLAY_NOTICE : null,
+        replay: !replay ? null : row.providerMode === 'scripted' ? SCRIPTED_NOTICE : REPLAY_NOTICE,
       },
     };
 

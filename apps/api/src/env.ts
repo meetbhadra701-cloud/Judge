@@ -39,16 +39,24 @@ export const ApiEnv = BaseEnv.extend({
   /**
    * The pre-interview assessment provider (M5 P6A). `none` (default): `POST /projects/:id/assessments` answers 503
    * ASSESSMENT_PROVIDER_NOT_CONFIGURED (reading still works). `replay`: the OFFLINE demonstration provider over a hand-written synthetic
-   * fixture (development and test only; the worker reads the same fixture). There is no live provider: it needs a separate owner
+   * fixture (development and test only; the worker reads the same fixture). `scripted`: the SCRIPTED DEMONSTRATION provider (P6C), fixed placeholder
+   * answers for any captured project (development and test only; set the same value for the worker). There is no live provider: it needs a separate owner
    * authorization.
    */
-  ASSESSMENT_PROVIDER: z.enum(['none', 'replay']).default('none'),
+  ASSESSMENT_PROVIDER: z.enum(['none', 'replay', 'scripted']).default('none'),
   ASSESSMENT_REPLAY_FIXTURE: z.string().min(1).optional(),
   /** The models named in the frozen configuration; a replay fixture is recorded for exactly these. */
   ASSESSMENT_MODEL_EXTRACTION: z.string().min(1).default('claude-haiku-5-5'),
   ASSESSMENT_MODEL_ASSESSMENT: z.string().min(1).default('claude-sonnet-5-5'),
   ASSESSMENT_MODEL_CRITIC: z.string().min(1).default('claude-sonnet-5-5'),
 }).superRefine((env, ctx) => {
+  if (env.ASSESSMENT_PROVIDER === 'scripted' && env.NODE_ENV === 'production') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ASSESSMENT_PROVIDER'],
+      message: 'The scripted demonstration provider is for development and tests only',
+    });
+  }
   if (env.ASSESSMENT_PROVIDER === 'replay') {
     if (env.NODE_ENV === 'production') {
       ctx.addIssue({

@@ -9,12 +9,14 @@ import {
 } from '@judge-copilot/database';
 import {
   ReplayProvider,
+  ScriptedProvider,
   systemClock,
   type LlmProvider,
   type RetryPolicy,
 } from '@judge-copilot/llm';
 import type { Logger } from '@judge-copilot/shared';
 import type { WorkerEnv } from '../env.js';
+import { demonstrationStep } from './demonstration-model.js';
 import { createAssessmentLoop, type AssessmentLoop } from './loop.js';
 
 /*
@@ -58,15 +60,24 @@ export async function createAssessmentRuntime(
   let provider = options.provider ?? null;
   if (provider === null) {
     if (env.ASSESSMENT_PROVIDER === 'none') return null;
-    // 'replay': the fixture is hand-authored synthetic JSON, validated by the replay provider's own strict schema
-    const fixtures: unknown = JSON.parse(
-      await readFile(env.ASSESSMENT_REPLAY_FIXTURE ?? '', 'utf8'),
-    );
-    provider = new ReplayProvider({ fixtures });
-    logger.warn(
-      { provider: provider.id, mode: provider.mode },
-      'offline assessment provider enabled: replayed synthetic outputs, not a model assessment',
-    );
+    if (env.ASSESSMENT_PROVIDER === 'scripted') {
+      // P6C: fixed placeholder answers for ANY captured project (no fixture, no model): see demonstration-model.ts
+      provider = new ScriptedProvider([demonstrationStep], { repeatLast: true });
+      logger.warn(
+        { provider: provider.id, mode: provider.mode },
+        'SCRIPTED DEMONSTRATION provider enabled: placeholder answers that do not read the project, not a model assessment',
+      );
+    } else {
+      // 'replay': the fixture is hand-authored synthetic JSON, validated by the replay provider's own strict schema
+      const fixtures: unknown = JSON.parse(
+        await readFile(env.ASSESSMENT_REPLAY_FIXTURE ?? '', 'utf8'),
+      );
+      provider = new ReplayProvider({ fixtures });
+      logger.warn(
+        { provider: provider.id, mode: provider.mode },
+        'offline assessment provider enabled: replayed synthetic outputs, not a model assessment',
+      );
+    }
   }
   const graphs = new EvidenceGraphStore({ db });
   const runs = new AssessmentRunStore({ db });

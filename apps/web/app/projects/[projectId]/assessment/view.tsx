@@ -125,7 +125,11 @@ export function AssessmentPageView(props: AssessmentPageViewProps): ReactNode {
                   Version {item.versionNumber}
                 </Link>{' '}
                 · {formatDate(item.createdAt)}
-                {item.replayDemonstration ? ' · replay demonstration' : ''}
+                {item.replayDemonstration
+                  ? item.providerMode === 'scripted'
+                    ? ' · SCRIPTED demonstration (placeholder scores)'
+                    : ' · replay demonstration'
+                  : ''}
                 {item.verified ? '' : ' · not verified'}
                 {item.verified ? ` · ${coverageQualifier(item.coverage)}` : ''}
               </li>
@@ -224,7 +228,7 @@ function Launch({
       <p>{launch.notice}</p>
       {!launch.available ? (
         <p role="status">
-          Assessments cannot be run here: no approved offline replay mode is configured (
+          Assessments cannot be run here: no offline demonstration provider is configured (
           <code>ASSESSMENT_PROVIDER_NOT_CONFIGURED</code>).
         </p>
       ) : activeRun ? (
@@ -275,10 +279,20 @@ function AssessmentView({
   return (
     <>
       {detail.replayDemonstration ? (
-        <p role="note" className="notice">
-          <strong>Replay demonstration.</strong> {detail.notices.replay} These values come from
-          recorded fixtures, not a live model, and say nothing about a real submission.
-        </p>
+        detail.providerMode === 'scripted' ? (
+          <p role="alert" className="error" data-testid="demonstration-banner" data-mode="scripted">
+            <strong>SCRIPTED DEMONSTRATION — NOT AN AI ASSESSMENT.</strong> {detail.notices.replay}{' '}
+            Every score on this page is the same fixed placeholder; it was not produced by reading
+            this project and must not be used to judge it. What this page does show for real is
+            which evidence was captured, what the selection examined, and how a report is
+            structured.
+          </p>
+        ) : (
+          <p role="note" className="notice" data-testid="demonstration-banner" data-mode="replay">
+            <strong>Replay demonstration.</strong> {detail.notices.replay} These values come from
+            recorded fixtures, not a live model, and say nothing about a real submission.
+          </p>
+        )
       ) : null}
       <CoveragePanel notice={notice} />
       <section>

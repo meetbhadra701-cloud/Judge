@@ -64,7 +64,9 @@ export class AssessmentService {
           available: true,
           providerMode: this.offline.provider.mode,
           notice:
-            'Offline replay demonstration: hand-written synthetic outputs are replayed; no model is called and no project text leaves this system.',
+            this.offline.provider.mode === 'scripted'
+              ? 'SCRIPTED DEMONSTRATION: fixed placeholder answers are produced by rules that do not read the project; no model is called, no project text leaves this system, and the resulting scores say nothing about the project.'
+              : 'Offline replay demonstration: hand-written synthetic outputs are replayed; no model is called and no project text leaves this system.',
         };
   }
 

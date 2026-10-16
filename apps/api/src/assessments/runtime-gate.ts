@@ -9,7 +9,9 @@ import { assertProviderAllowed, ReplayFixtureFile } from '@judge-copilot/llm';
  */
 
 export interface OfflineAssessmentRuntime {
-  readonly provider: { readonly id: 'replay'; readonly mode: 'replay' };
+  readonly provider:
+    | { readonly id: 'replay'; readonly mode: 'replay' }
+    | { readonly id: 'scripted'; readonly mode: 'scripted' };
   /** The models named in the frozen pipeline configuration; a replay fixture is recorded for exactly these. */
   readonly models: {
     readonly extraction: string;
@@ -19,7 +21,7 @@ export interface OfflineAssessmentRuntime {
 }
 
 export interface GateInput {
-  readonly provider: 'none' | 'replay';
+  readonly provider: 'none' | 'replay' | 'scripted';
   readonly fixturePath: string | undefined;
   readonly models: OfflineAssessmentRuntime['models'];
   /** Test seam; production reads the file system. */
@@ -33,6 +35,21 @@ export type GateResult =
 /** `runtime: null` with `problem: null` means "not configured" (the default); a problem names why a configured provider is unusable. */
 export async function openOfflineGate(input: GateInput): Promise<GateResult> {
   if (input.provider === 'none') return { runtime: null, problem: null };
+  if (input.provider === 'scripted') {
+    // P6C: the scripted demonstration provider answers for any captured project and needs no fixture; it is refused outside development and test
+    try {
+      assertProviderAllowed('scripted');
+    } catch {
+      return {
+        runtime: null,
+        problem: 'the scripted demonstration provider is refused outside development and test',
+      };
+    }
+    return {
+      runtime: { provider: { id: 'scripted', mode: 'scripted' }, models: input.models },
+      problem: null,
+    };
+  }
   try {
     assertProviderAllowed('replay');
   } catch {
