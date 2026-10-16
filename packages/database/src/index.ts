@@ -164,3 +164,8 @@ export {
   type SchemaVerification,
 } from './schema-state.js';
 export { checkMigrationJournal, readJournal } from './migration-journal.js';
+export {
+  clearProvenanceMemo,
+  loadCoverageEvidence,
+  verifyCoverageProvenance,
+} from './coverage-evidence.js';

@@ -229,6 +229,8 @@ export const COVERAGE_VIEW_OMITTED_COMPONENTS = 25;
 export function coverageViewOf(
   verification: CoverageVerification | null,
   recordSha256: string | null,
+  /** Set when the record was also recomputed from the immutable evidence (coverage-provenance.ts); null: only its own integrity was checked. */
+  budgetBinding: 'pinned_by_extraction' | 'allowed_set_only' | null = null,
 ): AssessmentCoverageView {
   const base = {
     relevance: 'not_established',
@@ -241,6 +243,7 @@ export function coverageViewOf(
       verified: false,
       problems: [],
       recordSha256: null,
+      provenance: null,
       policy: null,
       verdict: null,
       concerns: [],
@@ -262,6 +265,7 @@ export function coverageViewOf(
       verified: false,
       problems: verification.problems,
       recordSha256,
+      provenance: null,
       policy: null,
       verdict: null,
       concerns: [],
@@ -281,6 +285,10 @@ export function coverageViewOf(
     verified: true,
     problems: [],
     recordSha256,
+    provenance:
+      budgetBinding === null
+        ? null
+        : { method: 'recomputed_from_snapshots', budgets: budgetBinding },
     policy: record.policy,
     verdict: record.verdict,
     concerns: record.concerns,

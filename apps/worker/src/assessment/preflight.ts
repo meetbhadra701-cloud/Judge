@@ -7,7 +7,9 @@ import {
 } from '@judge-copilot/assessment';
 import { costNanoUsd, priceFor } from '@judge-copilot/llm';
 import type { AssessmentRunLimits, PriceTable } from '@judge-copilot/schemas';
-import { STAGE_BATCH, STRUCTURAL_CAPS, type EffectivePlan } from './config.js';
+import { ladder, STAGE_BATCH, STRUCTURAL_CAPS, type EffectivePlan } from './config.js';
+
+export { ladder };
 
 /*
  * The deterministic budget PREFLIGHT (design §12.3.3-§12.3.4, owner correction C2). After windowing, the number of calls, tokens and cost
@@ -157,30 +159,6 @@ export function estimateUsage(
 }
 
 // -- The reduction ladder ------------------------------------------------------------------------------------------------------
-
-const SOURCE_FRACTIONS = [1, 0.75, 0.5, 0.25] as const;
-const CAP_FACTORS = [0.75, 0.5625, 0.421875, 0.31640625] as const;
-const CAP_FLOORS = { claims: 20, evidence: 25 } as const;
-
-/** The ordered plans to try: lower the source budget 100% -> 75% -> 50% -> 25%, then lower the claim/evidence caps by 25% steps to a floor. */
-export function ladder(base: WindowingBudgets): EffectivePlan[] {
-  const steps: EffectivePlan[] = SOURCE_FRACTIONS.map((fraction, step) => ({
-    step,
-    budgets: { ...base, source: Math.max(1_000, Math.floor(base.source * fraction)) },
-    claimsCap: STRUCTURAL_CAPS.claims,
-    evidenceCap: STRUCTURAL_CAPS.evidence,
-  }));
-  const floorSource = steps[steps.length - 1]?.budgets.source ?? base.source;
-  CAP_FACTORS.forEach((factor, index) => {
-    steps.push({
-      step: SOURCE_FRACTIONS.length + index,
-      budgets: { ...base, source: floorSource },
-      claimsCap: Math.max(CAP_FLOORS.claims, Math.floor(STRUCTURAL_CAPS.claims * factor)),
-      evidenceCap: Math.max(CAP_FLOORS.evidence, Math.floor(STRUCTURAL_CAPS.evidence * factor)),
-    });
-  });
-  return steps;
-}
 
 export interface PreflightInput {
   readonly artifacts: readonly SourceArtifact[];

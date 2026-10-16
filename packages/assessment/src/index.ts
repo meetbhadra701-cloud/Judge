@@ -299,3 +299,27 @@ export {
   PIPELINE_ID,
 } from './pipeline-config.js';
 export type { ConfigCheck, ConfigRejection, PipelineConfigOptions } from './pipeline-config.js';
+
+export {
+  EXTRACTION_ORCHESTRATION_VERSION,
+  EXTRACTION_STAGES,
+  extractionConfigHash,
+  ladder,
+  STAGE_BATCH,
+  STRUCTURAL_CAPS,
+  type EffectivePlan,
+  type ExtractionStage,
+} from './extraction-plan.js';
+export { runNotices } from './run-notices.js';
+export {
+  checkCoverageIdentity,
+  derivePlan,
+  PROVENANCE_VERIFIER_VERSION,
+  recomputeCoverage,
+  type BudgetBinding,
+  type ProvenanceResult,
+  type RecomputeInput,
+  type TrustedArtifactMeta,
+  type TrustedCoverageEvidence,
+  type TrustedPin,
+} from './coverage-provenance.js';

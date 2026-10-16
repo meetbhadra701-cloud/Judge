@@ -171,6 +171,16 @@ export const COVERAGE_PROBLEM_VALUES = [
   'record_snapshots_mismatch',
   'record_inconsistent',
   'limitations_missing_from_assessment',
+  // External provenance (P6B-beta3-R2): the record disagrees with the immutable evidence the run was pinned to, or that evidence cannot be read.
+  'provenance_unavailable',
+  'provenance_run_mismatch',
+  'provenance_policy_mismatch',
+  'provenance_budget_mismatch',
+  'provenance_snapshot_mismatch',
+  'provenance_artifact_mismatch',
+  'provenance_selection_mismatch',
+  'provenance_measures_mismatch',
+  'provenance_limitations_mismatch',
 ] as const;
 export type CoverageProblem = (typeof COVERAGE_PROBLEM_VALUES)[number];
 
@@ -186,6 +196,16 @@ export interface AssessmentCoverageView {
   readonly concerns: readonly string[];
   readonly relevance: 'not_established';
   readonly roleBasis: 'path_only';
+  /**
+   * How a verified record was checked against the immutable evidence. `recomputed_from_snapshots`: the selection was run again over the pinned
+   * snapshots' stored text under the run's frozen configuration and equals the record exactly. `budgets`: whether the source budget was pinned by
+   * the run's source extraction identity (`pinned_by_extraction`) or only shown to be one of the budgets the frozen configuration allows
+   * (`allowed_set_only`: a run refused before any extraction exists). null when not verified.
+   */
+  readonly provenance: {
+    readonly method: 'recomputed_from_snapshots';
+    readonly budgets: 'pinned_by_extraction' | 'allowed_set_only';
+  } | null;
   readonly measures: CoverageRecord['measures'] | null;
   /** The components that were not fully inspected, largest first (bounded). */
   readonly omittedComponents: readonly {

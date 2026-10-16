@@ -30,6 +30,7 @@ import {
 } from '@judge-copilot/schemas';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AssessmentStore } from './assessment-store.js';
+import { verifyCoverageProvenance } from './coverage-evidence.js';
 import type { JudgeDatabase } from './client.js';
 import {
   analysisRuns,
@@ -179,9 +180,26 @@ export class AssessmentReadStore {
       { canonical: row.recordCanonical, sha256: row.recordSha256, mirror: row.record },
       { pinnedSnapshotIds: pins.map((pin) => pin.id), storedLimitations },
     );
+    // Internal integrity is not enough: a record that agrees only with itself proves nothing about the source. A record is verified only if it
+    // also equals what the deterministic selection yields from the immutable evidence the run was pinned to (coverage-evidence.ts).
+    let final = verification;
+    let binding: 'pinned_by_extraction' | 'allowed_set_only' | null = null;
+    if (verification.ok && verification.record !== null) {
+      const outcome = await verifyCoverageProvenance(
+        this.db,
+        runId,
+        verification.record,
+        row.recordSha256,
+      );
+      if (outcome.problems.length > 0) {
+        final = { ok: false, problems: [...outcome.problems], record: null };
+      } else {
+        binding = outcome.budgetBinding;
+      }
+    }
     return {
-      view: coverageViewOf(verification, row.recordSha256),
-      record: verification.ok ? verification.record : null,
+      view: coverageViewOf(final, row.recordSha256, binding),
+      record: final.ok ? final.record : null,
     };
   }
 
