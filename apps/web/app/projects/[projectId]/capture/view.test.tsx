@@ -101,9 +101,23 @@ describe('capture progress page', () => {
     expect(html).toContain('not verified');
     expect(html).toContain('href="/projects/p1/assessment"');
     expect(html).toContain('Temporary offline workflow');
-    expect(html).toContain('recorded demonstration data only');
+    expect(html).toContain('no live model is used');
+    expect(html).not.toContain('expected to end without a report');
     expect(html).toContain('separate click');
     expect(html).not.toMatch(/analysis (is )?complete/i);
+  });
+
+  it('P6C: shows the exact commit of a GitHub snapshot and none for a source without one', () => {
+    const sha = '9459c9830086e9c7bf889ff22aaf9c19a1369d5d';
+    const html = render(
+      project([
+        source('github', snapshot({ revision: sha })),
+        source('devpost', snapshot({ sourceType: 'devpost' })),
+      ]),
+    );
+    expect(html).toContain('data-testid="revision-github"');
+    expect(html).toContain(sha);
+    expect(html).not.toContain('data-testid="revision-devpost"');
   });
 
   it('one source failed: per-source failure, a retry for that source only, and the missing source is not a negative judgment', () => {

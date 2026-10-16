@@ -1133,6 +1133,22 @@ describe('P6B-beta3-R1: source coverage on the assessment page', () => {
     expect(notice).not.toContain('No source-coverage concern');
   });
 
+  it('P6C: a record that could not be CHECKED (source unreadable) is not described as having failed its integrity checks', () => {
+    const html = renderWith(
+      coverageView({
+        verified: false,
+        verdict: null,
+        problems: ['provenance_unavailable'],
+        omittedComponents: [],
+      }),
+    );
+    const notice = sectionOf(html);
+    expect(notice).toContain('could not be checked against the stored source');
+    expect(notice).toContain('not evidence that anything was altered');
+    expect(notice).not.toContain('failed its integrity checks');
+    expect(notice).toContain('provenance_unavailable');
+  });
+
   it('qualifies the version list rows, so a number is never listed without its coverage', () => {
     const html = render(
       list([

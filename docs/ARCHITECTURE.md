@@ -468,6 +468,14 @@ its own migrations; existing migrations are never edited after being committed.
   `AssessmentRunStore.claimNextRun` (`FOR UPDATE SKIP LOCKED`, atomic run + lease), and pending-expiry and
   lease-recovery skip rows another transaction holds, so one locked run cannot starve the queue or the
   maintenance pass. No live provider exists yet.
+  P6C adds (a) the explicit offline `ASSESSMENT_PROVIDER=scripted` demonstrator (`apps/worker/src/assessment/demonstration-model.ts`;
+  development and tests only; every dimension gets the same fixed placeholder, so it demonstrates the interface on arbitrary captured
+  material and says nothing about a project; `isDemonstration` labels it everywhere), (b) a request-time refusal
+  (`NO_CONTEXT_REFERENCE_EVIDENCE`, F-3 option 2) when the locked context offers no explicit rule, requirement or declared track, before any run exists,
+  (c) the limitation `partial_score_excludes_model_declared_insufficient` (F-2 option B: disclosure only; the critic still does not review
+  model-declared insufficiency, which needs F-4/prompt v3 and stays a blocker for live use) and (d) the limitation `newer_capture_unusable`
+  (F-8: a newer capture attempt failed or was rejected, so an older capture was assessed; no score changes). See
+  [P6C_REAL_PROJECT_PILOT_REPORT](./milestones/P6C_REAL_PROJECT_PILOT_REPORT.md).
 - **web** renders the M1 Event Context views and the M2 project, source and snapshot views using
   server components and server actions that call the API server-side (`JUDGE_API_URL`,
   `JUDGE_API_TOKEN`). It binds **127.0.0.1** explicitly (its scripts pass `--hostname 127.0.0.1`): it

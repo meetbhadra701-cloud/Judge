@@ -95,7 +95,8 @@ The web app listens on `http://127.0.0.1:3000`. Running it creates no file in th
 
 A replay answer is looked up by the digest of the exact request (prompt text, model, the project's captured passages, the event's rubric). Recorded answers exist only for the built-in synthetic
 HydroTrack material. Material you submit through the form has no recorded answer, so an offline run on it ends with `replay_miss`, and the page says so. Making a submitted project assessable
-needs either a recorded fixture for that exact material or a real provider, neither of which is part of this version.
+needs either a recorded fixture for that exact material or a real provider, neither of which is part of this version. Since P6C there is a third, clearly labelled offline option for walking the
+interface on arbitrary captured material: `ASSESSMENT_PROVIDER=scripted` (§1.10). Its scores are fixed placeholders, not an assessment.
 
 ### 1.6 What "Submit and start capture" promises: submission identity (P6B-beta1)
 
@@ -154,6 +155,23 @@ A submission queues two captures. If no capture worker is running they stay queu
 **Provide the submission text yourself** on the Devpost row, paste the text you can see on the Devpost page, and store it. It becomes a snapshot labelled **TEXT SUPPLIED BY AN ORGANIZER**: it was not fetched and has
 not been compared with the page; anything derived from it stays a team claim, and the report lists `organizer_supplied_source`. Pasting the same text twice stores nothing new; changed text becomes a new numbered
 snapshot and the old one stays.
+
+### 1.10 The pilot journey on a real project (P6C)
+
+Operator preparation is in [PILOT_OPERATOR_SETUP.md](./PILOT_OPERATOR_SETUP.md). As the judge, with the web app open:
+
+1. **Events → Create event**, then **Create draft version**. Add the hackathon's official sources one by one (title, authority, pasted text). Official rules, rubric and track rules carry their own authority;
+   organizer notes use `organizer_guidance`. **Build context from sources** (when an extractor is configured) or **Edit draft**, review, then **Lock context**. A locked version is frozen.
+2. **Submit a project** (`/events/<id>/submit`): paste the GitHub repository URL and the Devpost URL. Capture starts.
+3. On the capture page, GitHub shows `CAPTURED` or `CAPTURED (PARTIAL)` with the **exact commit**; what was not read is listed and is not negative evidence. If Devpost cannot be fetched it says `CAPTURE FAILED`
+   with the reason; open **Provide the submission text yourself** and paste the authorized text. It is labelled `TEXT SUPPLIED BY AN ORGANIZER`.
+4. **Open the preliminary report page → Run assessment.** If the locked context gives the assessment nothing to refer to (no explicit rule, requirement or declared track) it is refused immediately with the
+   remedy; nothing is queued. Otherwise the scripted demonstrator runs offline.
+5. The report page opens with a red **NOT AN AI ASSESSMENT** banner. Read the structure (coverage, dimensions, citations, unknowns, limitations); **ignore every number** — each is the same fixed placeholder.
+   Limitations explain in words when a partial number leaves out dimensions the assessor itself declared insufficient (`partial_score_excludes_model_declared_insufficient`) and when a newer capture attempt
+   failed so that an older capture was assessed (`newer_capture_unusable`).
+
+What a person judging the _usefulness_ of this pilot should check is in [PILOT_USEFULNESS_CHECKLIST.md](./PILOT_USEFULNESS_CHECKLIST.md).
 
 ## 2. Checking the experience does not mislead
 

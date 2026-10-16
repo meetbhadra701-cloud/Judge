@@ -17,6 +17,7 @@
     "db:generate": "pnpm --filter @judge-copilot/database run db:generate",
     "db:migrate": "pnpm --filter @judge-copilot/database run db:migrate",
     "db:check": "pnpm --filter @judge-copilot/database run db:check",
+    "db:verify-schema": "pnpm --filter @judge-copilot/database run db:verify-schema",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm db:check && pnpm test && pnpm build",
     "test:browser": "pnpm --filter @judge-copilot/web build && vitest run --config vitest.browser.config.ts",
     "demo:prepare": "tsx --conditions=@judge-copilot/source apps/worker/src/testing/demo-cli.ts",

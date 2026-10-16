@@ -203,7 +203,7 @@ describe('browser smoke: submit -> capture -> preliminary report', () => {
       (
         await lockedEventFromRecording(
           eventContext,
-          requireValue(fixtures.get('fixture-e-multiple-tracks')),
+          requireValue(fixtures.get('fixture-a-clear-official-rubric')),
         )
       ).eventId;
     eventId = await newLockedEvent();

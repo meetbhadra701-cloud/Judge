@@ -136,6 +136,18 @@ export function CaptureView({
                           <small>Incomplete: {view.gaps.join('; ')}.</small>
                         </>
                       ) : null}
+                      {source.latestSnapshot?.revision ? (
+                        <>
+                          <br />
+                          <small data-testid={`revision-${source.sourceType}`}>
+                            Exact commit{' '}
+                            <code title={source.latestSnapshot.revision}>
+                              {source.latestSnapshot.revision}
+                            </code>{' '}
+                            — this snapshot never changes when the repository does.
+                          </small>
+                        </>
+                      ) : null}
                       {source.latestSnapshot && source.latestSnapshot.captureNumber > 1 ? (
                         <>
                           <br />
@@ -205,12 +217,12 @@ export function CaptureView({
       <section aria-labelledby="next-heading">
         <h2 id="next-heading">Next: preliminary report</h2>
         <p className="notice" role="note">
-          <strong>Temporary offline workflow.</strong> The report runs on recorded demonstration
-          data only; no live model is used and nothing is spent. It is advisory: the human judge’s
-          final score is separate and authoritative. Starting it is a separate click on the next
-          page. Recorded answers exist only for the built-in synthetic demonstration project, so for
-          the links you submitted the offline run is expected to end without a report, and the page
-          will say why.
+          <strong>Temporary offline workflow.</strong> The report runs offline: no live model is
+          used and nothing is spent. Which offline mode is configured (recorded answers for the
+          built-in synthetic demonstration project, or the scripted demonstrator whose scores are
+          fixed placeholders) is stated at the top of the report page, and neither is an AI judgment
+          of your project. It is advisory: the human judge’s final score is separate and
+          authoritative. Starting it is a separate click on the next page.
         </p>
         {contentCount === 0 ? (
           <p data-testid="next-blocked">

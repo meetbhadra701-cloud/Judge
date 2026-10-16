@@ -461,7 +461,10 @@ export function coverageNotice(detail: AssessmentDetail): CoverageNotice {
       headline:
         coverage.status === 'not_recorded'
           ? 'Source coverage was not recorded for this assessment. Do not read it as based on all of the project’s evidence.'
-          : 'The stored source-coverage record failed its integrity checks, so how much of the project was examined is unknown.',
+          : coverage.problems.length > 0 &&
+              coverage.problems.every((code) => code === 'provenance_unavailable')
+            ? 'The stored source-coverage record could not be checked against the stored source (the source could not be read), so how much of the project was examined is unknown. This is not evidence that anything was altered.'
+            : 'The stored source-coverage record failed its integrity checks, so how much of the project was examined is unknown.',
       caveat,
       checkedNote: null,
       dimensionsStatement,

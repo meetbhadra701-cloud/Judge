@@ -282,10 +282,9 @@ function AssessmentView({
       {detail.replayDemonstration ? (
         detail.providerMode === 'scripted' ? (
           <p role="alert" className="error" data-testid="demonstration-banner" data-mode="scripted">
-            <strong>SCRIPTED DEMONSTRATION — NOT AN AI ASSESSMENT.</strong> {detail.notices.replay}{' '}
-            Every score on this page is the same fixed placeholder; it was not produced by reading
-            this project and must not be used to judge it. What this page does show for real is
-            which evidence was captured, what the selection examined, and how a report is
+            <strong>NOT AN AI ASSESSMENT.</strong> {detail.notices.replay} It was not produced by
+            reading this project and must not be used to judge it. What this page does show for real
+            is which evidence was captured, what the selection examined, and how a report is
             structured.
           </p>
         ) : (
@@ -441,10 +440,9 @@ function AssessmentView({
         </ul>
         <p>
           <small>
-            Model usage (local counters): {detail.usage.settledCalls} settled call(s),{' '}
-            {detail.usage.unknownCalls} unknown, {detail.usage.inputTokens} input /{' '}
-            {detail.usage.outputTokens} output tokens, {formatCostNanoUsd(detail.usage.costNanoUsd)}
-            .
+            {detail.replayDemonstration
+              ? 'No model was called and nothing was spent. The call and token counters recorded for this offline run are placeholders of the demonstration, not usage or cost.'
+              : `Model usage (local counters): ${String(detail.usage.settledCalls)} settled call(s), ${String(detail.usage.unknownCalls)} unknown, ${String(detail.usage.inputTokens)} input / ${String(detail.usage.outputTokens)} output tokens, ${formatCostNanoUsd(detail.usage.costNanoUsd)}.`}
           </small>
         </p>
       </section>
