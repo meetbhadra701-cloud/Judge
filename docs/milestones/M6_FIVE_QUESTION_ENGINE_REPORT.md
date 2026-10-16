@@ -180,11 +180,89 @@ Screenshots (Chromium, `docs/milestones/m6-screenshots/`):
 
 `tests/browser/m6.browser.ts`, real Chromium against the production web build, the real API over loopback, the real capture and assessment workers, **no database write and no JSON typed** (the last test checks its own source and the checkout).
 
-**BROWSER_RESULTS**
+| Journey                 | Steps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Result |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| **C** full event        | C1 official rubric and rules authored in the structured editor and locked → C2 submit, capture, organizer supplies Devpost text, scripted report requested → C3 the Five Questions section says nothing has been generated, shows one button and no answer field → C4 generate: labelled demonstration, every question with reason, uncertainty, criteria and links, no identifier visible, shortfall explained when fewer than five → C5 reload: **identical list**, no second generate button, the API `POST` returns the stored set (200), the assessment is **byte-identical** before and after | pass   |
+| **D** missing material  | a project whose Devpost page cannot be fetched and is not supplied: the report says an expected source is missing; the questions ask where the missing material is, describe it as _missing evidence, not a finding_, and never use failure vocabulary                                                                                                                                                                                                                                                                                                                                              | pass   |
+| **E** no assessment     | a project with no assessment has no Five Questions section and no generate button                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | pass   |
+| the journeys themselves | the file contains no database write and no JSON editing; the checkout is exactly as found                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | pass   |
+
+Full Chromium suite (`pnpm test:browser`, builds the web app first): **4 files, 43 tests, all passed** (P6D journeys A and B, the pilot and journey suites, and the new M6 journeys). Findings from watching the first M6 runs, all fixed:
+
+- The first generated list had only **2 of 5** questions because templated wording around _different_ criteria was treated as a repeat. The redundancy rule now counts alike wording only when the questions are about the same uncertainty or criterion (or near-identical), and shared evidence across different criteria counts partially (×0.4). The same world now yields 3 (journey C) and 4 (journey D) questions, each justified, with the rest explained.
+- The "open point recorded" question was vague; the demonstrator now varies by the **recorded type** of the unknown (missing, unverifiable, ambiguous, contradictory, eligibility, subjective), read from a code-written prefix, never from team text.
+- Journey B (P6D) still asserted the raw `official_track_rubrics_not_assessed` code that phase 0 replaced; it now asserts the explanation.
+
+Known presentation gaps visible in the screenshots: a coverage link is labelled by its raw signal id (`missing source:devpost`), and evidence excerpts are shown as recorded (for example a JSON fragment from `package.json`).
 
 ## 10. Verification
 
-**VERIFICATION**
+Run on implementation head `ff1d09747ac30d5483c43504dc9e29f25a862303`; this report and the final test re-run are committed on top of it (code unchanged after `ff1d097`).
+
+| Gate                                                                                                                         | Result                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm format:check`                                                                                                          | all matched files use Prettier code style                                                                                |
+| `pnpm lint` (`eslint . --max-warnings=0`)                                                                                    | clean                                                                                                                    |
+| `pnpm typecheck`                                                                                                             | clean (all packages and apps; root `tsc` over `tests/` also clean)                                                       |
+| `pnpm db:check`; `pnpm db:generate`                                                                                          | journal check passed, "Everything's fine"; "No schema changes, nothing to migrate"                                       |
+| `pnpm build`                                                                                                                 | all packages, API, worker and the web production build succeed                                                           |
+| **Full suite, PGlite** (`pnpm test`, `TEST_DATABASE_URL` unset)                                                              | **239 files passed, 6 skipped; 4 309 tests passed, 61 skipped, 2 todo; 0 failed** (299 s), re-run on the final code      |
+| **Full suite, PostgreSQL 16.15, ICU** (`judge_m6_icu_test`, `locale_provider icu`, `icu_locale en-US`, `LC_COLLATE C.UTF-8`) | **245 files passed (245); 5 375 tests passed, 1 skipped, 4 todo; 0 failed** (1 059 s)                                    |
+| **Chromium** (`pnpm test:browser`)                                                                                           | **4 files, 43 tests passed**                                                                                             |
+| Migration checks                                                                                                             | journal, matrix, upgrade-from-0019 (recovery re-runs 0020–0023), M6 idempotency and immutability: pass on both databases |
+| `git diff --check` against the starting head                                                                                 | clean                                                                                                                    |
+
+The PostgreSQL 16 run was made before one extra pure-package test (exact-tie selection), the screenshots and this report were added; lint, typecheck, build, format, the Chromium suite and the final PGlite suite were all run after them.
+
+Evidence by requirement:
+
+| Brief item                                          | Tests                                                                                                                                                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| pure ranking golden tests                           | `rank.test.ts` (1800 bp worked by hand), `select.test.ts` "golden" (the reference world), exact-tie test                                                                                                     |
+| schema / domain validation                          | `validate.test.ts` (strict schema, closed set, every refusal code, injection text) and API tests that feed hostile model output through the real service                                                     |
+| uncertainty rules and quality cases                 | `analyze.test.ts` (20 tests)                                                                                                                                                                                 |
+| prompt-injection separation                         | `question-prompt.test.ts` (forged record markers, no persisted id, secret abort, strict input, golden hash) and `validate.test.ts`                                                                           |
+| persistence, immutability, idempotency, concurrency | `question-set-store.test.ts` (13) and `tests/integration/question-engine-http.test.ts` (15: eight racing requests give one set; a counting provider proves the provider is called once; replay hit and miss) |
+| cross-project authorization                         | the same files: another project's assessment and set are indistinguishable from a missing one; 401/403/405; a client can choose nothing                                                                      |
+| verified assessments only                           | an assessment that fails verification cannot generate (409) and its stored set is withheld                                                                                                                   |
+| milestone scope                                     | `tests/integration/milestone-scope.test.ts` was updated for M6 (exactly three new tables, exactly three routes, pure packages) and nothing else loosened                                                     |
+
+### Targeted mutations with negative controls
+
+Each row applies one deliberate defect to the real source, runs the targeted tests, expects them to fail, then restores the original and expects them to pass again. Two defects first **survived** and exposed gaps, closed before this table was produced: (S3) selection ties depended on arrival order (a test with exactly tied candidates in two orders was added) and (T1) the first mutant was equivalent because of a redundant check, so the mutation now removes the whole verification condition, which the API and store tests catch.
+
+| Mutation (a deliberate defect)                                                   | Result     | Tests failed / passed       | Negative control (original restored) |
+| -------------------------------------------------------------------------------- | ---------- | --------------------------- | ------------------------------------ |
+| R1 ranking: severity weights inverted                                            | **KILLED** | 3 failed / 48 passed (51)   | control pass                         |
+| R2 ranking: observability ignored                                                | **KILLED** | 1 failed / 50 passed (51)   | control pass                         |
+| R3 ranking: model's proposal may exceed the kind's ceiling                       | **KILLED** | 3 failed / 48 passed (51)   | control pass                         |
+| S1 selection: no minimum marginal value (pads the list)                          | **KILLED** | 1 failed / 50 passed (51)   | control pass                         |
+| S2 selection: novelty ignored (one issue can take every slot)                    | **KILLED** | 3 failed / 48 passed (51)   | control pass                         |
+| S3 selection: ties broken by arrival order, not the total order                  | **KILLED** | 1 failed / 51 passed (52)   | control pass                         |
+| V1 validation: a reference outside the cited uncertainties is accepted           | **KILLED** | 1 failed / 50 passed (51)   | control pass                         |
+| V2 validation: accusatory wording is accepted                                    | **KILLED** | 5 failed / 61 passed (66)   | control pass                         |
+| V3 validation: a question that presupposes an unverified claim is accepted       | **KILLED** | 3 failed / 48 passed (51)   | control pass                         |
+| V4 validation: several questions in one are accepted                             | **KILLED** | 2 failed / 49 passed (51)   | control pass                         |
+| V5 validation: a criterion outside the cited uncertainties is accepted           | **KILLED** | 1 failed / 50 passed (51)   | control pass                         |
+| V6 validation: markup, links and injected instructions are accepted              | **KILLED** | 4 failed / 62 passed (66)   | control pass                         |
+| U1 uncertainty: a corroborated claim is still an opportunity                     | **KILLED** | 1 failed / 19 passed (20)   | control pass                         |
+| U2 uncertainty: repository evidence no longer counts as corroboration            | **KILLED** | 14 failed / 6 passed (20)   | control pass                         |
+| U3 uncertainty: a missing source is not reported                                 | **KILLED** | 1 failed / 19 passed (20)   | control pass                         |
+| U4 uncertainty: unrecorded coverage is read as complete                          | **KILLED** | 1 failed / 19 passed (20)   | control pass                         |
+| U5 uncertainty: thin documentation becomes an opportunity (presentation penalty) | **KILLED** | 12 failed / 8 passed (20)   | control pass                         |
+| P1 prompt: the trusted instruction text changes without a version bump           | **KILLED** | 1 failed / 164 passed (165) | control pass                         |
+| D1 database: a set may be modified after it is written                           | **KILLED** | 9 failed / 4 passed (13)    | control pass                         |
+| D2 database: an incomplete set may be committed                                  | **KILLED** | 1 failed / 12 passed (13)   | control pass                         |
+| D3 database: a set may disagree with its assessment                              | **KILLED** | 1 failed / 12 passed (13)   | control pass                         |
+| T1 store: a set is shown even when its assessment no longer verifies             | **KILLED** | 2 failed / 26 passed (28)   | control pass                         |
+| T2 store: no idempotency (generation key conflict is not handled)                | **KILLED** | 2 failed / 11 passed (13)   | control pass                         |
+| A1 service: questions are generated from an unverified assessment                | **KILLED** | 1 failed / 14 passed (15)   | control pass                         |
+| A2 service: the provider is called again for an existing set                     | **KILLED** | 1 failed / 14 passed (15)   | control pass                         |
+| A3 service: a project scope is not applied to reads                              | **KILLED** | 2 failed / 26 passed (28)   | control pass                         |
+| W1 web: the demonstration banner is not shown                                    | **KILLED** | 1 failed / 8 passed (9)     | control pass                         |
+| W2 web: a withheld set still shows its questions                                 | **KILLED** | 1 failed / 8 passed (9)     | control pass                         |
+
+**28 of 28 mutations killed; every negative control passed.**
 
 ## 11. Known limitations
 
@@ -221,4 +299,10 @@ Not authorized by this milestone. Before any live provider may phrase questions,
 
 ## Verdict
 
-**VERDICT**
+```
+M6_IMPLEMENTATION: READY_FOR_R9A
+FIVE_QUESTION_WORKFLOW: PASS
+LIVE_MODEL_READINESS: NOT AUTHORIZED
+```
+
+Basis: all gates in §10 pass; the workflow was exercised end to end in real Chromium (event → rubric → capture → scripted assessment → uncertainties → candidates → ranked selection → five, or fewer with an explanation, questions with evidence links → reload unchanged → same immutable assessment); persistence is immutable, idempotent and fail-closed; nothing in the branch calls a live model, spends money, deploys or merges. The questions shown are an offline scripted demonstration and are labelled as such. Caveats for R9A: the wording heuristics and the redundancy weights are policy choices not calibrated against real model output (§11), and the scripted demonstrator is deliberately plain.
