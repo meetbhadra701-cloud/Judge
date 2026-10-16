@@ -111,3 +111,39 @@ describe('api environment: the replay provider cannot be configured for producti
     }
   });
 });
+
+describe('openOfflineGate: the scripted demonstration provider (P6C)', () => {
+  it.each(['development', 'test'])(
+    'opens in %s with no fixture, as a scripted provider',
+    async (environment) => {
+      vi.stubEnv('NODE_ENV', environment);
+      const gate = await openOfflineGate({
+        provider: 'scripted',
+        fixturePath: undefined,
+        models: MODELS,
+      });
+      expect(gate.problem).toBeNull();
+      expect(gate.runtime?.provider).toEqual({ id: 'scripted', mode: 'scripted' });
+    },
+  );
+
+  it.each(['production', 'staging', 'Production', 'prod', ' '])(
+    'is refused in the runtime environment "%s"',
+    async (environment) => {
+      vi.stubEnv('NODE_ENV', environment);
+      const gate = await openOfflineGate({
+        provider: 'scripted',
+        fixturePath: undefined,
+        models: MODELS,
+      });
+      expect(gate.runtime).toBeNull();
+      expect(gate.problem).toContain('refused outside development and test');
+    },
+  );
+
+  it('the environment schema refuses it in production as well, and accepts it elsewhere without a fixture', () => {
+    const base = { AUTH_MODE: 'dev', API_HOST: '127.0.0.1', ASSESSMENT_PROVIDER: 'scripted' };
+    expect(ApiEnv.safeParse({ ...base, NODE_ENV: 'production' }).success).toBe(false);
+    expect(ApiEnv.safeParse({ ...base, NODE_ENV: 'development' }).success).toBe(true);
+  });
+});
