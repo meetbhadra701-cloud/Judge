@@ -25,7 +25,7 @@ import {
 } from '@judge-copilot/schemas';
 import { UncertaintyInputError, type UncertaintyInput } from '@judge-copilot/uncertainty';
 import type { OfflineAssessmentRuntime } from '../assessments/runtime-gate.js';
-import { questionDemonstrationStep } from './demonstration.js';
+import { DEMONSTRATION_TEMPLATES_VERSION, questionDemonstrationStep } from './demonstration.js';
 import { QuestionApiError } from './errors.js';
 import { generate, inputHashOf, prepare, type Prepared } from './generation.js';
 
@@ -211,6 +211,8 @@ export class QuestionService {
         provider: { id: base.id, mode },
         model,
         secrets: this.secrets,
+        // the scripted templates are part of the identity: a new template version never reuses (or hides behind) an older stored set
+        ...(mode === 'scripted' ? { demonstration: DEMONSTRATION_TEMPLATES_VERSION } : {}),
       });
     } catch (error) {
       if (error instanceof UncertaintyInputError) {

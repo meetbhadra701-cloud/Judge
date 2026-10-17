@@ -3,12 +3,20 @@ import type { LlmResult, StructuredRequest } from '@judge-copilot/llm';
 /*
  * The SCRIPTED QUESTION DEMONSTRATION "model" (M6). It exists so the whole question workflow -- uncertainty analysis, candidate validation, ranking,
  * selection, persistence, display -- can be shown offline, on any verified assessment. It is NOT a model and it is NOT an AI: every candidate is produced by
- * the fixed templates below from the STRUCTURE of the request (the kind of each uncertainty, the rubric criterion names and track names the request lists),
- * and none depends on what a team wrote. Every set it produces is labelled an offline demonstration everywhere it is shown (provider mode `scripted`), and
- * the provider is refused outside development and test by the llm package and by the environment schemas.
+ * the fixed templates below from the STRUCTURE of the request (the kind of each uncertainty and which criterion or track it cites), and none depends on what a
+ * team wrote. Every set it produces is labelled an offline demonstration everywhere it is shown (provider mode `scripted`), and the provider is refused outside
+ * development and test by the llm package and by the environment schemas.
  *
- * It returns a candidate for the first uncertainty of each (kind, criteria) signature only, so it never floods the ranking with copies of one question.
+ * NO OFFICIAL NAME IS QUOTED (M6-R4). A rubric criterion or a track is referred to by a neutral, code-written phrase ("the rubric criterion cited with the third open
+ * uncertainty"); its name travels as trusted reference metadata (the question's criteria and linked references, shown beside the question), never inside the
+ * validated wording. The ordinal is the code-assigned position of the uncertainty (its handle O-003 is the third), so two uncertainties that use the same template
+ * never produce the same sentence, and the candidate keeps the real source identities in its references and criteria.
+ *
+ * It returns a candidate for the first uncertainty of each (kind, cited track, cited criteria) identity only, so it never floods the ranking with copies of one question.
  */
+
+/** Part of the generation identity of every scripted set: a change to the templates below is a new identity, never a silent reuse of an older stored output. */
+export const DEMONSTRATION_TEMPLATES_VERSION = 'question-demonstration/v2' as const;
 
 interface Record_ {
   readonly handle: string;
@@ -120,8 +128,6 @@ const UNKNOWN_VARIANTS: Readonly<Record<string, Template>> = {
   },
 };
 
-const quote = (name: string): string => `“${name.replace(/[“”"]/g, '').slice(0, 80)}”`;
-
 const TEMPLATES: Readonly<Record<string, Template>> = {
   dimension_not_assessed: {
     mode: 'show_me',
@@ -220,19 +226,49 @@ const TEMPLATES: Readonly<Record<string, Template>> = {
   },
 };
 
-export const DEMONSTRATION_MODEL = 'scripted-demonstration';
+export const DEMONSTRATION_MODEL = 'scripted-demonstration/v2';
+
+const ORDINAL_WORDS = [
+  'first',
+  'second',
+  'third',
+  'fourth',
+  'fifth',
+  'sixth',
+  'seventh',
+  'eighth',
+  'ninth',
+  'tenth',
+  'eleventh',
+  'twelfth',
+  'thirteenth',
+  'fourteenth',
+  'fifteenth',
+  'sixteenth',
+  'seventeenth',
+  'eighteenth',
+  'nineteenth',
+  'twentieth',
+];
+
+/** The code-assigned position of an uncertainty: its handle O-003 is the third, which is also its place in the list the judge sees. */
+function ordinalOf(handle: string): string {
+  const n = Number(/^O-0*(\d+)$/.exec(handle)?.[1] ?? '0');
+  const word = ORDINAL_WORDS[n - 1];
+  if (word !== undefined) return word;
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen
+    ? 'th'
+    : (({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th');
+  return `${String(n)}${suffix}`;
+}
 
 export function questionDemonstrationStep(request: StructuredRequest): LlmResult {
   const records = parseRecords(request);
-  const dimensionName = new Map<string, string>();
   const referenceType = new Map<string, string>();
-  const referenceLabel = new Map<string, string>();
   for (const record of records) {
-    if (record.handle.startsWith('D-')) {
-      dimensionName.set(record.handle, text(record.meta['name']));
-    } else if (/^[CXEKRTV]-/.test(record.handle)) {
+    if (/^[CXEKRTV]-/.test(record.handle)) {
       referenceType.set(record.handle, text(record.meta['type']));
-      referenceLabel.set(record.handle, record.body ?? '');
     }
   }
   const seen = new Set<string>();
@@ -251,18 +287,25 @@ export function questionDemonstrationStep(request: StructuredRequest): LlmResult
     const dimensions = (record.meta['dimensions'] as string[] | undefined) ?? [];
     const references = (record.meta['references'] as string[] | undefined) ?? [];
     const trackHandle = references.find((handle) => referenceType.get(handle) === 'track');
-    const names = dimensions.map((handle) => dimensionName.get(handle) ?? '').filter(Boolean);
+    const ordinal = ordinalOf(record.handle);
+    // a NEUTRAL reference: no criterion or track name is ever put into the wording
     const subject =
       kind === 'requirement_unaddressed' || kind === 'track_rubric_not_assessed'
         ? trackHandle !== undefined
-          ? `the ${quote(referenceLabel.get(trackHandle) ?? 'declared')} track`
+          ? `the event track cited with the ${ordinal} open uncertainty`
           : 'the event’s general rules'
-        : names.length === 1
-          ? quote(names[0] ?? '')
-          : names.length > 1
-            ? `${quote(names[0] ?? '')} and related criteria`
+        : dimensions.length === 1
+          ? `the rubric criterion cited with the ${ordinal} open uncertainty`
+          : dimensions.length > 1
+            ? `the rubric criterion cited with the ${ordinal} open uncertainty and its related criteria`
             : 'this project';
-    const signature = `${kind}|${unknownType ?? ''}|${subject}`;
+    // the signature is the SOURCE IDENTITY (kind, recorded type, cited track, cited criteria), never the wording
+    const signature = [
+      kind,
+      unknownType ?? '',
+      trackHandle ?? '',
+      [...dimensions].sort().join(','),
+    ].join('|');
     if (seen.has(signature)) continue;
     seen.add(signature);
     candidates.push({
@@ -272,7 +315,11 @@ export function questionDemonstrationStep(request: StructuredRequest): LlmResult
       expectedInformation: [...template.info],
       opportunities: [record.handle],
       dimensions: dimensions.slice(0, 6),
-      references: references.filter((handle) => handle !== trackHandle).slice(0, 3),
+      // the cited track travels as a linked reference, so the judge can see which one it is although its name is not in the wording
+      references: [
+        ...(trackHandle !== undefined ? [trackHandle] : []),
+        ...references.filter((handle) => handle !== trackHandle),
+      ].slice(0, 3),
       distinguishes: template.distinguishes,
       effort: template.effort,
     });

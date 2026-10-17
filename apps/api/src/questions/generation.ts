@@ -71,6 +71,8 @@ export function generationKeyOf(parts: {
   readonly inputHash: string;
   readonly provider: { readonly id: string; readonly mode: string };
   readonly model: string;
+  /** The version of the code-written templates of the scripted demonstrator, when one is the provider: new templates are a new identity (M6-R4). */
+  readonly demonstration?: string | undefined;
 }): string {
   return sha256Hex(
     canonicalJson({
@@ -88,6 +90,8 @@ export function generationKeyOf(parts: {
       },
       provider: parts.provider,
       model: parts.model,
+      // only a scripted generation carries it, so the identity of a replay (or a future live) generation is unchanged
+      ...(parts.demonstration === undefined ? {} : { demonstration: parts.demonstration }),
       inputHash: parts.inputHash,
     }),
   );
@@ -102,6 +106,7 @@ export function prepare(
     readonly provider: { readonly id: string; readonly mode: string };
     readonly model: string;
     readonly secrets: readonly string[];
+    readonly demonstration?: string | undefined;
   },
 ): Prepared {
   const report = analyzeUncertainty(input);
@@ -112,6 +117,7 @@ export function prepare(
     inputHash,
     provider: runtime.provider,
     model: runtime.model,
+    demonstration: runtime.demonstration,
   });
   if (report.opportunities.length === 0) {
     return { report, closed, inputHash, generationKey, request: null };
