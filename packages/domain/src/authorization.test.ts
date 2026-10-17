@@ -42,6 +42,17 @@ describe('authorization policy', () => {
       'question.read',
       'question.generate',
     ]);
+    // M7: judges record interviews without any organizer power; there is no permission to edit or delete an interview record
+    for (const permission of ['interview.read', 'interview.record'] as const) {
+      expect(hasPermission(['judge'], permission)).toBe(true);
+      expect(hasPermission(['organizer'], permission)).toBe(true);
+      expect(hasPermission([], permission)).toBe(false);
+    }
+    expect(PERMISSIONS.filter((permission) => permission.startsWith('interview'))).toEqual([
+      'interview.read',
+      'interview.record',
+    ]);
+    expect(ROLE_PERMISSIONS.judge.filter((p) => p.endsWith('.write'))).toEqual([]);
     expect(hasPermission(['judge'], 'event_context.write')).toBe(false);
     expect(hasPermission(['judge'], 'project.write')).toBe(false);
     expect(hasPermission([], 'project.read')).toBe(false);

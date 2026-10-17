@@ -197,3 +197,45 @@ a.button-link {
   background: #eff6ff;
   text-decoration: none;
 }
+
+/* M7: Interview Mode. Typed text (the team's answers, the judge's observations) is shown as typed: line breaks kept, long words wrapped, never interpreted. */
+.typed {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+blockquote.typed {
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.75rem;
+  border-left: 3px solid #9ca3af;
+  background: #f9fafb;
+}
+ul.records {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+ul.records > li {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+form.interview-form {
+  margin: 0.5rem 0 1rem;
+}
+form.interview-form fieldset {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem;
+}
+label.outcome-choice {
+  display: block;
+  margin: 0.4rem 0;
+}
+.interview-evidence {
+  border-left: 3px solid #bfdbfe;
+  padding-left: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+ol.interview-questions > li {
+  margin-bottom: 2rem;
+}

@@ -90,6 +90,13 @@ local-only: the API binds to `127.0.0.1` by default.
 - Dimension judgments, their classification of cited evidence, the database-backed adapter that builds the
   trusted context, and any API or UI are M5 or later.
 
+### Refinements recorded in M7
+
+- M7 adds exactly two tables (`team_answers`, `judge_observations`), one migration (`0025`), the interview API (one GET, two POSTs), the `interview.read` / `interview.record` permissions and the Interview Mode page. It adds no reassessment, no post-interview version, no score change and no final score, calls no model and enables no live provider.
+- The two evidence origins `team_answer` and `judge_observation` stay refused in the evidence graph, and the privileged verification levels stay unreachable. The records M7 persists are what a later, separately approved trusted path (M8) may cite; M7 does not create that path.
+- A record is immutable. A correction is a new record that names the one it supersedes; the original stays.
+- Two keys were added to the immutable M6 tables so that interview records can reference them with composite foreign keys (`question_sets(id, project_id, assessment_id)`, `question_set_questions(id, set_id)`); no M6 row, trigger or constraint was changed.
+
 ## Definition of done (every milestone)
 
 - dependencies install cleanly from the lockfile;
@@ -111,3 +118,4 @@ local-only: the API binds to `127.0.0.1` by default.
 - [M4 — Deterministic Scoring Engine](./milestones/M4-report.md) (design: [M4-design](./milestones/M4-design.md))
 - [M5 — AI Pre-Interview Assessment](./milestones/M5-P6A-report.md) (design: [M5-design](./milestones/M5-design.md); real-event usability: [P6D](./milestones/P6D_REAL_EVENT_USABILITY_REPORT.md))
 - [M6 — Uncertainty Analysis and Five-Question Engine](./milestones/M6_FIVE_QUESTION_ENGINE_REPORT.md)
+- [M7 — Interview Mode](./milestones/M7_INTERVIEW_MODE_REPORT.md)

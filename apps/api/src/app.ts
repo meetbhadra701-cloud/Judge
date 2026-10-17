@@ -3,6 +3,8 @@ import type { JudgeDatabase } from '@judge-copilot/database';
 import type { Logger } from '@judge-copilot/shared';
 import Fastify from 'fastify';
 import { registerAssessmentRoutes } from './assessments/routes.js';
+import { registerInterviewRoutes } from './interview/routes.js';
+import type { InterviewService } from './interview/service.js';
 import { registerQuestionRoutes } from './questions/routes.js';
 import type { QuestionService } from './questions/service.js';
 import type { AssessmentService } from './assessments/service.js';
@@ -38,6 +40,8 @@ export interface BuildAppOptions {
   assessments?: AssessmentService | null;
   /** Suggested interview questions of a verified assessment (M6). Null when no database is configured. */
   questions?: QuestionService | null;
+  /** The record of an interview: team answers and judge observations (M7). Null when no database is configured. */
+  interview?: InterviewService | null;
   /** Database used to record authenticated actors (required whenever services are present). */
   db?: JudgeDatabase | null;
   /** Null when authentication is not configured: every protected route then answers 503. */
@@ -55,6 +59,7 @@ export function buildApp({
   evidenceGraph = null,
   assessments = null,
   questions = null,
+  interview = null,
   db = null,
   verifier = null,
 }: BuildAppOptions): ApiApp {
@@ -93,6 +98,7 @@ export function buildApp({
     if (evidenceGraph) registerEvidenceGraphRoutes(app, evidenceGraph, guard);
     if (assessments) registerAssessmentRoutes(app, assessments, guard);
     if (questions) registerQuestionRoutes(app, questions, guard);
+    if (interview) registerInterviewRoutes(app, interview, guard);
   } else {
     registerUnavailableEventContextRoutes(app);
     registerUnavailableProjectRoutes(app);

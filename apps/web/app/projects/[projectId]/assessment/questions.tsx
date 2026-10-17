@@ -1,4 +1,5 @@
 import type { QuestionSetView, SelectedQuestionView } from '@judge-copilot/schemas';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import {
   countLine,
@@ -60,6 +61,17 @@ export function QuestionsSection(props: QuestionsSectionProps): ReactNode {
           notice={state.notice}
           action={props.generateAction}
         />
+      ) : null}
+      {state.kind === 'set' ? (
+        <p data-testid="open-interview-mode">
+          <Link
+            className="button-link"
+            href={`/projects/${encodeURIComponent(props.projectId)}/interview?version=${encodeURIComponent(props.assessmentId)}&set=${encodeURIComponent(state.set.id)}`}
+          >
+            Open Interview Mode →
+          </Link>{' '}
+          <small>Record what the team answers and what you observe, beside each question.</small>
+        </p>
       ) : null}
       {state.kind === 'set' ? <SetView set={state.set} /> : null}
     </section>

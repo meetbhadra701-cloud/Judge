@@ -166,6 +166,8 @@ export {
   questionSetOpportunities,
   questionSetQuestions,
   questionSets,
+  judgeObservations,
+  teamAnswers,
   rubricAnchors,
   rubricCriteria,
   rubrics,
@@ -189,3 +191,16 @@ export {
   loadCoverageEvidence,
   verifyCoverageProvenance,
 } from './coverage-evidence.js';
+export {
+  InterviewAlreadyCorrectedError,
+  InterviewKeyReusedError,
+  InterviewProjectVoidedError,
+  InterviewStore,
+  InterviewTargetMismatchError,
+  InterviewTargetNotFoundError,
+  isInterviewVoidRefusal,
+  type RecordJudgeObservationInput,
+  type RecordResult,
+  type RecordTeamAnswerInput,
+  type RecordingActor,
+} from './interview-store.js';

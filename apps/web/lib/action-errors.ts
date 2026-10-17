@@ -40,6 +40,9 @@ export const ASSESSMENT_REQUEST_RECOVERY =
 export const QUESTION_GENERATE_RECOVERY =
   'Reload this page to see whether the questions were saved. A set of questions for the same assessment is never created twice, so generating again is safe.';
 
+export const INTERVIEW_RECORD_RECOVERY =
+  'Reload this page to see what was saved. Saving again is safe: the same request is never recorded twice, and what you typed is still in the box.';
+
 // -- Retrying one source's capture ------------------------------------------------------------------------------------------------------
 
 type ApiAnswer = { ok: true } | ({ ok: false } & FailedRequest);

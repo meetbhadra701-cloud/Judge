@@ -778,11 +778,11 @@ same predecessor is won by exactly one writer (`CLAIM_ALREADY_SUPERSEDED` for th
 
 ### Provenance
 
-| Origin                                     | Structural provenance                                                                                                                                                                      |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `devpost`, `github`, `deployment`, `video` | `snapshot_id` → an **exact** M2 snapshot of the same project, `captured` or `partial`, of the matching source type; optionally `artifact_id` (must belong to **that** snapshot) and a span |
-| `event_context`                            | `context_version_id` → a `locked` or `superseded` version of the project's own event (version-level provenance: M1 facts have no stable per-item ID; documented limitation)                |
-| `team_answer`, `judge_observation`         | vocabulary only; refused until M7 supplies the records they would point at (CHECK + domain rule)                                                                                           |
+| Origin                                     | Structural provenance                                                                                                                                                                                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `devpost`, `github`, `deployment`, `video` | `snapshot_id` → an **exact** M2 snapshot of the same project, `captured` or `partial`, of the matching source type; optionally `artifact_id` (must belong to **that** snapshot) and a span                                                                               |
+| `event_context`                            | `context_version_id` → a `locked` or `superseded` version of the project's own event (version-level provenance: M1 facts have no stable per-item ID; documented limitation)                                                                                              |
+| `team_answer`, `judge_observation`         | vocabulary only; **still refused in the graph** (CHECK + domain rule). M7 supplies the records they would point at (`team_answers`, `judge_observations`) but adds no path from them into the graph: that is M8's, under its own approval ("Interview Mode (M7)", below) |
 
 A **span** is `[span_start, span_end)` in **Unicode code points** of the artifact's stored text
 (not UTF-16 units, not bytes; PostgreSQL's `substr`/`char_length` use the same unit). The stored
@@ -1095,3 +1095,32 @@ fetch no worker has started is replaced; one a worker is running is never touche
 **Known gap.** The evidence origin vocabulary is not split: evidence from supplied text still carries origin `devpost` (with `team_claim`), distinguished by the limitation and the snapshot labels rather than by a
 separate origin. Splitting it needs a vocabulary migration and is left to a later milestone. Real-source readiness stays **blocked** for Devpost until the input path has been demonstrated by a person on a real
 submission.
+
+## Interview Mode (M7)
+
+M7 captures what happens during the interview as **immutable, attributed records**. It scores nothing, assesses nothing, calls no model and writes nothing to the evidence graph. Full account: [M7 report](./milestones/M7_INTERVIEW_MODE_REPORT.md).
+
+### Two kinds of record, never confused
+
+| Record                                    | Meaning                                                                                                                                                                                                          | Trust                                                                                                                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TeamAnswer` (`team_answers`)             | "the judge recorded that the team said this", for ONE suggested question                                                                                                                                         | **testimony**: not a verified fact, not evidence in the graph                                                                                                                  |
+| `JudgeObservation` (`judge_observations`) | "the authenticated judge reports observing this": what was demonstrated or examined, what the judge directly saw, and a descriptive `outcome` (`confirmed`, `not_confirmed`, `inconclusive`, `unable_to_verify`) | **the judge's own report**: not checked by the system, not (yet) trusted verification evidence. `not_confirmed` and `unable_to_verify` are NOT negative evidence (invariant 3) |
+
+### Structure
+
+- Every record carries project, assessment and (for an answer, and optionally for an observation) the question set and the question. Every link is a **composite foreign key that carries the project**: `(set, project, assessment) → question_sets`, `(question, set) → question_set_questions`, `(assessment, project) → pre_interview_assessments`, a correction `(id, project, assessment, set, question) → team_answers`, an observation's linked answer likewise. A record cannot point across projects, at a set of another assessment, or at a question of another set, whatever the application does. (Migration 0025 adds the two referenceable keys `question_sets(id, project_id, assessment_id)` and `question_set_questions(id, set_id)`; the M6 tables are otherwise unchanged.)
+- **Append-only:** UPDATE, DELETE and TRUNCATE are refused by trigger on both tables. A **correction** is a new row naming the row it supersedes (same question; one row can be superseded at most once, by a unique key, so a chain is linear and two concurrent corrections cannot both win). The original stays; the newest record of a chain is `isCurrent`.
+- **Server-assigned:** the id and the time (a trigger sets `created_at` from the database clock, so direct SQL cannot backdate), the actor and the **role the credential held** (`judge` whenever the identity holds it, else `organizer`) come from the authenticated request, never from the body (the body is strict).
+- **Idempotent:** one actor and one `Idempotency-Key` are one logical request. The same content replays the stored record (200); other content under the key is refused (409); simultaneous identical requests create one row (unique key).
+- **Void-safe:** a voided project keeps its interview history readable and takes no new record. Checked up front and by the database (`project_not_voided_guard` takes `FOR SHARE` on the project row, which conflicts with the `FOR UPDATE` a void takes).
+- **Audited in the same transaction** (`interview.team_answer_recorded|corrected`, `interview.judge_observation_recorded|corrected`): identifiers, the action, the role and the outcome state; **never the typed text**.
+- **Fail closed:** records are shown, and accepted, only beside an assessment that still verifies (like the assessment itself and its question sets).
+
+### API and permissions
+
+`interview.read` (`GET /projects/:projectId/assessments/:assessmentId/interview`) and `interview.record` (`POST .../question-sets/:setId/questions/:questionId/team-answers`, `POST .../assessments/:assessmentId/judge-observations`) are held by both roles; neither is an organizer power and neither can edit or delete (every other method answers 405). A judge records without any organizer permission.
+
+### The handoff to M8, and what M7 deliberately does not do
+
+M8 reads the records through the stored joins: `team_answers.question_id → question_set_questions` (question, mode, reason, dimensions, references) `→ opportunity_keys → question_set_opportunities` (the uncertainty, its dimensions and its evidence trail). It may use a team answer only as input to decomposition into claims at `team_claim` level, and must add its own provenance column(s) to the graph for origin `team_answer`. A `judge_observation` can support `judge_verified` or `live_verified` only through a **trusted attestation** that M8 (or a later, separately approved milestone) adds: deterministic code, never a model and never the typed text, from a current (`isCurrent`) `confirmed` observation recorded with `recorded_as_role = 'judge'`, **plus an explicit judge act naming the claim it corroborates** (an observation names a question, not a claim). M7 enables none of this: `M3_PRODUCER_VERIFICATION_LEVELS`, the origin CHECK and the producer gate are unchanged.

@@ -17,6 +17,8 @@ export const PERMISSIONS = [
   'assessment.run',
   'question.read',
   'question.generate',
+  'interview.read',
+  'interview.record',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -33,6 +35,10 @@ export type Permission = (typeof PERMISSIONS)[number];
  * only ever adds an immutable question set (it changes no assessment, score or weight); it is a separate permission because it will call a model once a live
  * provider is authorized.
  *
+ * `interview.read` and `interview.record` (M7) let both roles read the interview records of a project and record new ones: the team's answer to a suggested
+ * question, and the judge's own observation of a live demonstration. A record is append-only (a correction is a new record), carries the authenticated actor and
+ * the role the credential held, and changes no assessment, score or weight. There is no permission to edit or delete a record: none exists.
+ *
  * `evidence.read` (M3) lets both roles inspect a project's evidence graph. There is no evidence
  * write permission: M3 has no producer, and the graph is written only by trusted server code.
  */
@@ -48,6 +54,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>
     'assessment.run',
     'question.read',
     'question.generate',
+    'interview.read',
+    'interview.record',
   ],
   judge: [
     'event_context.read',
@@ -58,6 +66,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<ActorRole, readonly Permission[]>
     'assessment.run',
     'question.read',
     'question.generate',
+    'interview.read',
+    'interview.record',
   ],
 };
 

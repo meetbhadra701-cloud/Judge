@@ -90,6 +90,12 @@ export const questionSets = pgTable(
   (table) => [
     unique('question_sets_generation_key_key').on(table.generationKey),
     unique('question_sets_id_project_id_key').on(table.id, table.projectId),
+    /** M7: an interview record names a set together with its project AND assessment, so it cannot point at a set of another assessment. */
+    unique('question_sets_id_project_assessment_key').on(
+      table.id,
+      table.projectId,
+      table.assessmentId,
+    ),
     foreignKey({
       name: 'question_sets_project_fk',
       columns: [table.projectId],
@@ -220,6 +226,8 @@ export const questionSetQuestions = pgTable(
   },
   (table) => [
     unique('question_set_questions_rank_key').on(table.setId, table.rank),
+    /** M7: an interview record names a question together with its set, so it cannot point at a question of another set. */
+    unique('question_set_questions_id_set_key').on(table.id, table.setId),
     unique('question_set_questions_candidate_key').on(table.setId, table.candidateKey),
     check(
       'question_set_questions_rank_range',

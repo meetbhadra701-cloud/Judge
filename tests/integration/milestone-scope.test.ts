@@ -1,4 +1,9 @@
 /*
+ * M7 UPDATE (docs/milestones/M7_INTERVIEW_MODE_REPORT.md): M7 adds the interview records `team_answers` and `judge_observations` (migration 0025: tables, composite keys,
+ * append-only / not-voided / stamping triggers), the interview API (apps/api/src/interview: one GET and two POSTs, every other method refused), the `interview.read` and
+ * `interview.record` permissions and the Interview Mode page. It adds NO reassessment, post-interview, score-change or final-score table, route or UI, no model call, and
+ * NO live provider. Everything from M8 on must stay unimplemented; the assertions below were updated for M7 and nothing else was loosened.
+ *
  * M6 UPDATE (docs/milestones/M6_FIVE_QUESTION_ENGINE_REPORT.md): M6 adds the two pure packages `uncertainty` and `questions`, the `question-candidates/v1` prompt,
  * the three immutable question-set tables (migrations 0022/0023), the API question routes (apps/api/src/questions) and the Five Questions section of the
  * assessment page. It adds NO answer, interview, reassessment or final-score table, route or UI, and NO live provider. Everything from M7 on must stay
@@ -109,6 +114,9 @@ const M6_TABLES = [
   'question_sets',
 ];
 
+/** The only tables M7 adds (migration 0025): the immutable records of an interview. No post-interview, score-change, delta or final-score table. */
+const M7_TABLES = ['judge_observations', 'team_answers'];
+
 /** The only tables M3 may add. */
 const M3_TABLES = ['claims', 'contradictions', 'evidence_items', 'evidence_relations', 'unknowns'];
 
@@ -207,11 +215,12 @@ describe('M5 milestone scope (phase P6A)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('creates no question, answer, interview or final-score tables in any migration; M3 adds the five graph tables and M5 P4 the twelve assessment tables', () => {
+  it('creates no question, answer, interview or final-score tables in any migration other than the approved M6 and M7 ones; M3 adds the five graph tables and M5 P4 the twelve assessment tables', () => {
     const migrations = join(ROOT, 'packages/database/drizzle');
     const graphTables: string[] = [];
     const laterTables: string[] = [];
     const m6Tables: string[] = [];
+    const m7Tables: string[] = [];
     for (const file of readdirSync(migrations).filter((name) => name.endsWith('.sql'))) {
       const created = [
         ...readFileSync(join(migrations, file), 'utf8').matchAll(
@@ -225,6 +234,10 @@ describe('M5 milestone scope (phase P6A)', () => {
         }
         if (M6_TABLES.includes(table)) {
           m6Tables.push(table);
+          continue;
+        }
+        if (M7_TABLES.includes(table)) {
+          m7Tables.push(table);
           continue;
         }
         expect(LATER_TABLE_PATTERN.test(table), `${file}: ${table}`).toBe(false);
@@ -241,6 +254,8 @@ describe('M5 milestone scope (phase P6A)', () => {
     expect(laterTables.sort()).toEqual(M5_P4_TABLES);
     // M6 adds exactly the question-set tables and the generation-claim table, and no answer, interview, final-score or delta table
     expect(m6Tables.sort()).toEqual(M6_TABLES);
+    // M7 adds exactly the two interview-record tables, and no post-interview, score-change, delta or final-score table
+    expect(m7Tables.sort()).toEqual(M7_TABLES);
   });
 
   it('defines no score, weight, confidence, coverage, rank or accusation column on a graph table', () => {
@@ -361,6 +376,9 @@ describe('M5 milestone scope (phase P6A)', () => {
       '0023_m6_question_set_integrity.sql',
       // M6-R1: the generation-claim working table, two nullable counters and the widened shortfall-code CHECK. No answer, interview or final-score table.
       '0024_m6_r1_generation_claims.sql',
+      // M7: the two append-only interview-record tables (team answers, judge observations), two referenceable keys on the immutable M6 tables, and the triggers
+      // (append-only, no truncate, not-voided, database-stamped time). No post-interview, score-change, delta or final-score table, nothing that scores.
+      '0025_m7_interview_records.sql',
     ]);
   });
 
@@ -609,10 +627,16 @@ describe('M5 milestone scope (phase P6A)', () => {
     ].map((match) => match[1] ?? '');
     expect(createdAssessmentTables.sort()).toEqual(M5_P4_TABLES);
     expect(
-      /CREATE TABLE (?:IF NOT EXISTS )?"[a-z_]*(post_interview|final_score|answer|delta)[a-z_]*"/i.test(
+      /CREATE TABLE (?:IF NOT EXISTS )?"[a-z_]*(post_interview|final_score|delta)[a-z_]*"/i.test(
         sql,
       ),
     ).toBe(false);
+    // the only answer table is M7's team_answers (testimony recorded by a judge)
+    expect(
+      [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?"([a-z_]*answer[a-z_]*)"/gi)].map(
+        (match) => match[1] ?? '',
+      ),
+    ).toEqual(['team_answers']);
     expect(
       [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?"([a-z_]*question[a-z_]*)"/gi)]
         .map((match) => match[1] ?? '')
@@ -654,6 +678,8 @@ describe('M5 milestone scope (phase P6A)', () => {
       if (file === join(ROOT, 'apps/api/src/assessments/routes.ts')) continue;
       // M6: the question routes are pinned by the test below
       if (file === join(ROOT, 'apps/api/src/questions/routes.ts')) continue;
+      // M7: the interview routes are pinned by the test below
+      if (file === join(ROOT, 'apps/api/src/interview/routes.ts')) continue;
       const paths = [...readFileSync(file, 'utf8').matchAll(/['`](\/[^'`]*)['`]/g)].map(
         (match) => match[1] ?? '',
       );
@@ -712,6 +738,29 @@ describe('M5 milestone scope (phase P6A)', () => {
     expect(
       routes + readFileSync(join(ROOT, 'apps/api/src/questions/service.ts'), 'utf8'),
     ).not.toMatch(/createAssessmentLoop|runAssessment|renderPrompt|\.transaction\(/);
+  });
+
+  it('exposes exactly the three approved interview routes (one GET, two POSTs), refuses every other method, and has no assessment, score, reassessment or final-score route', () => {
+    const routes = readFileSync(join(ROOT, 'apps/api/src/interview/routes.ts'), 'utf8');
+    const handlers = [
+      ...routes.matchAll(/app\.(get|post|put|patch|delete|all)\(\s*'([^']+)'/g),
+    ].map((m) => `${(m[1] ?? '').toUpperCase()} ${m[2] ?? ''}`);
+    expect(handlers.sort()).toEqual([
+      'GET /projects/:projectId/assessments/:assessmentId/interview',
+      'POST /projects/:projectId/assessments/:assessmentId/judge-observations',
+      'POST /projects/:projectId/question-sets/:setId/questions/:questionId/team-answers',
+    ]);
+    expect(routes).toContain("guard('interview.record')");
+    expect(routes).toContain('INTERVIEW_RECORDS_IMMUTABLE');
+    expect(/\b(reassess|final|delta|rank|post[-_]interview)\b/i.test(routes)).toBe(false);
+    // no interview code renders a prompt, calls a model, reads a score or touches the evidence graph or the assessment tables' writers
+    const code =
+      routes +
+      readFileSync(join(ROOT, 'apps/api/src/interview/service.ts'), 'utf8') +
+      readFileSync(join(ROOT, 'packages/database/src/interview-store.ts'), 'utf8');
+    expect(code).not.toMatch(
+      /createAssessmentLoop|runAssessment|renderPrompt|@judge-copilot\/(llm|prompts|scoring|assessment|evidence)['"]|createGraph|EvidenceGraphStore|AssessmentStore\b|generate\(/,
+    );
   });
 
   it('keeps the pure M6 packages pure: no I/O, process, network, database, environment, clock or randomness, and no model or prompt package', () => {

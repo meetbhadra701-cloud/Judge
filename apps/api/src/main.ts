@@ -6,6 +6,7 @@ import { createLogger, handleShutdownSignals } from '@judge-copilot/shared';
 import { buildApp, SERVICE_NAME } from './app.js';
 import { loadApiEnv } from './env.js';
 import { AssessmentService } from './assessments/service.js';
+import { InterviewService } from './interview/service.js';
 import { QuestionService } from './questions/service.js';
 import { openOfflineGate } from './assessments/runtime-gate.js';
 import { EventContextService } from './event-context/service.js';
@@ -88,6 +89,7 @@ const app = buildApp({
         ),
       })
     : null,
+  interview: database ? new InterviewService({ db: database.db }) : null,
   evidenceGraph: database
     ? new EvidenceGraphService({ store: new EvidenceGraphStore({ db: database.db }) })
     : null,

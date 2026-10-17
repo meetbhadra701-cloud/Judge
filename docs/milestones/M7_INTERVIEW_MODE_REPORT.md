@@ -1,0 +1,214 @@
+# M7 — Interview Mode
+
+Branch `claude/m7-interview-mode`, from the accepted M6 head. Nothing here calls a live model, spends money, deploys or merges. M7 captures what a judge records DURING the interview as
+immutable, attributed records. It **scores nothing, assesses nothing, writes nothing to the evidence graph and calls no model**; reassessment is M8 and the final score is M9.
+
+## 1. Commits
+
+|                    |                                                                                                                                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Starting head (M6) | `8b1c047b911ba5ddd981c2330273e664476cf7bf` (accepted by R9E)                                                                                                                                                      |
+| Branch             | `claude/m7-interview-mode`                                                                                                                                                                                        |
+| Final head         | the commit that carries this report (a commit cannot name its own hash; `git log -1` on the branch)                                                                                                               |
+| Changed            | `packages/schemas` (`interview.ts`), `packages/domain` (two permissions), `packages/database` (schema, migration 0025, `InterviewStore`), `apps/api/src/interview`, `apps/web` (Interview Mode page), tests, docs |
+| Not changed        | the evidence graph (schema, planner, producer gate), scoring, the assessment pipeline, the question engine, the worker, every earlier migration. No live provider. No new dependency.                             |
+
+## 2. The records and their trust
+
+| Record                                       | Means                                                                                                                                                                                                                                                                                    | Trust                                                                                                                                                                        |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Team answer** (`team_answers`)             | "the judge recorded that the team said this", for ONE suggested question                                                                                                                                                                                                                 | **Testimony.** Not a verified fact, not graph evidence, not proof of anything. Labelled so everywhere it is shown.                                                           |
+| **Judge observation** (`judge_observations`) | "the authenticated judge reports observing this": what was demonstrated or examined (`subject`), what the judge directly saw (`observed`) and a descriptive `outcome`; optionally linked to the question and to the team answer being discussed; may also stand alone for the assessment | **The judge's own report.** Recorded separately from the answer. Not checked by the system, not trusted verification evidence, and not enabled as such anywhere (section 8). |
+
+`outcome` is one of four **descriptions of the attempt**, each with a fixed meaning shown beside it: `confirmed` ("the judge reports directly observing what the team described"), `not_confirmed`
+("looked and did not observe it — **not** evidence that it does not exist and not a finding against the project"), `inconclusive`, and `unable_to_verify` ("could not be carried out or checked;
+nothing is inferred about the project"). **No evidence supplied is not negative evidence** (invariant 3) and **an unanswered question is not a failed question**: an empty answer list says exactly that,
+and no record is created for an unanswered question. A set with fewer than five questions works unchanged; nothing is padded, and an observation can be recorded with no question set at all.
+
+## 3. Data model (migration `0025_m7_interview_records`)
+
+Generated by drizzle-kit, then extended by hand with the triggers it cannot model; idempotent (re-run safe, `docs/MIGRATIONS.md` §6.4/§9); no existing row is rewritten.
+
+**`team_answers`**: `id`, `project_id`, `assessment_id`, `question_set_id`, `question_id`, `answer_text`, `recorded_by_actor_id`, `recorded_as_role`, `idempotency_key`, `request_hash`, `supersedes_answer_id`, `created_at`.
+**`judge_observations`**: `id`, `project_id`, `assessment_id`, `question_set_id?`, `question_id?`, `team_answer_id?`, `subject`, `observed`, `outcome`, `recorded_by_actor_id`, `recorded_as_role`, `idempotency_key`, `request_hash`, `supersedes_observation_id?`, `created_at`.
+
+| Guarantee                                       | Mechanism (database, not only application)                                                                                                                                                                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Same project and same assessment                | composite FK `(assessment_id, project_id) → pre_interview_assessments(id, project_id)` on both tables                                                                                                                                                         |
+| A set of THIS assessment                        | composite FK `(question_set_id, project_id, assessment_id) → question_sets(id, project_id, assessment_id)` (new UNIQUE key on the immutable M6 table)                                                                                                         |
+| A question of THAT set                          | composite FK `(question_id, question_set_id) → question_set_questions(id, set_id)` (new UNIQUE key)                                                                                                                                                           |
+| A linked answer answers the SAME question       | observation FK `(team_answer_id, project_id, assessment_id, question_set_id, question_id) → team_answers(id, …)`; CHECK `(set IS NULL) = (question IS NULL) AND (answer IS NULL OR question IS NOT NULL)` so the FK can never be skipped by a NULL            |
+| A correction is of the same question/assessment | self FK `(supersedes_answer_id, project_id, assessment_id, question_set_id, question_id) → team_answers(id, …)`; observations `(supersedes_observation_id, project_id, assessment_id)`                                                                        |
+| A record is corrected at most once              | `UNIQUE(supersedes_…)`: a chain is linear and two concurrent corrections cannot both be written                                                                                                                                                               |
+| Append-only                                     | `UPDATE`/`DELETE` refused (`assessment_immutable_guard`), `TRUNCATE` refused (`assessment_no_truncate`)                                                                                                                                                       |
+| A voided project takes no new record            | `project_not_voided_guard` on INSERT: `FOR SHARE` on the project row conflicts with the `FOR UPDATE` a void takes, so a record racing a void is either completed first or refused                                                                             |
+| Server-assigned time                            | trigger sets `created_at := clock_timestamp()` whatever a writer supplied (direct SQL cannot backdate)                                                                                                                                                        |
+| Idempotency                                     | `UNIQUE(recorded_by_actor_id, idempotency_key)` + `request_hash`                                                                                                                                                                                              |
+| Text and vocabularies                           | CHECKs: answer 1–4 000, subject 1–500, observed 1–4 000 code points; no control character (other than tab/line break), no bidi override; outcome, role, hash shape. Measured equal to the schema rule for every code point to U+2100 on PGlite and PostgreSQL |
+| Actor exists                                    | FK to `actors`                                                                                                                                                                                                                                                |
+
+Two UNIQUE keys were added to the immutable M6 tables (`question_sets(id, project_id, assessment_id)`, `question_set_questions(id, set_id)`), added only when absent; no M6 row, trigger or constraint changed.
+`recorded_as_role` is the role the credential held (`judge` whenever the identity holds it, else `organizer`): it is what a later trusted path needs to tell an authenticated **judge's** report from an organizer's.
+
+## 4. API and permission matrix
+
+New permissions `interview.read` and `interview.record`, **both roles** (the existing convention: the organizer holds every judge permission). Neither is an organizer power, neither can edit or delete, and a judge
+receives no permission it did not already have besides these two. The actor and the role come from the verified credential; the request body is **strict**.
+
+| Route                                                                                            | Permission         | Result                                                                                  | Refusals                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------ | ------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /projects/:p/assessments/:a/interview`                                                      | `interview.read`   | all records of the assessment, oldest first, with who/when/role and what corrected what | 404 project/assessment (also another project's); `assessmentVerified:false` and **no record returned** when the assessment fails verification (fail closed)            |
+| `POST /projects/:p/question-sets/:s/questions/:q/team-answers` (`Idempotency-Key` UUID required) | `interview.record` | **201** created · **200** replay of the same request                                    | 400 body/key; 404 set/question/record (incl. other projects); 409 `ASSESSMENT_NOT_VERIFIED`, `IDEMPOTENCY_KEY_REUSED`, `INTERVIEW_ALREADY_CORRECTED`, `PROJECT_VOIDED` |
+| `POST /projects/:p/assessments/:a/judge-observations` (`Idempotency-Key` required)               | `interview.record` | 201 / 200 as above                                                                      | as above, plus 422 `INTERVIEW_TARGET_MISMATCH` (real records that do not belong together)                                                                              |
+| any other method on these paths                                                                  | `interview.read`   | **405** `INTERVIEW_RECORDS_IMMUTABLE` (after authentication)                            | 401/403                                                                                                                                                                |
+
+An object of another project is reported **exactly like a nonexistent one** (404). Errors never echo typed text. The assessment of an answer is **derived from its set on the server**, never taken from the request.
+
+## 5. History and corrections
+
+Saved records are immutable. There is no edit and no delete route, trigger, or UI. A **correction** is a new POST naming the record it supersedes (`supersedesAnswerId` / `supersedesObservationId`); the original is kept
+and marked _Superseded by a later correction_; the correction is marked _Correction_; the newest record of a chain is `isCurrent`. Only the newest record of a chain can be corrected (a second correction of the same
+record is `409 INTERVIEW_ALREADY_CORRECTED`, enforced race-safely by the unique key). Several answers or observations for one question are all kept.
+
+## 6. Interview Mode UI (`/projects/:id/interview?version=…&set=…`)
+
+Linked from the Five Questions section ("Open Interview Mode"). For each suggested question the page shows, **in view and never in a collapsed element** (R9E P3-1): the question and its mode, why it matters, the
+uncertainty it addresses, the rubric criteria with their weights, and the linked evidence and unknowns with their recorded verification labels. Beneath each: **What the team said** (testimony, with a form), **What the
+judge observed** (the judge's own report, with a form: what was examined, what was observed, four outcome choices with their meanings, and an optional link to one of the question's current answers), and a
+"Record a correction" disclosure for each current answer. A section for observations about the project as a whole, and a section that keeps visible anything recorded under another question set.
+
+Handled: loading/pending state (the button disables); empty and malformed input (the rule is named — "The answer must not be empty", "Choose what the attempt showed" — and **everything typed is kept**); a failed write; a
+lost answer (the page says it could not confirm whether it was saved, keeps the text and the same request key, and saving again records it exactly once); fewer than five questions (the stored explanation, nothing padded);
+no question set (observation still possible, link to generate); historical assessment or set and **voided project** (read-only banner, full history visible, no form); an assessment that fails verification (nothing shown).
+Typed text is React text (`white-space: pre-wrap`), never markup. The browser holds no credential (server actions); the page makes no model call and shows no score, rating or probability.
+
+## 7. Evidence
+
+New and updated tests (each on PGlite and, where it needs a real database, PostgreSQL 16 ICU):
+
+| File                                                        | Tests   | What it proves                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/database/src/interview-store.test.ts`             | 27      | persistence and reload; idempotent replay/reuse; typed target refusals (other project, set/question mismatch, answer of another question); corrections and chains; audit identity and **no text**; void; direct-SQL FK integrity, link shape, text/outcome/role/hash CHECKs, backdating, append-only/no-truncate, DB-vs-schema character parity                                                                  |
+| `packages/database/src/interview-concurrency.test.ts`       | 7       | **real PostgreSQL connections**: 20 simultaneous identical submissions → 1 record, 1 audit event; reused key with different content; 20 distinct all kept; **12 conflicting corrections → exactly 1**; a record racing a void (both orders); a burst of writers split by a void                                                                                                                                  |
+| `packages/database/src/m7-migration-upgrade.test.ts`        | 2       | M6 baseline (0000–0024) populated → 0025 applied: M6 rows byte-identical, existing set takes a record, rules active, re-running the migration's statements changes nothing                                                                                                                                                                                                                                       |
+| `tests/integration/interview-http.test.ts`                  | 23      | over REAL assessments: auth (401/403), judge and organizer roles, flow and reload byte-identical, idempotency, forged identifiers (13 attempts → 404), mismatches (422), **actor/role/time/id in the body → 400**, hostile/oversized/malformed text, CRLF, corrections, 405s, voided project, fail-closed on a tampered assessment, older sets, **no score/assessment/graph/ledger change and no provider call** |
+| `packages/schemas/src/interview.test.ts`                    | 13      | request schemas (strict, bounds by code point, controls/bidi/lone surrogates, link shape, outcome message), outcome meanings, **schema rule = database CHECK for every code point**                                                                                                                                                                                                                              |
+| `apps/web/.../interview/view.test.tsx` / `actions.test.tsx` | 13 / 10 | the page from plain data: evidence in view, testimony vs observation, outcomes, hostile text escaped, corrections, fewer than five, no set, read-only history, forms carry no actor; server actions send one request with the form key and nothing else, keep typed text on failure, `use server` exports only async functions                                                                                   |
+| `tests/browser/m7.browser.ts` (Chromium)                    | 9       | the journey below, plus empty-save, lost-response retry, correction, voided history                                                                                                                                                                                                                                                                                                                              |
+| `tests/integration/milestone-scope.test.ts` (updated)       | +1      | exactly three interview routes; interview code imports no model, prompt, scoring, assessment or evidence module and calls no `generate(`; exactly two new tables                                                                                                                                                                                                                                                 |
+
+**Chromium journey** (production web build, real API, real services; screenshots in `docs/milestones/m7-screenshots/`): open the question → type the team's answer (multi-line, with `<b>` and quotes) → save (shown as typed,
+`Saved 2026-… UTC by judge-1 (judge)`, form emptied) → record a separate observation linked to that answer, and a standalone one that "could not be verified" → **reload** (all three lists identical) → the API holds the same records with
+`questionId`, `teamAnswerId` and actor matching → empty save refused with the rule, typed text kept → a save whose **response is lost** (a proxy forwards the request then drops the connection) says it could not confirm and keeps the text;
+**Save again → 201 then 200 with the same Idempotency-Key → exactly one record** → correction (original marked superseded) → organizer voids the project → history visible, no form, API refuses (409).
+
+## 8. The M8 handoff, and the trusted provenance path (not enabled)
+
+**What M8 reads** (all queryable; the stored joins are the contract):
+
+| M8 needs to know                        | Where                                                                                                                                                      |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| which question was asked                | `team_answers.question_id → question_set_questions` (text, mode, reason, dimensions, references)                                                           |
+| what the team answered                  | `team_answers.answer_text`                                                                                                                                 |
+| which judge recorded it                 | `recorded_by_actor_id → actors(issuer, subject)`; `recorded_as_role`; `created_at` (database clock)                                                        |
+| what was directly observed              | `judge_observations.subject`, `.observed`, `.outcome`, linked `question_id` / `team_answer_id`                                                             |
+| the original uncertainties and criteria | question → `opportunity_keys → question_set_opportunities` (`kind`, `observation`, `dimension_ids`, evidence `trail`), `question_set_questions.dimensions` |
+| verified / inconclusive / not verified  | `outcome` = `confirmed` / `inconclusive` / `not_confirmed` or `unable_to_verify` (a description by the judge, not a system verdict)                        |
+| originals vs corrections                | `supersedes_*` (the record it replaces) and `isCurrent` (no successor): M8 uses the **head of each chain** and may read the history                        |
+| raw testimony vs trusted evidence       | everything in these tables is raw: nothing here is graph evidence or a verification level                                                                  |
+
+**What M7 does not enable.** `team_answer` and `judge_observation` remain evidence origins that the graph **refuses** (CHECK and domain rule), `judge_verified` / `live_verified` remain unreachable for every producer
+(`M3_PRODUCER_VERIFICATION_LEVELS` unchanged), and the interview code cannot reach the graph (a scope test forbids it).
+
+**The path a later milestone would take**, for approval then (it changes the M3 trust model and must not be done silently): (1) _team answers_ may feed decomposition into claims at `team_claim` level with origin
+`team_answer`, after a new migration adds a foreign key from the claim/evidence to `team_answers(id)` (same project) and relaxes the origin CHECK to require it; (2) _`judge_verified` / `live_verified`_ may be granted only by
+**trusted deterministic code** (never a model, never typed text) from a **current `confirmed` observation recorded with `recorded_as_role = 'judge'`**, **plus an explicit judge act naming the claim it corroborates** — an
+observation names a question, not a claim, so a typed observation is not automatic proof of any particular claim. That trusted attestation architecture is the one `docs/milestones/M4-report.md` assigns to the milestone that
+introduces a trusted producer, under its own approval.
+
+## 9. Mutation results (negative controls)
+
+Each mutation was applied alone to the source (or the migration) and the relevant tests run; the source was restored every time. **36 mutations: 34 killed, 1 killed only on real PostgreSQL, 1 equivalent.**
+
+| #          | Mutation                                                                                                                                        | Result                                                                                                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| D1–D5      | drop each composite foreign key (question-in-set, set-same-assessment, assessment-same-project, correction-same-question, answer-same-question) | **killed** (one failing test each: `interview-store`)                                                                            |
+| D6–D9      | remove the append-only trigger, the no-truncate trigger, the not-voided trigger, the time-stamping trigger                                      | **killed**                                                                                                                       |
+| D10–D12    | drop the one-correction key; drop the link-shape CHECK; widen the forbidden-text CHECK                                                          | **killed**                                                                                                                       |
+| S1         | idempotency: never look for an earlier record                                                                                                   | **killed** (3 failing)                                                                                                           |
+| S2         | idempotency: a reused key with other content accepted as a replay                                                                               | **killed**                                                                                                                       |
+| S3–S4      | audit carries the typed text; audit event written again on a replay                                                                             | **killed**                                                                                                                       |
+| S5, S7, S8 | a correction / question / linked answer not checked inside the project, set or question                                                         | **killed**                                                                                                                       |
+| S6         | a database void refusal not translated                                                                                                          | survives on PGlite (a single connection cannot race a void); **killed on PostgreSQL 16** (`interview-concurrency`, 2 failing)    |
+| S9         | every record reads as current                                                                                                                   | **killed**                                                                                                                       |
+| A1         | a judge may not record (permission removed)                                                                                                     | **killed** (21 failing)                                                                                                          |
+| A2         | every credential recorded as `judge`                                                                                                            | **killed**                                                                                                                       |
+| A3–A4      | an unverified assessment still takes a record / list not withheld                                                                               | **killed**                                                                                                                       |
+| A5         | the Idempotency-Key becomes optional                                                                                                            | **killed**                                                                                                                       |
+| A6         | the immutable-records refusal answers 200                                                                                                       | **killed**                                                                                                                       |
+| A7         | the body is not strict (an actor can be named)                                                                                                  | **killed**                                                                                                                       |
+| A8         | the service's "question is in this set" pre-check skipped                                                                                       | **equivalent**: the store refuses the same request with the same code (defence in depth; the identical 404 `QUESTION_NOT_FOUND`) |
+| A9         | a replay answers 201                                                                                                                            | **killed**                                                                                                                       |
+| T1–T3      | CRLF not normalised; control/bidi characters allowed; the outcome vocabulary widened with `proven`                                              | **killed**                                                                                                                       |
+| W1–W5      | typed text rendered as markup; evidence hidden; forms on read-only history; an actor sent by the action; typed text dropped on failure          | **killed**                                                                                                                       |
+
+Two mutants first exposed test gaps that were fixed before the final run (the hidden-evidence mutant was invisible to the static markup test, which now forbids `hidden`/`aria-hidden`/`display:none`; two mutation anchors
+were rewritten after prettier reformatted the source).
+
+## 10. Gates (final, unmutated source)
+
+| Gate                                                                                                                                                  | Result                                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm format:check`, `pnpm lint` (`--max-warnings=0`), `pnpm typecheck`, `pnpm db:check`, `pnpm db:generate` (no pending schema change), `pnpm build` | all pass                                                                                                                                                                                                                      |
+| `git diff --check`                                                                                                                                    | clean                                                                                                                                                                                                                         |
+| Fresh database: `pnpm db:migrate` on an empty PostgreSQL 16 ICU database, then `pnpm db:verify-schema`                                                | 26 migrations (0000–0025) applied; journal problems 0, migrations not applied none, schema objects missing 0                                                                                                                  |
+| Upgrade from the prior milestone's latest migration (0024), populated                                                                                 | `m7-migration-upgrade.test.ts` on PGlite and PostgreSQL 16: M6 rows byte-identical, 0025 applied, existing set takes a record, re-run changes nothing                                                                         |
+| Full suite, **PGlite**                                                                                                                                | **250 files passed, 7 skipped (257); 4 549 tests passed, 68 skipped, 2 todo; 0 failed** (M6: 4 460; +89)                                                                                                                      |
+| Full suite, **PostgreSQL 16.15 ICU** (`judge_m7full_test`, `locale_provider icu`, `icu_locale en-US`, `LC_COLLATE C.UTF-8`)                           | **257 files passed (257); 5 694 tests passed, 1 skipped, 4 todo; 0 failed** (M6: 5 546; +148)                                                                                                                                 |
+| Chromium (`pnpm test:browser`, five files)                                                                                                            | **52 tests passed** (M6: 43; +9 for the interview journey)                                                                                                                                                                    |
+| Existing M5/M6 regressions                                                                                                                            | in both full suites (assessment pipeline, persistence, concurrency, question engine R1–R4, question-set store, void guards, evidence-graph trust boundary): all pass, no assertion loosened except the M7 scope updates below |
+| New M7 integration/security/concurrency tests                                                                                                         | section 7: 27 + 7 (PostgreSQL only) + 2 + 23 + 13 + 13 + 10 + 1 scope test; each also on PostgreSQL 16 where it uses the database                                                                                             |
+
+Existing tests changed (the milestone's own scope): `migrations.test.ts` (the table list gains the two interview tables), `milestone-scope.test.ts` (M7 adds exactly two tables, one migration and three routes, and
+no reassessment, post-interview, score-change or final-score artifact; the new test pins the interview code as model-free and graph-free), `authorization.test.ts` (the two permissions). Nothing else was loosened.
+
+## 11. Architecture-drift check
+
+| Invariant / rule                                             | Check                                                                                                                                                                                |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 — pipeline not collapsed                                   | no pipeline stage added or changed; interview records are an input to a later stage                                                                                                  |
+| 3 — missing evidence is not negative evidence                | no record for an unanswered question; `not_confirmed` / `unable_to_verify` are described as not negative; UI says so                                                                 |
+| 4 — team statements are claims                               | team answers are labelled testimony and are not in the graph; nothing marks them verified                                                                                            |
+| 9, 15, 22 — deterministic scoring, human final score         | no score read, computed or changed; no final-score or post-interview artifact; tests assert assessment, question set, graph and ledger are unchanged by saving                       |
+| 10 — immutable versions                                      | the pre-interview assessment and question set are untouched (two UNIQUE keys added, nothing else); records are append-only                                                           |
+| 7, 21 — no execution                                         | no code path touches a repository; no new process                                                                                                                                    |
+| 8, 23 — project text is data                                 | typed text is bounded, validated, stored and shown as text; no model reads it (the interview code has no provider; a scope test forbids model, prompt, scoring and evidence imports) |
+| 19, 20 — validation, closed identifiers                      | the server derives the assessment from the set; every identifier is resolved inside the project; no id is trusted from the client; the actor is never client-supplied                |
+| 25 — no accusations                                          | outcome vocabulary is descriptive; no field, tag or label reads as a finding against a team                                                                                          |
+| Layer rules / "layer-2 packages never import llm or prompts" | unchanged (dependency-rules test passes); `schemas` and `domain` stay layer 0/1                                                                                                      |
+| Trust model of the evidence graph                            | **unchanged** (origins refused, privileged levels unreachable); the path to change it is described in §8 for a later approval, not implemented                                       |
+| Existing migrations never edited                             | only `0025` added (plus journal and snapshot); migration-journal, matrix and upgrade tests pass                                                                                      |
+
+Nothing required a decision outside the contract; no conflict with the architecture or the deterministic/LLM boundary was found.
+
+## 12. Known limitations
+
+- **One web credential.** The web tier forwards one server-side credential for every visitor (`docs/SECURITY.md` §10), so "who recorded it" in the UI is that credential's identity until a per-user login exists. The API attributes every record to the authenticated credential it receives.
+- **Organizers may record.** Both roles hold `interview.record` (the existing "organizer holds every judge permission" convention). The record states the role (`recorded_as_role`); a later trusted path must require `judge`.
+- **An answer needs a suggested question.** A judge's own question (not in the set) cannot be recorded as an answer; it can be described in an observation. (The product says the judge may ask other questions; a free-form question record is a candidate for a later change.)
+- **Corrections can be made by any recorder** (a second judge may correct the first); both identities are recorded. There is no approval step and no reason field.
+- **Old assessments and sets accept records through the API;** the page treats them as read-only history. Not covered by a test of a second assessment of the same project (the page logic is unit-tested; the API path is the same code).
+- **No audio, transcription, video, live meeting integration or automated answer evaluation** (out of scope, none built).
+- **Not signed.** A record is the authenticated user's statement, not a signature; a database superuser can disable triggers (as for every table here).
+- **Direct SQL by an administrator** can still run an explicit, reviewed data migration (disable the triggers inside it), as for every append-only table.
+
+## 13. Verdict
+
+```
+M7_IMPLEMENTATION: READY_FOR_INDEPENDENT_REVIEW
+TEAM_ANSWER_PERSISTENCE: PASS
+JUDGE_OBSERVATION_CAPTURE: PASS
+AUDIT_AND_PROVENANCE: PASS
+M8_READINESS: READY_FOR_REVIEW
+LIVE_MODEL_READINESS: NOT AUTHORIZED
+```

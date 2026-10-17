@@ -95,7 +95,7 @@ would otherwise listen on every interface), because the UI forwards one server-s
 credential to the API for every visitor and has no login of its own. Exposing it beyond the local
 machine is unsupported until a real per-user authentication/session boundary exists.
 
-`dev-organizer` may do everything; `dev-judge` may read and request captures. Deployments use
+`dev-organizer` may do everything; `dev-judge` may read, request captures and (M7) record interviews. Deployments use
 `AUTH_MODE=jwt` with `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWKS_URL` (and optionally
 `AUTH_JWT_ROLES_CLAIM`, default `roles`) from any OIDC/OAuth provider issuing signed JWTs.
 

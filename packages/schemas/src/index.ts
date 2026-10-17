@@ -11,3 +11,4 @@ export * from './assessment.js';
 export * from './assessment-api.js';
 export * from './coverage.js';
 export * from './questions.js';
+export * from './interview.js';

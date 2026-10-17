@@ -46,3 +46,4 @@ export {
   questionSetQuestions,
   questionSets,
 } from './questions.js';
+export { judgeObservations, teamAnswers } from './interview.js';
