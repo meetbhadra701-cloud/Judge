@@ -42,10 +42,12 @@ const codes = (w: World, kind: string, text: string, reason?: string, mode = 'as
     w.closed,
   ).rejected.map((r) => r.code);
 };
-const refused = (w: World, kind: string, text: string, reason?: string) =>
+const refused = (w: World, kind: string, text: string, reason?: string): void => {
   expect(codes(w, kind, text, reason)).toContain('accusatory_wording');
-const accepted = (w: World, kind: string, text: string, reason?: string) =>
+};
+const accepted = (w: World, kind: string, text: string, reason?: string): void => {
   expect(codes(w, kind, text, reason)).toEqual([]);
+};
 
 // ------------------------------------------------------------------------------------------------ the R9B reproduction
 const STANDALONE = ['Fraud', 'Plagiarism', 'Cheating'] as const;
