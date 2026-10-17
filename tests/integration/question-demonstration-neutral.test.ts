@@ -60,9 +60,9 @@ interface Measured {
   readonly questions: {
     text: string;
     reason: string;
-    opportunityIds: string[];
-    dimensionIds: string[];
-    references: { type: string; id: string }[];
+    opportunityKeys: string[];
+    dimensions: { id: string; name: string }[];
+    references: { type: string; id: string; label: string }[];
   }[];
   readonly rejections: { code: string; count: number }[];
   readonly trails: Map<string, { type: string; id: string }[]>;
@@ -232,7 +232,7 @@ describe('the offline demonstrator on verified contexts with sensitive and ordin
     expect(new Set(claim.map((c) => c.dimensions.join(','))).size).toBe(claim.length);
   });
 
-  it('the ordinal in the wording is the code-assigned position of the uncertainty it cites', async () => {
+  it('the ordinal in the wording is the code-assigned position of the uncertainty it cites', () => {
     const w = world();
     const prepared = prepare(w.input, {
       provider: { id: 'scripted', mode: 'scripted' },

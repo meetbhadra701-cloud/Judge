@@ -167,7 +167,7 @@ describe('punctuation cannot isolate a title into an exempt sentence', () => {
     `Is your team behind (${t})?`,
   ];
   for (const title of TITLES) {
-    it(`${title}`, () => {
+    it(title, () => {
       for (const text of SPLITS(title)) {
         refused(trackWorld(title), TRACK, text);
         refused(criterionWorld(title), CRITERION, text);
@@ -234,7 +234,7 @@ describe('R9B: the four original structures x Fraud / Plagiarism / Cheating, as 
     (t: string) => `Your team is guilty of ${t}, correct?`,
   ];
   for (const title of ['Fraud', 'Plagiarism', 'Cheating']) {
-    it(`${title}`, () => {
+    it(title, () => {
       for (const f of STRUCTURES) {
         refused(trackWorld(title), TRACK, f(title));
         refused(criterionWorld(title), CRITERION, f(title));
@@ -285,7 +285,7 @@ describe('R9C: seven titles that end in a misconduct word x 25 frames, as a trac
     expect(MISCONDUCT).toHaveLength(7);
   });
   for (const title of MISCONDUCT) {
-    it(`${title}`, () => {
+    it(title, () => {
       for (const f of FRAMES25) {
         refused(trackWorld(title), TRACK, f.replace('X', title));
         refused(criterionWorld(title), CRITERION, f.replace('X', title));
