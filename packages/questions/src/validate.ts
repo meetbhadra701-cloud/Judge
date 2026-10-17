@@ -81,6 +81,9 @@ const ACCUSATORY = new RegExp(
   [
     String.raw`\b(cheat\w*|fraud\w*|plagiari\w*|liar|lied|lying|dishonest\w*|deceiv\w*|decepti\w*|scam\w*|forg(?:e|ed|ery)|fabricat\w*|bogus|counterfeit)\b`,
     String.raw`\b(steal\w*|stole\w*|misrepresent\w*|misled|misleading)\b`,
+    // M6-R2: words of guilt and blame, and the structure "<team> ... guilty of / accused of ...", which does not depend on any particular noun
+    String.raw`\b(?:guilty|culpable|convicted|misconduct|wrongdoing)\b`,
+    String.raw`\b(?:you|your team|the team|they|team members)\b[^.?!]{0,40}\b(?:accused of|suspected of|blamed for|charged with)\b`,
     String.raw`\b(fake|faked|fakes)\b`,
     String.raw`\byou (?:didn'?t|did not|never|haven'?t|have not|couldn'?t|could not) (?:actually |really )?(?:build|built|write|wrote|make|made|implement(?:ed)?|create[d]?)\b`,
     String.raw`\b(?:not|isn'?t|wasn'?t) (?:really )?(?:your|yours|your own|original)\b`,
@@ -163,13 +166,88 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
 const WORD_GAP = String.raw`[^\p{L}\p{N}]+`;
 
 /**
- * WORDS THAT ARE NOT AN ACCUSATION (M6-R1, R9A P2-3). The accusation filter is a conservative heuristic over text, and a legitimate topic can contain an accusatory
- * WORD: a track called “Fraud Prevention”, a criterion “Fake News Detection”. Deleting the filter would be wrong; so before it runs, exactly two kinds of text are set
- * aside, and only text that comes from the FROZEN, VERIFIED analysis, never from what a candidate says about itself:
+ * An official title that is made ONLY of accusatory words ("Fraud", "Plagiarism", "Fraud and Cheating") is never set aside: the title names a subject, it cannot
+ * stand in for the accusation itself, and "Did your team commit Fraud?" is the same sentence whether or not a track is called Fraud.
+ */
+function onlyAccusatoryWords(title: string): boolean {
+  const words = normalizeText(title)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length > 0 && !TITLE_FILLER.has(word.toLowerCase()));
+  return words.length > 0 && words.every((word) => ACCUSATORY.test(word));
+}
+const TITLE_FILLER: ReadonlySet<string> = new Set([
+  'and',
+  'or',
+  'of',
+  'the',
+  'a',
+  'an',
+  'for',
+  'in',
+  'on',
+  'to',
+  'vs',
+]);
+
+const TEAM_SUBJECT = String.raw`(?:you|your team|the team|your \w+ team|they|team members|the developers|the participants)`;
+/** Immediately before a title: a verb or phrase that charges someone with it. A title right after one of these is the thing the team is accused of. */
+const CHARGED_WITH_BEFORE = new RegExp(
+  String.raw`\b(?:commit(?:ted|ting|s)?|guilty of|accused of|suspected of|convicted of|charged with|blamed for|perpetrat\w+)\s+(?:(?:any|some|the|a|an|such|your|their|its|this|that|more|actual|real|outright|deliberate|deliberately)\s+){0,3}$`,
+  'iu',
+);
+/** The same, for verbs that are only an accusation when a person does them ("your team engaged in X"). */
+const CHARGED_WITH_PERSON_BEFORE = new RegExp(
+  String.raw`\b${TEAM_SUBJECT}\b[^.?!]{0,60}\b(?:engag(?:e|ed|es|ing) in|resort(?:ed|ing|s)? to|indulg(?:e|ed|es|ing) in|participat(?:e|ed|es|ing) in|take part in|took part in|taking part in)\s+(?:(?:any|some|the|a|an|such|more|actual|real|outright|deliberate)\s+){0,3}$`,
+  'iu',
+);
+/** "Is your whole project <title>?": the title is what the project IS, which is a verdict on it, not a topic. */
+const PROJECT_IS_BEFORE = new RegExp(
+  String.raw`\b(?:is|are|was|were|be|been|being)\s+(?:your|the|this|that|our)\s+(?:(?:whole|entire|actual|own)\s+)*(?:project|entry|entries|submission|team|work|solution|app|application|product|demo|results?|code|repository|repo|idea|prototype)\s+(?:itself\s+)?(?:(?:just|actually|really|basically|simply|truly)\s+)*(?:an?\s+)?$`,
+  'iu',
+);
+/** Doubt and implication in the sentence of a title: the title is then the object of a challenge, not the subject of a neutral question. */
+const DOUBT_AROUND_TITLE = new RegExp(
+  [
+    String.raw`\b(?:really|actually|truly|genuinely|honestly|supposedly|allegedly|purportedly|so-called|yourselves|by yourselves|on your own|in fact|surely)\b`,
+    String.raw`\bis it true that\b|\bisn'?t it true\b|\bbe honest\b|\btoo good to be true\b|\bhard to believe\b|\bexpect us to believe\b`,
+    String.raw`\b(?:did|do|does|have|has) (?:you|your team|the team) (?:even|ever|really|actually)\b`,
+  ].join('|'),
+  'iu',
+);
+
+/** True when this occurrence of a title sits where an accusation, a verdict or a challenge would put it. Such an occurrence is NOT set aside. */
+function titleInAccusingPosition(whole: string, start: number, end: number): boolean {
+  const before = whole.slice(Math.max(0, start - 120), start);
+  if (
+    CHARGED_WITH_BEFORE.test(before) ||
+    CHARGED_WITH_PERSON_BEFORE.test(before) ||
+    PROJECT_IS_BEFORE.test(before)
+  ) {
+    return true;
+  }
+  const sentenceStart = Math.max(
+    whole.lastIndexOf('.', start - 1),
+    whole.lastIndexOf('?', start - 1),
+    whole.lastIndexOf('!', start - 1),
+    whole.lastIndexOf(':', start - 1),
+  );
+  const stops = ['.', '?', '!', ':'].map((mark) => whole.indexOf(mark, end)).filter((i) => i >= 0);
+  const sentenceEnd = stops.length === 0 ? whole.length : Math.min(...stops);
+  return DOUBT_AROUND_TITLE.test(whole.slice(sentenceStart + 1, sentenceEnd));
+}
+
+/**
+ * WORDS THAT ARE NOT AN ACCUSATION (M6-R1, R9A P2-3; narrowed by M6-R2 after R9B P2 F1). The accusation filter is a conservative heuristic over text, and a legitimate
+ * topic can contain an accusatory WORD: a track called “Fraud Prevention”, a criterion “Fake News Detection”. Deleting the filter would be wrong; so before it runs,
+ * exactly two kinds of text may be set aside, and only text that comes from the FROZEN, VERIFIED analysis, never from what a candidate says about itself:
  *
- *   1. an official TITLE: the exact name of a rubric criterion the cited uncertainties bear on, or of a declared track they cite (whole words, any case);
+ *   1. an official TITLE (a rubric criterion the cited uncertainties bear on, or a declared track they cite; whole words, any case), and ONLY when
+ *        - the title is not made only of accusatory words (a track called “Fraud” establishes a subject, never that the team committed fraud), and
+ *        - this occurrence is in a neutral position: not right after “commit / guilty of / accused of / engaged in …”, not the predicate of “is your project …”, and
+ *          not in a sentence that doubts or challenges (“really”, “actually”, “isn't it true”, …). An occurrence in any of those positions stays as written, so the
+ *          accusatory word inside it is checked like any other;
  *   2. the team's OWN WORDS, in a sentence that attributes them to the team's materials ("Your README states that ..."): a run of at least three consecutive words
- *      that also occurs, in the same order, in a cited team claim.
+ *      that also occurs, in the same order, in a cited team claim. The rest of that sentence, and every other sentence, is checked as usual.
  *
  * Everything else keeps being checked, including the rest of the same sentence: "Why did your team fake the results?" is refused even beside “Fraud Prevention”.
  * This reduces false refusals; it cannot prove a sentence harmless, and a refused neutral question costs a regeneration while an accepted accusation violates an invariant.
@@ -182,11 +260,12 @@ export function withoutNeutralWords(
   let masked = normalizeText(text);
   for (const title of officialTitles) {
     const trimmed = normalizeText(title);
-    if (trimmed.length < 3) continue;
+    if (trimmed.length < 3 || onlyAccusatoryWords(trimmed)) continue;
     const words = trimmed.split(' ').map(escapeRegExp).join(WORD_GAP);
     masked = masked.replace(
       new RegExp(`(?<![\\p{L}\\p{N}])${words}(?![\\p{L}\\p{N}])`, 'giu'),
-      ' OFFICIALTITLE ',
+      (match: string, offset: number, whole: string) =>
+        titleInAccusingPosition(whole, offset, offset + match.length) ? match : ' OFFICIALTITLE ',
     );
   }
   const sentences = masked.split(/(?<=[.?!:])\s+/);
