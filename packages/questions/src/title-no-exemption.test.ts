@@ -396,7 +396,7 @@ describe('the price of having no exemption (fail closed, documented)', () => {
 describe('every question mode applies the same wording check, to the question and to the reason', () => {
   const MODES = ['ask', 'clarify', 'show_me', 'demonstrate', 'verify'] as const;
   for (const mode of MODES) {
-    it(`${mode}`, () => {
+    it(mode, () => {
       for (const [title, text] of [
         ['Fake News', 'Is your group behind Fake News?'],
         ['Payment Fraud', 'Can you explain how your team got away with Payment Fraud?'],
