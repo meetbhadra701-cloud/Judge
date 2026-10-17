@@ -43,7 +43,7 @@ const codes = (w: World, kind: string, text: string, reason?: string, mode = 'as
       candidates: [
         candidate({
           opportunities: handles,
-          mode: 'ask',
+          mode,
           text,
           ...(reason ? { reason } : {}),
         } as never),

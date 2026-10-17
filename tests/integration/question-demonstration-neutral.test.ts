@@ -65,6 +65,8 @@ interface Measured {
     references: { type: string; id: string }[];
   }[];
   readonly rejections: { code: string; count: number }[];
+  readonly trails: Map<string, { type: string; id: string }[]>;
+  readonly dimensionIds: Map<string, string[]>;
 }
 
 async function measure(w: W): Promise<Measured> {
@@ -96,7 +98,7 @@ async function measure(w: W): Promise<Measured> {
   > & {
     counts: Record<string, number>;
     shortfall: { code: string } | null;
-    opportunities: unknown[];
+    opportunities: { key: string; trail: { type: string; id: string }[]; dimensionIds: string[] }[];
   };
   return {
     generated,
@@ -107,6 +109,8 @@ async function measure(w: W): Promise<Measured> {
     shortfall: p.shortfall?.code ?? null,
     questions: p.questions,
     rejections: p.rejections,
+    trails: new Map(p.opportunities.map((o) => [o.key, o.trail])),
+    dimensionIds: new Map(p.opportunities.map((o) => [o.key, o.dimensionIds])),
   };
 }
 
@@ -174,7 +178,7 @@ describe('the offline demonstrator on verified contexts with sensitive and ordin
       // 2. neutral wording does not make the validator refuse or merge anything: every generated candidate is valid and distinct
       expect(m.rejected).toBe(0);
       const bearing = m.generated.filter((c) => /open uncertainty/.test(c.text));
-    expect(new Set(bearing.map((c) => c.text)).size).toBe(bearing.length);
+      expect(new Set(bearing.map((c) => c.text)).size).toBe(bearing.length);
       // 3. the five-question workflow is intact and never padded
       expect(m.selected).toBe(Math.min(5, m.candidates));
       expect(m.selected).toBeGreaterThanOrEqual(Math.min(control.selected, m.candidates));
@@ -185,19 +189,31 @@ describe('the offline demonstrator on verified contexts with sensitive and ordin
         expect(q.text).not.toMatch(/undefined|\[object|\{\{/);
         expect(q.reason.length).toBeGreaterThan(20);
       }
+      // 5. the criterion a question is about is identified by metadata, never by the wording: its real name is listed beside the question
+      const criterionNames = new Set(w.input.dimensions.map((d) => d.name));
+      for (const q of m.questions) {
+        for (const d of q.dimensions) expect(criterionNames.has(d.name)).toBe(true);
+        const cited = new Set(q.opportunityKeys.flatMap((k) => m.dimensionIds.get(k) ?? []));
+        if (cited.size > 0) expect(q.dimensions.length).toBeGreaterThan(0);
+      }
     },
   );
 
-  it('a question about a track names the track only as a linked reference, and the reference is the real one', async () => {
-    const w = withTrack('Payment Fraud');
-    const m = await measure(w);
-    const trackQuestions = m.questions.filter((q) => q.references.some((r) => r.type === 'track'));
-    expect(trackQuestions.length).toBeGreaterThan(0);
-    for (const q of trackQuestions) {
-      expect(q.references.filter((r) => r.type === 'track').map((r) => [r.id, r.label])).toEqual([
-        ['t', 'Payment Fraud'],
-      ]);
-      expect(q.text).toMatch(/event track cited with the \w+ open uncertainty/);
+  it('a question that addresses an uncertainty bound to a track is linked to that track, whatever else it cites; the track name is only metadata', async () => {
+    for (const name of ['Payment Fraud', 'Community Health']) {
+      const w = withTrack(name);
+      const m = await measure(w);
+      const bound = m.questions.filter((q) =>
+        q.opportunityKeys.some((k) => (m.trails.get(k) ?? []).some((t) => t.type === 'track')),
+      );
+      expect(bound.length).toBeGreaterThan(0);
+      for (const q of bound) {
+        expect(q.references.filter((r) => r.type === 'track').map((r) => [r.id, r.label])).toEqual([
+          ['t', name],
+        ]);
+        expect(q.text).toMatch(/event track cited with the \w+ open uncertainty/);
+        expect(q.text.toLowerCase()).not.toContain(name.toLowerCase());
+      }
     }
   });
 
