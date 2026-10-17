@@ -166,14 +166,22 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
 const WORD_GAP = String.raw`[^\p{L}\p{N}]+`;
 
 /**
- * An official title that is made ONLY of accusatory words ("Fraud", "Plagiarism", "Fraud and Cheating") is never set aside: the title names a subject, it cannot
- * stand in for the accusation itself, and "Did your team commit Fraud?" is the same sentence whether or not a track is called Fraud.
+ * An official title whose LAST substantive word is an accusatory word ("Fraud", "Payment Fraud", "Exam Cheating", "Fraud and Plagiarism") is never set aside.
+ * The last word is the head of the noun phrase: such a title does not name a subject that merely mentions misconduct ("Fraud Prevention", "Plagiarism Detection",
+ * "Fake News Detection" have the heads Prevention, Detection, News), it names the misconduct itself, and "Is your team behind Payment Fraud?" is the same
+ * sentence whether or not a track is called Payment Fraud. Trailing punctuation, a trailing parenthetical qualifier, a bare number and grammatical filler
+ * (and / of / the …) are ignored when looking for the last substantive word. A title that fails this test is merely ELIGIBLE for the neutral treatment below,
+ * which still applies the position and doubt checks; eligibility is not proof that a sentence using the title is harmless.
  */
-function onlyAccusatoryWords(title: string): boolean {
+function endsInMisconductWord(title: string): boolean {
   const words = normalizeText(title)
+    .replace(/\([^)]*\)\s*$/u, '')
     .split(/[^\p{L}\p{N}]+/u)
-    .filter((word) => word.length > 0 && !TITLE_FILLER.has(word.toLowerCase()));
-  return words.length > 0 && words.every((word) => ACCUSATORY.test(word));
+    .filter(
+      (word) => word.length > 0 && !/^\d+$/u.test(word) && !TITLE_FILLER.has(word.toLowerCase()),
+    );
+  const last = words[words.length - 1];
+  return last !== undefined && ACCUSATORY.test(last);
 }
 const TITLE_FILLER: ReadonlySet<string> = new Set([
   'and',
@@ -215,6 +223,36 @@ const DOUBT_AROUND_TITLE = new RegExp(
   'iu',
 );
 
+/**
+ * WHO the sentence is about. A title names a SUBJECT; it is only safe to set it aside when the sentence is not about the team's conduct. The lexical test of a
+ * title ("does it end in a misconduct word?") cannot tell "Fraud Prevention" from "Fake News" or "Fraud Cases" (an accusatory modifier on a neutral head,
+ * which can name the misconduct itself), so the boundary is the sentence, not the title: when a person (you, the team, they, …) or the submission is referred
+ * to in the same sentence, the title is set aside only if every such reference belongs to one of a few closed, structural forms of a neutral question
+ * (a polite request to the team, the team's own materials or statements, the code-written "the team can point to it"). Any other reference to the team next to
+ * the title leaves the title as written, so the accusatory word inside it is checked like any other. This is fail-closed: a neutral sentence with the team as
+ * its subject ("Did your team implement Fraud Prevention?") is refused and has to be rephrased.
+ */
+const TEAM_REFERENCE = new RegExp(
+  String.raw`\b(?:you|yours|yourself|yourselves|teams?|team members?|participants?|developers?|authors?|creators?|contestants?|entrants?)\b`,
+  'iu',
+);
+const NEUTRAL_TEAM_FORMS = [
+  // a polite request addressed to the team: "Can you …", "Could you …", "How would you …" (any verb: an accusation needs a SECOND reference to the team, which is not licensed)
+  String.raw`\b(?:can|could|would|will|may|might|shall) you\b`,
+  // the team's own materials and what they state
+  String.raw`\b(?:the|this|that|your) team(?:'s|’s)? (?:materials?|readme|submission|devpost|description|documentation|claims?|statements?|page|write-?up|video|repository)\b`,
+  String.raw`\b(?:the|your) team (?:states?|stated|says?|said|claims?|claimed|describes?|described|lists?|listed|mentions?|mentioned|reports?|reported|notes?|noted|writes?|wrote)\b`,
+  String.raw`\b(?:a )?claim by the team\b`,
+  // the code-written demonstration reasons: "the team can point to it", "the team can say more directly"
+  String.raw`\bthe team (?:can|could|may|might) (?:point|say|show|explain|clarify|describe|demonstrate|provide|share|answer|tell)\b`,
+].map((source) => new RegExp(source, 'giu'));
+
+function titleInTeamSentence(sentence: string): boolean {
+  let rest = sentence;
+  for (const form of NEUTRAL_TEAM_FORMS) rest = rest.replace(form, ' ');
+  return TEAM_REFERENCE.test(rest);
+}
+
 /** True when this occurrence of a title sits where an accusation, a verdict or a challenge would put it. Such an occurrence is NOT set aside. */
 function titleInAccusingPosition(whole: string, start: number, end: number): boolean {
   const before = whole.slice(Math.max(0, start - 120), start);
@@ -233,7 +271,8 @@ function titleInAccusingPosition(whole: string, start: number, end: number): boo
   );
   const stops = ['.', '?', '!', ':'].map((mark) => whole.indexOf(mark, end)).filter((i) => i >= 0);
   const sentenceEnd = stops.length === 0 ? whole.length : Math.min(...stops);
-  return DOUBT_AROUND_TITLE.test(whole.slice(sentenceStart + 1, sentenceEnd));
+  const sentence = whole.slice(sentenceStart + 1, sentenceEnd);
+  return DOUBT_AROUND_TITLE.test(sentence) || titleInTeamSentence(sentence);
 }
 
 /**
@@ -242,7 +281,7 @@ function titleInAccusingPosition(whole: string, start: number, end: number): boo
  * exactly two kinds of text may be set aside, and only text that comes from the FROZEN, VERIFIED analysis, never from what a candidate says about itself:
  *
  *   1. an official TITLE (a rubric criterion the cited uncertainties bear on, or a declared track they cite; whole words, any case), and ONLY when
- *        - the title is not made only of accusatory words (a track called “Fraud” establishes a subject, never that the team committed fraud), and
+ *        - the title does not END in an accusatory word (a track called “Fraud” or “Payment Fraud” establishes a subject, never that the team committed fraud), and
  *        - this occurrence is in a neutral position: not right after “commit / guilty of / accused of / engaged in …”, not the predicate of “is your project …”, and
  *          not in a sentence that doubts or challenges (“really”, “actually”, “isn't it true”, …). An occurrence in any of those positions stays as written, so the
  *          accusatory word inside it is checked like any other;
@@ -260,7 +299,7 @@ export function withoutNeutralWords(
   let masked = normalizeText(text);
   for (const title of officialTitles) {
     const trimmed = normalizeText(title);
-    if (trimmed.length < 3 || onlyAccusatoryWords(trimmed)) continue;
+    if (trimmed.length < 3 || endsInMisconductWord(trimmed)) continue;
     const words = trimmed.split(' ').map(escapeRegExp).join(WORD_GAP);
     masked = masked.replace(
       new RegExp(`(?<![\\p{L}\\p{N}])${words}(?![\\p{L}\\p{N}])`, 'giu'),
