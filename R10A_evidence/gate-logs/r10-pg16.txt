@@ -1,0 +1,16 @@
+Both esbuild and oxc options were set. oxc options will be used and esbuild options will be ignored. The following esbuild options were set: `{ jsx: 'automatic' }`
+
+ RUN  v5.0.3 /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+
+(node:10395) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  257 passed (257)
+      Tests  5694 passed | 1 skipped | 4 todo (5699)
+   Start at  23:43:34
+   Duration  1130.03s (tests 91%, import 8%, transform 1%)
+
+    Isolate  257 workers spawned · ~122ms startup each (spawn + environment, per file)
+             at least ~31.21s faster with isolate: false — reuses workers across files instead of one per file
+
+EXIT 0

@@ -1,0 +1,73 @@
+con judge_observations judge_observations_actor_fk FOREIGN KEY (recorded_by_actor_id) REFERENCES actors(id) ON DELETE RESTRICT
+con judge_observations judge_observations_actor_key_key UNIQUE (recorded_by_actor_id, idempotency_key)
+con judge_observations judge_observations_assessment_id_not_null NOT NULL assessment_id
+con judge_observations judge_observations_assessment_same_project_fk FOREIGN KEY (assessment_id, project_id) REFERENCES pre_interview_assessments(id, project_id) ON DELETE RESTRICT
+con judge_observations judge_observations_created_at_not_null NOT NULL created_at
+con judge_observations judge_observations_hash_hex CHECK ((request_hash ~ '^[0-9a-f]{64}$'::text))
+con judge_observations judge_observations_id_not_null NOT NULL id
+con judge_observations judge_observations_idempotency_key_not_null NOT NULL idempotency_key
+con judge_observations judge_observations_identity_key UNIQUE (id, project_id, assessment_id)
+con judge_observations judge_observations_link_shape CHECK ((((question_set_id IS NULL) = (question_id IS NULL)) AND ((team_answer_id IS NULL) OR (question_id IS NOT NULL))))
+con judge_observations judge_observations_not_self_correcting CHECK ((supersedes_observation_id IS DISTINCT FROM id))
+con judge_observations judge_observations_observed_not_null NOT NULL observed
+con judge_observations judge_observations_one_correction_key UNIQUE (supersedes_observation_id)
+con judge_observations judge_observations_outcome_not_null NOT NULL outcome
+con judge_observations judge_observations_outcome_valid CHECK ((outcome = ANY (ARRAY['confirmed'::text, 'not_confirmed'::text, 'inconclusive'::text, 'unable_to_verify'::text])))
+con judge_observations judge_observations_pkey PRIMARY KEY (id)
+con judge_observations judge_observations_project_fk FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT
+con judge_observations judge_observations_project_id_not_null NOT NULL project_id
+con judge_observations judge_observations_question_in_set_fk FOREIGN KEY (question_id, question_set_id) REFERENCES question_set_questions(id, set_id) ON DELETE RESTRICT
+con judge_observations judge_observations_recorded_as_role_not_null NOT NULL recorded_as_role
+con judge_observations judge_observations_recorded_by_actor_id_not_null NOT NULL recorded_by_actor_id
+con judge_observations judge_observations_request_hash_not_null NOT NULL request_hash
+con judge_observations judge_observations_role_valid CHECK ((recorded_as_role = ANY (ARRAY['judge'::text, 'organizer'::text])))
+con judge_observations judge_observations_set_same_assessment_fk FOREIGN KEY (question_set_id, project_id, assessment_id) REFERENCES question_sets(id, project_id, assessment_id) ON DELETE RESTRICT
+con judge_observations judge_observations_subject_not_null NOT NULL subject
+con judge_observations judge_observations_supersedes_same_assessment_fk FOREIGN KEY (supersedes_observation_id, project_id, assessment_id) REFERENCES judge_observations(id, project_id, assessment_id) ON DELETE RESTRICT
+con judge_observations judge_observations_team_answer_same_question_fk FOREIGN KEY (team_answer_id, project_id, assessment_id, question_set_id, question_id) REFERENCES team_answers(id, project_id, assessment_id, question_set_id, question_id) ON DELETE RESTRICT
+con judge_observations judge_observations_text_valid CHECK ((((char_length(subject) >= 1) AND (char_length(subject) <= 500)) AND (btrim(subject) <> ''::text) AND (subject !~ '[\x01-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]'::text) AND ((char_length(observed) >= 1) AND (char_length(observed) <= 4000)) AND (btrim(observed) <> ''::text) AND (observed !~ '[\x01-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]'::text)))
+con team_answers team_answers_actor_fk FOREIGN KEY (recorded_by_actor_id) REFERENCES actors(id) ON DELETE RESTRICT
+con team_answers team_answers_actor_key_key UNIQUE (recorded_by_actor_id, idempotency_key)
+con team_answers team_answers_answer_text_not_null NOT NULL answer_text
+con team_answers team_answers_assessment_id_not_null NOT NULL assessment_id
+con team_answers team_answers_assessment_same_project_fk FOREIGN KEY (assessment_id, project_id) REFERENCES pre_interview_assessments(id, project_id) ON DELETE RESTRICT
+con team_answers team_answers_created_at_not_null NOT NULL created_at
+con team_answers team_answers_hash_hex CHECK ((request_hash ~ '^[0-9a-f]{64}$'::text))
+con team_answers team_answers_id_not_null NOT NULL id
+con team_answers team_answers_idempotency_key_not_null NOT NULL idempotency_key
+con team_answers team_answers_identity_key UNIQUE (id, project_id, assessment_id, question_set_id, question_id)
+con team_answers team_answers_not_self_correcting CHECK ((supersedes_answer_id IS DISTINCT FROM id))
+con team_answers team_answers_one_correction_key UNIQUE (supersedes_answer_id)
+con team_answers team_answers_pkey PRIMARY KEY (id)
+con team_answers team_answers_project_fk FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT
+con team_answers team_answers_project_id_not_null NOT NULL project_id
+con team_answers team_answers_question_id_not_null NOT NULL question_id
+con team_answers team_answers_question_in_set_fk FOREIGN KEY (question_id, question_set_id) REFERENCES question_set_questions(id, set_id) ON DELETE RESTRICT
+con team_answers team_answers_question_set_id_not_null NOT NULL question_set_id
+con team_answers team_answers_recorded_as_role_not_null NOT NULL recorded_as_role
+con team_answers team_answers_recorded_by_actor_id_not_null NOT NULL recorded_by_actor_id
+con team_answers team_answers_request_hash_not_null NOT NULL request_hash
+con team_answers team_answers_role_valid CHECK ((recorded_as_role = ANY (ARRAY['judge'::text, 'organizer'::text])))
+con team_answers team_answers_set_same_assessment_fk FOREIGN KEY (question_set_id, project_id, assessment_id) REFERENCES question_sets(id, project_id, assessment_id) ON DELETE RESTRICT
+con team_answers team_answers_supersedes_same_question_fk FOREIGN KEY (supersedes_answer_id, project_id, assessment_id, question_set_id, question_id) REFERENCES team_answers(id, project_id, assessment_id, question_set_id, question_id) ON DELETE RESTRICT
+con team_answers team_answers_text_valid CHECK ((((char_length(answer_text) >= 1) AND (char_length(answer_text) <= 4000)) AND (btrim(answer_text) <> ''::text) AND (answer_text !~ '[\x01-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]'::text)))
+idx judge_observations_actor_key_key CREATE UNIQUE INDEX judge_observations_actor_key_key ON public.judge_observations USING btree (recorded_by_actor_id, idempotency_key)
+idx judge_observations_assessment_idx CREATE INDEX judge_observations_assessment_idx ON public.judge_observations USING btree (assessment_id, created_at)
+idx judge_observations_identity_key CREATE UNIQUE INDEX judge_observations_identity_key ON public.judge_observations USING btree (id, project_id, assessment_id)
+idx judge_observations_one_correction_key CREATE UNIQUE INDEX judge_observations_one_correction_key ON public.judge_observations USING btree (supersedes_observation_id)
+idx judge_observations_pkey CREATE UNIQUE INDEX judge_observations_pkey ON public.judge_observations USING btree (id)
+idx judge_observations_question_idx CREATE INDEX judge_observations_question_idx ON public.judge_observations USING btree (question_id, created_at)
+idx team_answers_actor_key_key CREATE UNIQUE INDEX team_answers_actor_key_key ON public.team_answers USING btree (recorded_by_actor_id, idempotency_key)
+idx team_answers_assessment_idx CREATE INDEX team_answers_assessment_idx ON public.team_answers USING btree (assessment_id, created_at)
+idx team_answers_identity_key CREATE UNIQUE INDEX team_answers_identity_key ON public.team_answers USING btree (id, project_id, assessment_id, question_set_id, question_id)
+idx team_answers_one_correction_key CREATE UNIQUE INDEX team_answers_one_correction_key ON public.team_answers USING btree (supersedes_answer_id)
+idx team_answers_pkey CREATE UNIQUE INDEX team_answers_pkey ON public.team_answers USING btree (id)
+idx team_answers_question_idx CREATE INDEX team_answers_question_idx ON public.team_answers USING btree (question_id, created_at)
+trg judge_observations judge_observations_immutable_guard CREATE TRIGGER judge_observations_immutable_guard BEFORE DELETE OR UPDATE ON public.judge_observations FOR EACH ROW EXECUTE FUNCTION assessment_immutable_guard()
+trg judge_observations judge_observations_no_truncate CREATE TRIGGER judge_observations_no_truncate BEFORE TRUNCATE ON public.judge_observations FOR EACH STATEMENT EXECUTE FUNCTION assessment_no_truncate()
+trg judge_observations judge_observations_not_voided_guard CREATE TRIGGER judge_observations_not_voided_guard BEFORE INSERT ON public.judge_observations FOR EACH ROW EXECUTE FUNCTION project_not_voided_guard()
+trg judge_observations judge_observations_stamp CREATE TRIGGER judge_observations_stamp BEFORE INSERT ON public.judge_observations FOR EACH ROW EXECUTE FUNCTION interview_records_stamp()
+trg team_answers team_answers_immutable_guard CREATE TRIGGER team_answers_immutable_guard BEFORE DELETE OR UPDATE ON public.team_answers FOR EACH ROW EXECUTE FUNCTION assessment_immutable_guard()
+trg team_answers team_answers_no_truncate CREATE TRIGGER team_answers_no_truncate BEFORE TRUNCATE ON public.team_answers FOR EACH STATEMENT EXECUTE FUNCTION assessment_no_truncate()
+trg team_answers team_answers_not_voided_guard CREATE TRIGGER team_answers_not_voided_guard BEFORE INSERT ON public.team_answers FOR EACH ROW EXECUTE FUNCTION project_not_voided_guard()
+trg team_answers team_answers_stamp CREATE TRIGGER team_answers_stamp BEFORE INSERT ON public.team_answers FOR EACH ROW EXECUTE FUNCTION interview_records_stamp()

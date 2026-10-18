@@ -1,0 +1,56 @@
+{
+  "assessments": {
+    "count": 2,
+    "newest": "e5444a1d-ea61-41e3-a711-d76ac2025c9f",
+    "oldest": "45865cbd-39dd-4351-92fb-4d1d8af12912",
+    "distinctSets": true
+  },
+  "J1-landing": {
+    "url": "http://127.0.0.1:4116/projects/771dd720-4607-4eb0-986a-108013200b0c/interview?version=e5444a1d-ea61-41e3-a711-d76ac2025c9f&set=c5375f27-f93e-4d29-95ea-313fb1f00982",
+    "state": "ready",
+    "canRecord": "yes"
+  },
+  "J1-question-count": 2,
+  "J1-parts-not-in-view": [
+    "2:dimensions:absent"
+  ],
+  "J1-question-1-sample": "Question 1 Verify\n\nCould you show us how one of the statements in your materials about the rubric criterion cited with the first open uncertainty and its related criteria can be checked on the project itself?\n\nWhy it matters. A statement about the rubric criterion cited with the first open uncertainty and its related criteria is so far a claim by the team; a check on the project would show whether it holds.\n\nThe uncertainty it addresses:\n\nStatement not yet corroborated (could change the picture a lot) The team's materials state: “Track your water intake without thinking about it.”. This is a claim by the team; nothing the assessment was shown confirms it yet.\n\nRubric criteria: problem fit (50% of the rubric); usability (50% of the rubric)\n\nEvidence and records it relates to:\n\nTeam claim Track your water intake without thinking about it. · recorded as team claim\nEvidence Track your water ",
+  "J1-heading-text": "← Preliminary report\n\nInterview Mode\n\nHydroTrack 1\n\nAssessment version 2 · question set saved 2026-10-18\n\nHow records work. A team answer is what the judge recorded the team as saying. It is testimony, not a verified fact, and it changes no score.\n\nA judge observation is the judge’s own report of what they saw. It is recorded separately from the team’s answer, it is not checked by the system, and ",
+  "J2-feedback": "Saved. It appears in the list above exactly as recorded.",
+  "J2-meta": "Saved 2026-10-18 00:40 UTC by judge-a (judge)",
+  "J2-testimony-label": true,
+  "J3-observation-rendered": "Judge observationThe judge observed it\n\nExamined: Live demo of the mesh sync\n\nTwo devices exchanged a file with Wi-Fi off.\nSaw it happen.\nThe judge reports directly observing what the team described. This is the judge’s own report, not a system check. · Saved 2026-10-18 00:40 UTC by judge-a (judge) · about a recorded team answer",
+  "J3-db-link": {
+    "linkedToAnswer": true,
+    "questionMatches": true
+  },
+  "J4-lines-that-differ-after-reload": [
+    "Saved. It appears in the list above exactly as recorded.",
+    "Saved. It appears in the list above exactly as recorded."
+  ],
+  "J4-reload-identical-apart-from-transient-confirmation": true,
+  "J5-error-text": "We could not confirm whether this was saved, because no usable answer arrived. Reload this page to see what was saved. Saving again is safe: the same request is never recorded twice, and what you typed is still in the box.",
+  "J7-answers-after-correction": "Team answer\nWe sync with a mesh radio.\nSecond line <b>not bold</b> & \"q\" 🙂\nSaved 2026-10-18 00:40 UTC by judge-a (judge)",
+  "J11-read-only-banner": "This is an earlier assessment of the project. It is shown as history: new interview records are added to the newest assessment.",
+  "J11-forms-on-old-assessment-page": 0,
+  "J11-API-accepts-older-assessment": 201,
+  "J11-old-page-shows-api-record": true,
+  "J12-no-question-set": {
+    "state": "ready",
+    "text": "No suggested questions have been generated for this assessment, so there is nothing to ask from the list. You can still record what you observe about the project below. Generate the questions on the report page →",
+    "forms": 0,
+    "standaloneObservationForm": 1
+  },
+  "J12-unknown-project": "← Events\n\nProject not found",
+  "J12-questions-in-set": 2,
+  "J13-recorded-by-lines": [
+    "Saved records are never edited or deleted. A correction is a new record that names the one it replaces; the original stays.",
+    "Saved 2026-10-18 00:40 UTC by judge-a (judge)",
+    "Saved 2026-10-18 00:40 UTC by judge-a (judge) · about a recorded team answer"
+  ],
+  "J13-credential-wording": [],
+  "J13-fewer-than-five": {
+    "count": "2 suggested questions (fewer than five).",
+    "shortfall": "Why fewer than five. 3 valid candidates were generated and 2 were selected. The other 1 was left out because the value of asking it, by fixed rules (how much of the rubric it touches, how large the uncertainty is, how well an answer would settle it, how easy it is to see for yourself and how much interview time it takes), was below the minimum worth asking. The list is not padded: the uncertainties listed below are what is still open for your own questions. Nothing was added to fill the list."
+  }
+}

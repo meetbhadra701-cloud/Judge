@@ -1,0 +1,179 @@
+
+> judge-copilot@ check /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> pnpm format:check && pnpm lint && pnpm typecheck && pnpm db:check && pnpm test && pnpm build
+
+
+> judge-copilot@ format:check /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> prettier --check .
+
+Checking formatting...
+All matched files use Prettier code style!
+
+> judge-copilot@ lint /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> eslint . --max-warnings=0
+
+
+> judge-copilot@ typecheck /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> pnpm -r run typecheck && tsc --noEmit -p tsconfig.json
+
+Scope: 23 of 24 workspace projects
+packages/schemas typecheck$ tsc --noEmit -p tsconfig.json
+packages/shared typecheck$ tsc --noEmit -p tsconfig.json
+packages/shared typecheck: Done
+packages/schemas typecheck: Done
+packages/audit typecheck$ tsc --noEmit -p tsconfig.json
+packages/context typecheck$ tsc --noEmit -p tsconfig.json
+packages/domain typecheck$ tsc --noEmit -p tsconfig.json
+packages/audit typecheck: Done
+packages/domain typecheck: Done
+packages/context typecheck: Done
+packages/auth typecheck$ tsc --noEmit -p tsconfig.json
+packages/evidence typecheck$ tsc --noEmit -p tsconfig.json
+packages/llm typecheck$ tsc --noEmit -p tsconfig.json
+packages/capture typecheck$ tsc --noEmit -p tsconfig.json
+packages/auth typecheck: Done
+packages/uncertainty typecheck$ tsc --noEmit -p tsconfig.json
+packages/capture typecheck: Done
+packages/evidence typecheck: Done
+packages/llm typecheck: Done
+packages/uncertainty typecheck: Done
+apps/web typecheck$ next typegen && tsc --noEmit -p tsconfig.json
+packages/deployment typecheck$ tsc --noEmit -p tsconfig.json
+packages/devpost typecheck$ tsc --noEmit -p tsconfig.json
+packages/github typecheck$ tsc --noEmit -p tsconfig.json
+packages/deployment typecheck: Done
+packages/questions typecheck$ tsc --noEmit -p tsconfig.json
+packages/devpost typecheck: Done
+packages/safe-http typecheck$ tsc --noEmit -p tsconfig.json
+packages/github typecheck: Done
+packages/scoring typecheck$ tsc --noEmit -p tsconfig.json
+apps/web typecheck: Generating route types...
+apps/web typecheck: ✓ Types generated successfully
+packages/safe-http typecheck: Done
+packages/video typecheck$ tsc --noEmit -p tsconfig.json
+packages/questions typecheck: Done
+packages/scoring typecheck: Done
+packages/video typecheck: Done
+apps/web typecheck: Done
+packages/assessment typecheck$ tsc --noEmit -p tsconfig.json
+packages/assessment typecheck: Done
+packages/database typecheck$ tsc --noEmit -p tsconfig.json
+packages/prompts typecheck$ tsc --noEmit -p tsconfig.json
+packages/prompts typecheck: Done
+packages/database typecheck: Done
+apps/api typecheck$ tsc --noEmit -p tsconfig.json
+apps/worker typecheck$ tsc --noEmit -p tsconfig.json
+apps/api typecheck: Done
+apps/worker typecheck: Done
+
+> judge-copilot@ db:check /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> pnpm --filter @judge-copilot/database run db:check
+
+
+> @judge-copilot/database@0.0.0 db:check /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate/packages/database
+> tsx scripts/check-migration-journal.ts && NODE_OPTIONS=--conditions=@judge-copilot/source drizzle-kit check
+
+migration journal check passed
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate/packages/database/drizzle.config.ts'
+Everything's fine 🐶🔥
+
+> judge-copilot@ test /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> vitest run
+
+Both esbuild and oxc options were set. oxc options will be used and esbuild options will be ignored. The following esbuild options were set: `{ jsx: 'automatic' }`
+
+ RUN  v5.0.3 /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+
+(node:3449) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  250 passed | 7 skipped (257)
+      Tests  4549 passed | 68 skipped | 2 todo (4619)
+   Start at  23:37:00
+   Duration  344.67s (tests 86%, import 12%, transform 1%)
+
+    Isolate  257 workers spawned · ~159ms startup each (spawn + environment, per file)
+             at least ~13.49s faster with isolate: false — reuses workers across files instead of one per file
+
+
+> judge-copilot@ build /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> pnpm -r run build
+
+Scope: 23 of 24 workspace projects
+packages/schemas build$ tsc -p tsconfig.build.json
+packages/shared build$ tsc -p tsconfig.build.json
+packages/shared build: Done
+packages/schemas build: Done
+packages/audit build$ tsc -p tsconfig.build.json
+packages/context build$ tsc -p tsconfig.build.json
+packages/domain build$ tsc -p tsconfig.build.json
+packages/domain build: Done
+packages/audit build: Done
+packages/context build: Done
+packages/auth build$ tsc -p tsconfig.build.json
+packages/capture build$ tsc -p tsconfig.build.json
+packages/llm build$ tsc -p tsconfig.build.json
+packages/evidence build$ tsc -p tsconfig.build.json
+packages/auth build: Done
+packages/uncertainty build$ tsc -p tsconfig.build.json
+packages/llm build: Done
+packages/capture build: Done
+packages/evidence build: Done
+packages/uncertainty build: Done
+apps/web build$ NEXT_TELEMETRY_DISABLED=1 next build
+packages/github build$ tsc -p tsconfig.build.json
+packages/deployment build$ tsc -p tsconfig.build.json
+packages/devpost build$ tsc -p tsconfig.build.json
+apps/web build: ▲ Next.js 16.3.8 (Turbopack)
+apps/web build: ✓ Running next.config.ts took 93ms
+apps/web build:   Creating an optimized production build ...
+packages/deployment build: Done
+packages/questions build$ tsc -p tsconfig.build.json
+packages/devpost build: Done
+packages/safe-http build$ tsc -p tsconfig.build.json
+packages/github build: Done
+packages/scoring build$ tsc -p tsconfig.build.json
+packages/safe-http build: Done
+packages/video build$ tsc -p tsconfig.build.json
+packages/questions build: Done
+packages/video build: Done
+packages/scoring build: Done
+apps/web build: ✓ Compiled successfully in 13.6s
+apps/web build:   Running TypeScript ...
+apps/web build:   Finished TypeScript in 7.7s ...
+apps/web build:   Collecting page data using 3 workers ...
+apps/web build:   Generating static pages using 3 workers (0/2) ...
+apps/web build: ✓ Generating static pages using 3 workers (2/2) in 130ms
+apps/web build:   Finalizing page optimization ...
+apps/web build: Route (app)
+apps/web build: ┌ ƒ /
+apps/web build: ├ ○ /_not-found
+apps/web build: ├ ƒ /events/[eventId]
+apps/web build: ├ ƒ /events/[eventId]/submit
+apps/web build: ├ ƒ /events/[eventId]/versions/[versionId]
+apps/web build: ├ ƒ /events/[eventId]/versions/[versionId]/edit
+apps/web build: ├ ƒ /events/[eventId]/versions/[versionId]/edit/advanced
+apps/web build: ├ ƒ /projects/[projectId]
+apps/web build: ├ ƒ /projects/[projectId]/assessment
+apps/web build: ├ ƒ /projects/[projectId]/capture
+apps/web build: ├ ƒ /projects/[projectId]/capture/status
+apps/web build: ├ ƒ /projects/[projectId]/correct
+apps/web build: ├ ƒ /projects/[projectId]/evidence
+apps/web build: ├ ƒ /projects/[projectId]/evidence/claims/[claimId]
+apps/web build: ├ ƒ /projects/[projectId]/interview
+apps/web build: └ ƒ /projects/[projectId]/snapshots/[snapshotId]
+apps/web build: ○  (Static)   prerendered as static content
+apps/web build: ƒ  (Dynamic)  server-rendered on demand
+apps/web build: Done
+packages/assessment build$ tsc -p tsconfig.build.json
+packages/assessment build: Done
+packages/database build$ tsc -p tsconfig.build.json
+packages/prompts build$ tsc -p tsconfig.build.json
+packages/prompts build: Done
+packages/database build: Done
+apps/api build$ tsc -p tsconfig.build.json
+apps/worker build$ tsc -p tsconfig.build.json
+apps/worker build: Done
+apps/api build: Done
+EXIT 0

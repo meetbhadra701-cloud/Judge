@@ -1,0 +1,52 @@
+
+> judge-copilot@ test:browser /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+> pnpm --filter @judge-copilot/web build && vitest run --config vitest.browser.config.ts
+
+
+> @judge-copilot/web@0.0.0 build /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate/apps/web
+> NEXT_TELEMETRY_DISABLED=1 next build
+
+▲ Next.js 16.3.8 (Turbopack)
+✓ Running next.config.ts took 30ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 214ms
+  Running TypeScript ...
+  Finished TypeScript in 2.0s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/2) ...
+✓ Generating static pages using 3 workers (2/2) in 139ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ○ /_not-found
+├ ƒ /events/[eventId]
+├ ƒ /events/[eventId]/submit
+├ ƒ /events/[eventId]/versions/[versionId]
+├ ƒ /events/[eventId]/versions/[versionId]/edit
+├ ƒ /events/[eventId]/versions/[versionId]/edit/advanced
+├ ƒ /projects/[projectId]
+├ ƒ /projects/[projectId]/assessment
+├ ƒ /projects/[projectId]/capture
+├ ƒ /projects/[projectId]/capture/status
+├ ƒ /projects/[projectId]/correct
+├ ƒ /projects/[projectId]/evidence
+├ ƒ /projects/[projectId]/evidence/claims/[claimId]
+├ ƒ /projects/[projectId]/interview
+└ ƒ /projects/[projectId]/snapshots/[snapshotId]
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+ RUN  v5.0.3 /tmp/claude-0/-home-user-Judge/0a5b962f-5501-546d-8848-7dcc95a400e9/scratchpad/r10/gate
+
+
+ Test Files  5 passed (5)
+      Tests  52 passed (52)
+   Start at  00:02:29
+   Duration  90.41s (tests 90%, import 7%, transform 3%)
+
+EXIT 0
